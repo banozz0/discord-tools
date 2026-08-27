@@ -8,7 +8,7 @@ from discord_tools.models import ChannelInfo, ServerInfo, ThreadInfo
 
 
 def make_session(client=None):
-    session = MenuSession(config=Config(token="a.b.c"))
+    session = MenuSession(config=Config(token="a.b.c"), profile="harry")
     session._client = client or FakeClient(
         servers=[ServerInfo(id=1, name="Ops")],
         channels={1: [ChannelInfo(id=10, name="general", type="text")]},
@@ -106,6 +106,27 @@ def test_runner_errors_keep_the_menu_alive():
     code, _calls, output = drive(["1", "1", "1", "", "0"], runner=failing_runner)
     assert code == 0
     assert any("error: boom" in line for line in output)
+
+
+def test_menu_session_loads_the_asked_for_profile(monkeypatch):
+    seen = {}
+
+    def fake_load_config(profile=None):
+        seen["profile"] = profile
+        return Config(token="a.b.c", profile=profile or "default")
+
+    monkeypatch.setattr("discord_tools.menu.load_config", fake_load_config)
+    session = MenuSession(profile="harry")
+    assert session.config.profile == "harry"
+    assert seen["profile"] == "harry"
+
+
+def test_doctor_flow_carries_the_menu_profile():
+    # root 8 = Check setup; doctor must check the profile the menu was opened
+    # with, not silently fall back to 'default'.
+    code, calls, _output = drive(["8", "0"])
+    assert calls[0].command == "doctor"
+    assert calls[0].profile == "harry"
 
 
 def test_create_thread_flow():

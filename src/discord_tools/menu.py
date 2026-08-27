@@ -35,8 +35,9 @@ class MenuSession:
     restarting the tool is the refresh.
     """
 
-    def __init__(self, config=None) -> None:
+    def __init__(self, config=None, profile: str | None = None) -> None:
         self._config = config
+        self.profile = profile
         self._client = None
         self._servers: list[Any] | None = None
         self._channels: dict[int, list[Any]] = {}
@@ -45,7 +46,7 @@ class MenuSession:
     @property
     def config(self):
         if self._config is None:
-            self._config = load_config()
+            self._config = load_config(profile=self.profile)
         return self._config
 
     async def client(self):
@@ -532,8 +533,11 @@ async def _flow_bot(*, session, runner, read, write) -> bool:
 
 async def _flow_auth(*, session, runner, read, write) -> bool:
     # No session: auth talks the user through its own login and never touches
-    # the menu's. A new token is picked up on the next start.
-    keep_going = await _act(_namespace(command="auth"), session=None, runner=runner, read=read, write=write)
+    # the menu's. A new token is picked up on the next start. The menu's
+    # profile rides along so the wizard's default matches what was asked for.
+    keep_going = await _act(
+        _namespace(command="auth", profile=session.profile), session=None, runner=runner, read=read, write=write
+    )
     write("If you changed the stored token, restart discord-tools to use it.")
     return keep_going
 
@@ -541,17 +545,23 @@ async def _flow_auth(*, session, runner, read, write) -> bool:
 async def _flow_doctor(*, session, runner, read, write) -> bool:
     # No session: doctor opens (and closes) its own connection, so its verdict
     # is about the stored config, not this menu's living login.
-    return await _act(_namespace(command="doctor", channel=None), session=None, runner=runner, read=read, write=write)
+    return await _act(
+        _namespace(command="doctor", channel=None, profile=session.profile),
+        session=None,
+        runner=runner,
+        read=read,
+        write=write,
+    )
 
 
-async def run_menu(*, read=input, write=print, session=None, runner=None) -> int:
+async def run_menu(*, read=input, write=print, session=None, runner=None, profile: str | None = None) -> int:
     """The looping menu. Returns 0 on a normal exit.
 
     The exit code belongs to the session, not to any one action inside it: a
     session can run a dozen actions and there is no honest way to fold their
     codes into one number.
     """
-    session = session if session is not None else MenuSession()
+    session = session if session is not None else MenuSession(profile=profile)
     runner = runner if runner is not None else cli.run
     flows = (
         _flow_discover,

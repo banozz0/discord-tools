@@ -338,7 +338,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             # top-level import either way closes the cycle.
             from discord_tools.menu import run_menu
 
-            return asyncio.run(run_menu())
+            return asyncio.run(run_menu(profile=args.profile))
         return asyncio.run(run(args))
     except (KeyboardInterrupt, EOFError):
         print()

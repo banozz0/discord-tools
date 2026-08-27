@@ -59,13 +59,23 @@ def test_dry_run_deletes_nothing_and_reports_buckets():
     assert "one-by-one" in text
 
 
-def test_execute_requires_the_exact_word_delete():
+def test_execute_requires_the_word_delete():
     client = FakeClient(history={55: messages(RECENT)})
-    result = run_clear(client, execute=True, confirm=lambda: "delete")
+    result = run_clear(client, execute=True, confirm=lambda: "yes")
     assert result.cancelled is True
     assert result.deleted == 0
     assert client.deleted_bulk == []
     assert client.deleted_single == []
+
+
+def test_typed_delete_is_case_insensitive():
+    # A dead caps-lock key must not make deletion impossible; the word is the
+    # gate, not its case.
+    for word in ("delete", "DELETE", " Delete "):
+        client = FakeClient(history={55: messages(RECENT)})
+        result = run_clear(client, execute=True, confirm=lambda word=word: word)
+        assert result.cancelled is False
+        assert result.deleted == 1
 
 
 def test_execute_bulk_and_single_paths():

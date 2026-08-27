@@ -82,7 +82,9 @@ async def clear_messages(
         )
         return DeleteResult(matched=len(ids), bulk=len(bulk), single=len(single), deleted=0, dry_run=True)
 
-    if confirm() != "DELETE":
+    # Case-insensitive: typing the word is the proof of intent, not the shift
+    # key — a dead caps lock must not make deletion impossible.
+    if confirm().strip().lower() != "delete":
         progress("Clear messages cancelled")
         return DeleteResult(matched=len(ids), bulk=len(bulk), single=len(single), deleted=0, dry_run=False, cancelled=True)
 

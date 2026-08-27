@@ -10,14 +10,15 @@ agent is the intended use, `--profile <name>` picks one.
 `~/code/telegram-tools` (v3.4.1) deliberately: same menu-vs-subcommand split,
 same test culture, same release recipe — when in doubt, look at the sibling.
 
-## Commands (v1 = full parity, built)
+## Commands
 
 auth (guided portal setup) · discover (server/channel/thread IDs) ·
+members (server member list; needs the privileged Server Members intent) ·
 search/export (history fetch + local filter; Discord gives bots no search
 API) · send · create (channel/thread/category) · clear-messages · bot
 (settings + invite URL for the active profile) · doctor (token,
-message-content intent, servers, per-channel perms). v1 shipped 2026-08-27
-after the joint testing session.
+message-content intent, servers, per-channel perms). v1 (all but members)
+shipped 2026-08-27 after the joint testing session.
 
 ## Releasing (maintainer only)
 

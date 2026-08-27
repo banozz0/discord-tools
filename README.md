@@ -1,9 +1,10 @@
 # discord-tools
 
 A local CLI for operating your Discord **bot**: discover server/channel/thread
-IDs, search and export messages, send messages, create channels and threads,
-clear messages, and manage the bot's settings — with a guided setup that walks
-you through the Discord Developer Portal (the BotFather it never had).
+IDs, list server members, search and export messages, send messages, create
+channels and threads, clear messages, and manage the bot's settings — with a
+guided setup that walks you through the Discord Developer Portal (the BotFather
+it never had).
 
 Sibling of [telegram-tools](https://github.com/banozz0/telegram-tools): same
 menu for humans, same subcommands for agents, same safety gates on anything
@@ -30,6 +31,7 @@ scripts pass a subcommand.
 | `auth` | Guided Developer Portal setup; verifies the token and the message-content intent, stores the token as a named profile, prints the invite URL |
 | `doctor` | Checks Python, config, token, intent, joined servers; `--channel <id>` adds per-channel permission checks and a message-visibility probe |
 | `discover` | Prints the server → channel → thread tree with every ID; `--server <id>` narrows, `--json <path>` writes a file |
+| `members` | Lists a server's members (ID, username, display name, bot flag); `--output <name>` exports JSON/CSV. Needs the privileged **Server Members** intent enabled in the portal |
 | `search` | Searches a channel/thread's history locally (Discord gives bots no search API): `--keyword`, `--from-user`, `--since`, `--until`, `--limit`; `--output <name>` exports JSON/CSV |
 | `send` | Posts as the bot after a full-message preview + y/N; `--yes` skips the prompt only for channels in `DISCORD_SEND_ALLOWLIST` |
 | `create` | `channel` / `category` / `thread`, each behind a confirmation |

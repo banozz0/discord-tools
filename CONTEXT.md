@@ -30,6 +30,10 @@ The terms this codebase uses, and the boundaries they imply.
   messages have empty `content`. Read from application flags
   (`/applications/@me`); `auth` walks the user through enabling it, `doctor`
   checks the flag and probes real messages for the symptom.
+- **Intent (server-members)** — the second privileged portal toggle; Discord's
+  member-list endpoint refuses without it. Loud, not silent: `members` errors
+  and the message names the toggle. No flag check anywhere — the refusal is
+  the check.
 - **Record** — the plain dict a message becomes (`records.py`): what search
   prints and exports write. `has_media` keeps attachment-only messages from
   reading as empty.

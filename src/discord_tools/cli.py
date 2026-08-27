@@ -28,6 +28,7 @@ from discord_tools.create import (
     format_create_preview,
 )
 from discord_tools.exporters import write_records
+from discord_tools.members import format_member_records, list_server_members
 from discord_tools.search import all_content_empty, format_message_records, search_messages
 from discord_tools.send import confirm_send, format_send_preview, require_send_allowed, send_to_channel
 
@@ -68,6 +69,14 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument("--limit", type=positive_int, help="Maximum exported messages")
     search.add_argument("--format", choices=("json", "csv"), default="json", help="Export format")
     search.add_argument(
+        "--output",
+        help="Output file; relative names land in ~/.discord-tools/exports/. Prints a readable table when omitted",
+    )
+
+    members = subparsers.add_parser("members", help="List a server's members with usernames and IDs")
+    members.add_argument("--server", required=True, type=snowflake, help="Server ID")
+    members.add_argument("--format", choices=("json", "csv"), default="json", help="Export format")
+    members.add_argument(
         "--output",
         help="Output file; relative names land in ~/.discord-tools/exports/. Prints a readable table when omitted",
     )
@@ -182,6 +191,20 @@ async def _run_search(client, args) -> int:
             "message-content intent is off in the Developer Portal. Run `discord-tools doctor`.",
             file=sys.stderr,
         )
+    return 0
+
+
+async def _run_members(client, args) -> int:
+    if args.format == "csv" and not args.output:
+        raise ValueError("--output is required for CSV export")
+
+    records = await list_server_members(client, args.server)
+
+    if args.output:
+        path = write_records(records, args.output, args.format)
+        print(f"Exported {len(records)} member(s) to {path}")
+    else:
+        print(format_member_records(records))
     return 0
 
 
@@ -304,6 +327,8 @@ async def _dispatch(client, args, config) -> int:
         return await _run_discover(client, args)
     if args.command == "search":
         return await _run_search(client, args)
+    if args.command == "members":
+        return await _run_members(client, args)
     if args.command == "send":
         return await _run_send(client, args, config)
     if args.command == "create":

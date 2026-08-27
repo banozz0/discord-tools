@@ -50,6 +50,23 @@ class ThreadInfo:
 
 
 @dataclass(frozen=True)
+class MemberInfo:
+    """A server member as the REST list endpoint reports it.
+
+    `display_name` resolves the way Discord renders it: server nickname,
+    else global display name, else the username.
+    """
+
+    id: int
+    username: str
+    display_name: str
+    bot: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"id": self.id, "username": self.username, "display_name": self.display_name, "bot": self.bot}
+
+
+@dataclass(frozen=True)
 class BotIdentity:
     """Who the token logs in as, plus the application it belongs to."""
 

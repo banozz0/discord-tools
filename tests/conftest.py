@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from discord_tools.models import BotIdentity, ChannelInfo, ServerInfo, ThreadInfo
+from discord_tools.models import BotIdentity, ChannelInfo, MemberInfo, ServerInfo, ThreadInfo
 
 DEFAULT_IDENTITY = BotIdentity(
     id=42,
@@ -32,6 +32,7 @@ class FakeClient:
         channel_info: dict[int, ChannelInfo] | None = None,
         history: dict[int, list] | None = None,
         permissions: dict[int, dict[str, bool]] | None = None,
+        members: dict[int, list[MemberInfo]] | None = None,
     ) -> None:
         self.identity = identity
         self.servers = servers or []
@@ -40,6 +41,7 @@ class FakeClient:
         self.channel_info = channel_info or {}
         self.history = history or {}
         self.permissions = permissions or {}
+        self.members = members or {}
 
         self.sent: list[dict] = []
         self.deleted_single: list[tuple[int, int]] = []
@@ -63,6 +65,9 @@ class FakeClient:
 
     async def list_active_threads(self, server_id):
         return list(self.threads.get(server_id, []))
+
+    async def list_members(self, server_id):
+        return list(self.members.get(server_id, []))
 
     async def get_channel(self, channel_id):
         info = self.channel_info.get(channel_id)

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0 — 2026-08-28
+
+- `members`: list a server's members (ID, username, display name, bot flag)
+  via the paged REST endpoint; readable table by default, `--format json/csv`
+  with `--output` exporting under `~/.discord-tools/exports/` like `search`.
+  Needs the privileged Server Members intent — a refusal names the portal
+  toggle instead of failing silently.
+
 ## 0.1.0 — 2026-08-27
 
 Initial release to telegram-tools parity (v1 contract in `SPEC.md`). Published

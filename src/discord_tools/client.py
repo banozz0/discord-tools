@@ -7,7 +7,7 @@ from typing import Any, AsyncIterator, Sequence
 import discord
 
 from discord_tools.config import ConfigError
-from discord_tools.models import BotIdentity, ChannelInfo, ServerInfo, ThreadInfo
+from discord_tools.models import BotIdentity, ChannelInfo, MemberInfo, ServerInfo, ThreadInfo
 
 
 class ClientError(RuntimeError):
@@ -101,6 +101,42 @@ class DiscordClient:
             ThreadInfo(id=thread.id, name=thread.name, parent_id=thread.parent_id, archived=False)
             for thread in threads
         ]
+
+    async def list_members(self, server_id: int) -> list[MemberInfo]:
+        """Every member of one server, paged through the REST list endpoint.
+
+        discord.py's own fetch_members refuses to run without the gateway
+        members intent this login-only client never declares, so the raw
+        endpoint is called directly — Discord gates it on the Server Members
+        toggle in the Developer Portal, not on a gateway connection.
+        """
+        page_size = 1000
+        members: list[MemberInfo] = []
+        after: int | None = None
+        while True:
+            try:
+                page = await self._client.http.get_members(server_id, page_size, after)
+            except discord.NotFound as exc:
+                raise ClientError(f"No server with ID {server_id} — is the bot invited to it?") from exc
+            except discord.Forbidden as exc:
+                raise PermissionError(
+                    f"Discord refused the member list for server {server_id}: {exc.text or exc}. "
+                    "Listing members needs the Server Members Intent (Developer Portal → Bot)."
+                ) from exc
+            for entry in page:
+                user = entry.get("user") or {}
+                username = user.get("username", "")
+                members.append(
+                    MemberInfo(
+                        id=int(user["id"]),
+                        username=username,
+                        display_name=entry.get("nick") or user.get("global_name") or username,
+                        bot=bool(user.get("bot", False)),
+                    )
+                )
+            if len(page) < page_size:
+                return members
+            after = int(page[-1]["user"]["id"])
 
     async def get_channel(self, channel_id: int) -> ChannelInfo:
         channel = await self._fetch_channel(channel_id)

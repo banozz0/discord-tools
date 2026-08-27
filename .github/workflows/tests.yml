@@ -46,6 +46,7 @@ jobs:
           discord-tools auth --help
           discord-tools doctor --help
           discord-tools discover --help
+          discord-tools members --help
           discord-tools search --help
           discord-tools send --help
           discord-tools create --help

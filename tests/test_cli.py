@@ -7,7 +7,7 @@ from conftest import FakeClient
 
 from discord_tools.cli import build_parser, positive_int, run, snowflake
 from discord_tools.config import Config
-from discord_tools.models import ChannelInfo, ServerInfo
+from discord_tools.models import ChannelInfo, MemberInfo, ServerInfo
 
 TEST_CONFIG = Config(token="a.b.c")
 
@@ -79,6 +79,26 @@ def test_search_prints_a_table(capsys):
 def test_search_csv_without_output_errors(capsys):
     with pytest.raises(ValueError):
         run_cli(["search", "--channel", "55", "--format", "csv"], FakeClient())
+
+
+def test_members_prints_a_table(capsys):
+    client = FakeClient(members={1: [MemberInfo(id=7, username="sven", display_name="Sven")]})
+    assert run_cli(["members", "--server", "1"], client) == 0
+    out = capsys.readouterr().out
+    assert "sven" in out
+    assert "1 member(s)" in out
+
+
+def test_members_json_export_writes_a_file(tmp_path, capsys):
+    client = FakeClient(members={1: [MemberInfo(id=7, username="sven", display_name="Sven")]})
+    path = tmp_path / "members.json"
+    assert run_cli(["members", "--server", "1", "--output", str(path)], client) == 0
+    assert json.loads(path.read_text())[0]["id"] == 7
+
+
+def test_members_csv_without_output_errors():
+    with pytest.raises(ValueError):
+        run_cli(["members", "--server", "1", "--format", "csv"], FakeClient())
 
 
 def test_send_yes_without_allowlist_refuses(capsys):

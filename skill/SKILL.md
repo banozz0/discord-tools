@@ -1,7 +1,7 @@
 ---
 name: discord-tools
 description: "Use when you need the real numeric ID of a Discord server, channel, or thread — 'what's the ID of that channel?', 'where do I send this?' — when the user wants a channel's messages searched or exported to JSON/CSV, or when a message must be posted to a channel the user has allowlisted. Bot-token only; the bot sees only servers it was invited to."
-version: 1.0.0
+version: 1.1.0
 author: banozz0
 license: MIT
 platforms: [macos]
@@ -74,6 +74,7 @@ sends the user's next message into the void or errors on delivery.
 | "what's the ID of that server/channel/thread?" | `discord-tools discover` |
 | "just that one server" | `discord-tools discover --server <id>` |
 | "give me that as a file" | `discord-tools discover --json /path/out.json` |
+| "who's in that server / what's their user ID?" | `discord-tools members --server <id>` |
 | "find where X was discussed" | `discord-tools search --channel <id> --keyword "X"` |
 | "everything since Monday" | `discord-tools search --channel <id> --since 2026-08-24` |
 | "export it" | `discord-tools search --channel <id> --format csv --output name.csv` |
@@ -98,6 +99,10 @@ sends the user's next message into the void or errors on delivery.
 - **Empty text on every message = the message-content intent is off.** That is
   a portal setting, not a bug here. `doctor` names it; the fix is in the
   Developer Portal (Bot → Message Content Intent), which only the user can do.
+- **`members` needs the Server Members intent** — a second portal toggle (Bot →
+  Server Members Intent). If Discord refuses the member list, the error names
+  it; relay it verbatim and let the user flip the toggle. `--format json/csv`
+  with `--output` exports like `search` does.
 - **`send` needs `--yes` from an agent session, and `--yes` needs the
   allowlist.** Without `--yes` it prints the message and waits for a y/N
   nobody is there to type. With `--yes` it refuses anything outside

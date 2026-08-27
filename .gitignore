@@ -1,0 +1,18 @@
+.DS_Store
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+
+# .env.example stays untracked too: the global secrets hook blocks *.env* files
+# outright. The same content lives in README setup docs instead.
+.env
+.env.*
+
+.discord-tools/
+exports/
+*.log

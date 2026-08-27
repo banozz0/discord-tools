@@ -1,0 +1,50 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "discord-tools"
+version = "0.1.0"
+description = "Local Discord bot CLI for server/channel/thread ID discovery, message search/export, sending, channel creation, message clearing, and bot settings — with a guided Developer Portal setup."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+keywords = ["discord", "bot", "cli", "export", "channels", "threads"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: End Users/Desktop",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Communications :: Chat",
+  "Topic :: Utilities",
+]
+dependencies = [
+  "discord.py>=2.4,<3",
+  "python-dotenv>=1.0,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+]
+
+[project.scripts]
+discord-tools = "discord_tools.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/banozz0/discord-tools"
+Repository = "https://github.com/banozz0/discord-tools"
+Issues = "https://github.com/banozz0/discord-tools/issues"
+Changelog = "https://github.com/banozz0/discord-tools/blob/main/CHANGELOG.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/discord_tools"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

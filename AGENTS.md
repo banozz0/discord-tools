@@ -10,21 +10,28 @@ agent is the intended use, `--profile <name>` picks one.
 `~/code/telegram-tools` (v3.4.1) deliberately: same menu-vs-subcommand split,
 same test culture, same release recipe — when in doubt, look at the sibling.
 
-## Commands (v1 = full parity)
+## Commands (v1 = full parity, built)
 
-discover (server/channel/thread IDs) · search/export (history fetch + local
-filter; Discord gives bots no search API) · send · create (channel/thread/
-category) · clear-messages · bot (settings + invite URL for the active
-profile) · doctor (token, message-content intent, servers, per-channel perms).
+auth (guided portal setup) · discover (server/channel/thread IDs) ·
+search/export (history fetch + local filter; Discord gives bots no search
+API) · send · create (channel/thread/category) · clear-messages · bot
+(settings + invite URL for the active profile) · doctor (token,
+message-content intent, servers, per-channel perms). v1 ships only after the
+joint testing session with Sven, then PyPI.
 
 ## Working here
 
-- Python ≥3.11 · discord.py 2.x login-only REST (fallback: thin httpx client)
-  · python-dotenv · pytest no-network with mocked REST · hatchling · MIT.
+- Python ≥3.11 · discord.py 2.x login-only REST (`client.py` is the one seam;
+  tests mock exactly it) · python-dotenv · pytest no-network · hatchling · MIT.
+- Test: `.venv/bin/python -m pytest -q` → all pass, no network, no real token.
+  CI adds `compileall` + per-subcommand `--help` smoke.
 - Bare invocation is the human menu; agents pass a subcommand.
+- Domain terms live in `CONTEXT.md`; read it before renaming things.
 - A CLI-surface change updates `skill/SKILL.md` in the same commit.
 - A user-visible fix gets its CHANGELOG entry + version bump in the same change.
-- Never commit tokens, IDs of real servers, or exported chat data.
+- Never commit tokens, IDs of real servers, or exported chat data. `.env*`
+  files (even `.env.example`) stay untracked — the global secrets hook blocks
+  them; setup docs live in the README instead.
 
 ## Agent skills
 

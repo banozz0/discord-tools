@@ -26,6 +26,20 @@ profile) · doctor (token, message-content intent, servers, per-channel perms).
 - A user-visible fix gets its CHANGELOG entry + version bump in the same change.
 - Never commit tokens, IDs of real servers, or exported chat data.
 
+## Agent skills
+
+### Issue tracker
+
+Shared Beads board at `/Users/Shared/agent-board` (fleet default). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five-role vocabulary, unchanged. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` + `docs/adr/` at the root. See `docs/agents/domain.md`.
+
 ## Destructive commands
 
 Same gates as the sibling, non-negotiable: `clear-messages` dry-runs by

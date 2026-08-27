@@ -1,8 +1,10 @@
 # Changelog
 
-## 0.1.0 — unreleased
+## 0.1.0 — 2026-08-27
 
-Initial build to telegram-tools parity (v1 contract in `SPEC.md`):
+Initial release to telegram-tools parity (v1 contract in `SPEC.md`). Published
+as `discord-tools-cli` (the plain name is squatted on PyPI); the command is
+`discord-tools`:
 
 - `auth`: guided Developer Portal setup — walkthrough, hidden token paste,
   live verification, message-content-intent re-check loop, invite URL with the

@@ -1,7 +1,7 @@
 # discord-tools — agent brief
 
-Private repo (public once shipped, like its sibling). telegram-tools for
-Discord: a local CLI on Discord's **bot system** — no self-bots, ever (ToS).
+Public repo — contributor-facing. telegram-tools for Discord: a local CLI on
+Discord's **bot system** — no self-bots, ever (ToS).
 Bot token per profile in `~/.discord-tools/` (0600, env override); a bot per
 agent is the intended use, `--profile <name>` picks one.
 
@@ -16,8 +16,16 @@ auth (guided portal setup) · discover (server/channel/thread IDs) ·
 search/export (history fetch + local filter; Discord gives bots no search
 API) · send · create (channel/thread/category) · clear-messages · bot
 (settings + invite URL for the active profile) · doctor (token,
-message-content intent, servers, per-channel perms). v1 ships only after the
-joint testing session with Sven, then PyPI.
+message-content intent, servers, per-channel perms). v1 shipped 2026-08-27
+after the joint testing session.
+
+## Releasing (maintainer only)
+
+PyPI account is **banozz** (not the GitHub handle); the distribution is
+**discord-tools-cli** (`discord-tools` is squatted by an archived unrelated
+package) while the console script stays `discord-tools`. Recipe + traps: the
+maintainer's private runbook (same one as telegram-tools). Rebuild `dist/`
+after any source edit.
 
 ## Working here
 

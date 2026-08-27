@@ -12,10 +12,13 @@ destructive. Bot-token auth only — no self-bots, ever (Discord ToS).
 ## Install
 
 ```bash
-pip install discord-tools
+pip install discord-tools-cli
 discord-tools auth      # guided bot setup: portal walkthrough, token check, invite URL
 discord-tools doctor    # verify token, message-content intent, servers, permissions
 ```
+
+(The PyPI name is `discord-tools-cli` — plain `discord-tools` is squatted by an
+unrelated, archived package. The installed command is `discord-tools`.)
 
 Python 3.11+. Bare `discord-tools` opens a looping menu for humans; agents and
 scripts pass a subcommand.

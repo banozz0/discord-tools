@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1 — 2026-08-28
+
+- `doctor --channel`: report the channel view check correctly using
+  discord.py's canonical `read_messages` permission name.
+
 ## 0.2.0 — 2026-08-28
 
 - `members`: list a server's members (ID, username, display name, bot flag)

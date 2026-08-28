@@ -12,7 +12,7 @@ MIN_PYTHON = (3, 11)
 # What each command needs in the channel it acts on. Reported one line per
 # permission so "something is misconfigured" always names the something.
 CHANNEL_PERMISSIONS = (
-    ("view_channel", "see the channel"),
+    ("read_messages", "see the channel"),
     ("read_message_history", "read history (search/export)"),
     ("send_messages", "send messages"),
     ("manage_messages", "delete messages (clear-messages)"),

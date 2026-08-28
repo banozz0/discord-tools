@@ -110,7 +110,7 @@ def test_run_doctor_intent_off_fails():
 def test_run_doctor_channel_checks_report_permissions():
     client = FakeClient(
         servers=[ServerInfo(id=1, name="Ops")],
-        permissions={55: {"view_channel": True, "read_message_history": True, "send_messages": False}},
+        permissions={55: {"read_messages": True, "read_message_history": True, "send_messages": False}},
         history={55: [SimpleNamespace(content="hello", attachments=[], embeds=[])]},
     )
     lines = []

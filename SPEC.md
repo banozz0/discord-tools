@@ -40,9 +40,9 @@ bot per agent.
 10. As a user, I want `send` to preview the full message and ask y/N before posting, so that nothing goes public by accident.
 11. As an agent operator, I want `send --yes` to work only for destinations on an explicit allowlist (unset = refuse), so that unattended sends are constrained to channels I chose.
 12. As a user, I want `create` to make channels, threads, and categories behind a confirmation, so that I can scaffold a server without the app and without accidental objects.
-13. As a user, I want `clear-messages` to dry-run by default, listing what would be deleted, so that I can see the blast radius before anything happens.
+13. As a user, I want `clear-messages` to target either one channel/thread or every accessible message location in a server, and to dry-run by default, so that I can see the blast radius before anything happens.
 14. As a user, I want `clear-messages` execution to require `--execute` plus typing `DELETE`, so that real deletion is never one keystroke away.
-15. As a user, I want the dry-run to tell me which messages fall inside the 14-day bulk-delete window and which will delete one-by-one (slower), so that I know what to expect before confirming.
+15. As a user, I want the dry-run to report per-location and total counts for messages inside the 14-day bulk-delete window versus one-by-one deletion (slower), so that I know what to expect before confirming.
 16. As a user, I want `bot` to show and edit the active profile's name, avatar, and description behind a diff + confirm, so that I manage bot identity without the portal.
 17. As a user, I want `bot` to print the invite URL with the right permission bits, so that adding the bot to another server is copy-paste.
 18. As a human, I want bare `discord-tools` to open the same menu style as telegram-tools, so that I never memorize subcommands.
@@ -72,6 +72,11 @@ bot per agent.
 - `clear-messages` uses the bulk endpoint for messages <14 days old (API hard
   limit) and one-by-one deletion beyond it; dry-run computes both buckets from
   snowflake timestamps without extra API calls.
+- Server clears cover messageable channels, active threads, archived
+  public/private threads the bot can access, and forum/media posts. One typed
+  `DELETE` confirms the server run; a failed or inaccessible location is
+  reported and skipped while later locations continue, and partial results
+  return a nonzero exit status. Channels, categories, and threads survive.
 - Destructive gates copy the sibling verbatim: dry-run default + `--execute` +
   typed `DELETE` for clears; full preview + y/N for send; allowlist env
   (`DISCORD_SEND_ALLOWLIST`) required for `--yes` sends; diff + confirm for
@@ -95,6 +100,9 @@ bot per agent.
 - Gate tests are mandatory: clear without `--execute` deletes nothing; wrong
   typed confirmation aborts; `send --yes` without allowlist refuses; every
   destructive path has a refusal test before a success test.
+- Server-clear tests cover one confirmation for the whole run, archived-thread
+  enumeration, and continuing with an honest partial result after a location
+  cannot be read or cleared.
 - The 14-day split logic is pure (snowflake math) and gets direct unit tests.
 - Export tests verify file shape (JSON/CSV) and that exports never land in
   the working directory.

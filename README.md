@@ -35,7 +35,7 @@ scripts pass a subcommand.
 | `search` | Searches a channel/thread's history locally (Discord gives bots no search API): `--keyword`, `--from-user`, `--since`, `--until`, `--limit`; `--output <name>` exports JSON/CSV |
 | `send` | Posts as the bot after a full-message preview + y/N; `--yes` skips the prompt only for channels in `DISCORD_SEND_ALLOWLIST` |
 | `create` | `channel` / `category` / `thread`, each behind a confirmation |
-| `clear-messages` | Dry-run by default; deleting for real takes `--execute` **and** typing `DELETE`. The dry-run reports which messages fall inside Discord's 14-day bulk window and which will delete one-by-one (slower) |
+| `clear-messages` | Clears either `--channel <id>` or every accessible message location under `--server <id>`. Dry-run by default; deleting for real takes `--execute` **and** typing `DELETE`. Server clears include active/archived threads and forum/media posts, report skipped locations, and continue past per-location failures |
 | `bot` | Shows the active profile's bot (username, description, avatar, intent, invite URL); edits go behind a diff + confirm |
 
 ## Profiles: a bot per agent

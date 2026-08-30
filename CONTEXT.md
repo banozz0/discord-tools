@@ -23,6 +23,11 @@ The terms this codebase uses, and the boundaries they imply.
   `split_bulk_window` (`delete.py`) partitions message IDs by snowflake
   timestamp (pure math, no API calls); older messages delete one-by-one,
   paced.
+- **Server clear** — `clear-messages --server`: messageable channels plus
+  active and accessible archived threads (including forum/media posts). It
+  inventories every location before one server-wide `DELETE` prompt, keeps
+  every container, continues after per-location failures, and reports a
+  nonzero partial result rather than calling the server fully cleared.
 - **Snowflake** — a Discord ID; its top bits encode a creation timestamp
   (`records.py::snowflake_time`). Threads are channels: a thread ID is valid
   anywhere a channel ID is.

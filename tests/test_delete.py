@@ -7,10 +7,14 @@ from conftest import FakeClient
 from discord_tools.delete import (
     BULK_WINDOW,
     CLEAR_MESSAGES_WARNING,
+    CLEAR_SERVER_MESSAGES_WARNING,
     clear_messages,
+    clear_server_messages,
     confirm_clear_messages,
+    confirm_clear_server_messages,
     split_bulk_window,
 )
+from discord_tools.models import ChannelInfo, ServerInfo
 from discord_tools.records import DISCORD_EPOCH_MS
 
 NOW = datetime(2026, 8, 27, 12, 0, tzinfo=UTC)
@@ -105,3 +109,29 @@ def test_warning_names_what_survives():
     assert text == CLEAR_MESSAGES_WARNING
     assert "NOT be deleted" in text
     assert "does not undo" in text
+
+
+def test_server_warning_names_the_larger_scope_and_what_survives():
+    output = []
+    answer = confirm_clear_server_messages(read=lambda _prompt: "DELETE", write=output.append)
+    assert answer == "DELETE"
+    text = "\n".join(output)
+    assert text == CLEAR_SERVER_MESSAGES_WARNING
+    assert "across the selected server" in text
+    assert "Channels, categories, and threads will NOT be deleted" in text
+
+
+def test_server_clear_wrong_confirmation_deletes_nothing():
+    client = FakeClient(
+        servers=[ServerInfo(id=1, name="Ops")],
+        channels={1: [ChannelInfo(id=10, name="general", type="text")]},
+        history={10: messages(RECENT, snowflake_at(NOW - timedelta(days=2)))},
+    )
+    result = asyncio.run(
+        clear_server_messages(client, 1, execute=True, confirm=lambda: "nope", sleep=lambda _s: _noop(), now=NOW)
+    )
+
+    assert result["cancelled"] is True
+    assert result["cleared"] == 0
+    assert client.deleted_bulk == []
+    assert client.deleted_single == []

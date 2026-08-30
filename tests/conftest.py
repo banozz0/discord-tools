@@ -29,6 +29,7 @@ class FakeClient:
         servers: list[ServerInfo] | None = None,
         channels: dict[int, list[ChannelInfo]] | None = None,
         threads: dict[int, list[ThreadInfo]] | None = None,
+        archived_threads: dict[int, list[ThreadInfo]] | None = None,
         channel_info: dict[int, ChannelInfo] | None = None,
         history: dict[int, list] | None = None,
         permissions: dict[int, dict[str, bool]] | None = None,
@@ -38,6 +39,7 @@ class FakeClient:
         self.servers = servers or []
         self.channels = channels or {}
         self.threads = threads or {}
+        self.archived_threads = archived_threads or {}
         self.channel_info = channel_info or {}
         self.history = history or {}
         self.permissions = permissions or {}
@@ -50,6 +52,7 @@ class FakeClient:
         self.user_edits: list[dict] = []
         self.application_edits: list[dict] = []
         self.next_id = 900
+        self.history_reads: list[int] = []
 
     async def aclose(self):
         pass
@@ -66,6 +69,9 @@ class FakeClient:
     async def list_active_threads(self, server_id):
         return list(self.threads.get(server_id, []))
 
+    async def list_archived_threads(self, channel_id):
+        return list(self.archived_threads.get(channel_id, []))
+
     async def list_members(self, server_id):
         return list(self.members.get(server_id, []))
 
@@ -76,6 +82,7 @@ class FakeClient:
         return info
 
     async def iter_history(self, channel_id, *, limit=None, oldest_first=False):
+        self.history_reads.append(channel_id)
         messages = self.history.get(channel_id, [])
         if oldest_first:
             messages = list(reversed(messages))

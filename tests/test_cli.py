@@ -7,7 +7,7 @@ from conftest import FakeClient
 
 from discord_tools.cli import build_parser, positive_int, run, snowflake
 from discord_tools.config import Config
-from discord_tools.models import ChannelInfo, MemberInfo, ServerInfo
+from discord_tools.models import ChannelInfo, MemberInfo, ServerInfo, ThreadInfo
 
 TEST_CONFIG = Config(token="a.b.c")
 
@@ -156,6 +156,157 @@ def test_clear_messages_defaults_to_dry_run(capsys):
     out = capsys.readouterr().out
     assert "Dry-run" in out
     assert '"dry_run": true' in out
+
+
+def test_clear_messages_requires_exactly_one_scope():
+    parser = build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["clear-messages"])
+    with pytest.raises(SystemExit):
+        parser.parse_args(["clear-messages", "--channel", "55", "--server", "1"])
+
+    args = parser.parse_args(["clear-messages", "--server", "1"])
+    assert args.server == 1
+    assert args.channel is None
+
+
+def test_clear_server_dry_run_includes_channels_active_threads_and_archived_threads(capsys):
+    from types import SimpleNamespace
+
+    client = FakeClient(
+        servers=[ServerInfo(id=1, name="Ops")],
+        channels={
+            1: [
+                ChannelInfo(id=10, name="general", type="text"),
+                ChannelInfo(id=20, name="support", type="forum"),
+                ChannelInfo(id=30, name="Archive", type="category"),
+            ]
+        },
+        threads={1: [ThreadInfo(id=101, name="active-post", parent_id=20)]},
+        archived_threads={
+            10: [ThreadInfo(id=102, name="old-thread", parent_id=10, archived=True)],
+            20: [ThreadInfo(id=103, name="closed-post", parent_id=20, archived=True)],
+        },
+        history={
+            10: [SimpleNamespace(id=1)],
+            101: [SimpleNamespace(id=2)],
+            102: [SimpleNamespace(id=3)],
+            103: [SimpleNamespace(id=4)],
+        },
+    )
+
+    assert run_cli(["clear-messages", "--server", "1"], client) == 0
+    assert client.history_reads == [10, 101, 102, 103]
+    assert client.deleted_bulk == []
+    assert client.deleted_single == []
+    output = capsys.readouterr().out
+    assert "Ops (1)" in output
+    assert "general (10)" in output
+    assert "active-post (101)" in output
+    assert "old-thread (102)" in output
+    assert "closed-post (103)" in output
+    assert '"matched": 4' in output
+    assert '"dry_run": true' in output
+
+
+def test_clear_server_reports_an_unreadable_location_and_continues(capsys):
+    from types import SimpleNamespace
+
+    class PartiallyBlockedClient(FakeClient):
+        async def iter_history(self, channel_id, *, limit=None, oldest_first=False):
+            if channel_id == 11:
+                self.history_reads.append(channel_id)
+                raise PermissionError("missing Read Message History")
+            async for message in super().iter_history(channel_id, limit=limit, oldest_first=oldest_first):
+                yield message
+
+    client = PartiallyBlockedClient(
+        servers=[ServerInfo(id=1, name="Ops")],
+        channels={
+            1: [
+                ChannelInfo(id=10, name="general", type="text"),
+                ChannelInfo(id=11, name="staff", type="text"),
+                ChannelInfo(id=12, name="announcements", type="news"),
+            ]
+        },
+        history={10: [SimpleNamespace(id=1)], 12: [SimpleNamespace(id=2)]},
+    )
+
+    assert run_cli(["clear-messages", "--server", "1"], client) == 1
+    assert client.history_reads == [10, 11, 12]
+    output = capsys.readouterr().out
+    assert "staff (11)" in output
+    assert "missing Read Message History" in output
+    assert '"matched": 2' in output
+    assert '"operation": "read messages"' in output
+
+
+def test_clear_server_continues_when_active_threads_cannot_be_listed(capsys):
+    from types import SimpleNamespace
+
+    class ThreadListingBlockedClient(FakeClient):
+        async def list_active_threads(self, server_id):
+            raise PermissionError("cannot list active threads")
+
+    client = ThreadListingBlockedClient(
+        servers=[ServerInfo(id=1, name="Ops")],
+        channels={1: [ChannelInfo(id=10, name="general", type="text")]},
+        history={10: [SimpleNamespace(id=1)]},
+    )
+
+    assert run_cli(["clear-messages", "--server", "1"], client) == 1
+    assert client.history_reads == [10]
+    output = capsys.readouterr().out
+    assert "cannot list active threads" in output
+    assert '"matched": 1' in output
+    assert '"operation": "list active threads"' in output
+
+
+def test_clear_server_confirms_once_and_continues_after_a_delete_failure(capsys, monkeypatch):
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    from discord_tools.records import DISCORD_EPOCH_MS
+
+    now = (int(datetime.now(UTC).timestamp() * 1000) - DISCORD_EPOCH_MS) << 22
+
+    class PartiallyBlockedClient(FakeClient):
+        async def bulk_delete(self, channel_id, message_ids):
+            if channel_id == 11:
+                raise PermissionError("missing Manage Messages")
+            await super().bulk_delete(channel_id, message_ids)
+
+    confirmations = []
+
+    def confirm():
+        confirmations.append(True)
+        return "DELETE"
+
+    monkeypatch.setattr("discord_tools.cli.confirm_clear_server_messages", confirm)
+    client = PartiallyBlockedClient(
+        servers=[ServerInfo(id=1, name="Ops")],
+        channels={
+            1: [
+                ChannelInfo(id=10, name="general", type="text"),
+                ChannelInfo(id=11, name="staff", type="text"),
+                ChannelInfo(id=12, name="announcements", type="news"),
+            ]
+        },
+        history={
+            10: [SimpleNamespace(id=now), SimpleNamespace(id=now + 1)],
+            11: [SimpleNamespace(id=now + 2), SimpleNamespace(id=now + 3)],
+            12: [SimpleNamespace(id=now + 4), SimpleNamespace(id=now + 5)],
+        },
+    )
+
+    assert run_cli(["clear-messages", "--server", "1", "--execute"], client) == 1
+    assert len(confirmations) == 1
+    assert client.deleted_bulk == [(10, [now, now + 1]), (12, [now + 4, now + 5])]
+    output = capsys.readouterr().out
+    assert "missing Manage Messages" in output
+    assert '"cleared": 4' in output
+    assert '"operation": "clear messages"' in output
 
 
 def test_clear_messages_execute_still_needs_typed_delete(capsys, monkeypatch):

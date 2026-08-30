@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0 — 2026-08-30
+
+- `clear-messages --server <id>`: dry-run and clear every accessible message
+  channel, active thread, archived thread, forum post, and media post in a
+  server without deleting the containers themselves. One typed `DELETE`
+  confirms the whole run; inaccessible or failed locations are reported and
+  skipped while the rest continue, with a nonzero exit status for partial
+  results.
+
 ## 0.2.1 — 2026-08-28
 
 - `doctor --channel`: report the channel view check correctly using

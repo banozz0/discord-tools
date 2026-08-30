@@ -452,11 +452,29 @@ async def _flow_create(*, session, runner, read, write) -> bool:
 
 async def _flow_clear(*, session, runner, read, write) -> bool:
     while True:
-        picked = await _pick_channel(session=session, read=read, write=write)
-        if picked is BACK:
+        scope = choose(
+            ["One channel or thread", "Whole server"],
+            title="Clear messages",
+            read=read,
+            write=write,
+        )
+        if scope is BACK:
             return True
 
-        dry_run = _namespace(command="clear-messages", channel=picked.id, execute=False)
+        channel_id = None
+        server_id = None
+        if scope == 0:
+            picked = await _pick_channel(session=session, read=read, write=write)
+            if picked is BACK:
+                continue
+            channel_id = picked.id
+        else:
+            server = await _pick_server(session=session, read=read, write=write)
+            if server is BACK:
+                continue
+            server_id = server.id
+
+        dry_run = _namespace(command="clear-messages", channel=channel_id, server=server_id, execute=False)
 
         # The dry-run always runs first: the menu must never be a shorter path
         # to a deletion than the flags are, and the counts (bulk vs one-by-one)
@@ -469,12 +487,12 @@ async def _flow_clear(*, session, runner, read, write) -> bool:
             title="Dry-run done",
             read=read,
             write=write,
-            back_label="Back to the channel list",
+            back_label="Back to clear scope",
         )
         if choice is BACK:
             continue
 
-        for_real = _namespace(command="clear-messages", channel=picked.id, execute=True)
+        for_real = _namespace(command="clear-messages", channel=channel_id, server=server_id, execute=True)
         return await _act(for_real, session=session, runner=runner, read=read, write=write)
 
 

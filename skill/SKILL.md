@@ -1,7 +1,7 @@
 ---
 name: discord-tools
 description: "Use when you need the real numeric ID of a Discord server, channel, or thread — 'what's the ID of that channel?', 'where do I send this?' — when the user wants a channel's messages searched or exported to JSON/CSV, or when a message must be posted to a channel the user has allowlisted. Bot-token only; the bot sees only servers it was invited to."
-version: 1.1.0
+version: 1.2.0
 author: banozz0
 license: MIT
 platforms: [macos]
@@ -53,10 +53,11 @@ real, visible objects other people see appear. Create one only when the user
 asked for that specific thing in this conversation, and never invent a name.
 
 **4. Never run `clear-messages`.** It permanently deletes real messages and
-Discord does not undo it. Dry-run is its default and the destructive path
-needs both `--execute` and a typed `DELETE`, so you will not trip it by
-accident — but do not run it at all, in any form, even to preview. If the
-answer is "those messages should go", say so and let the user run it.
+Discord does not undo it, whether scoped to one `--channel` or a whole
+`--server`. Dry-run is its default and the destructive path needs both
+`--execute` and a typed `DELETE`, so you will not trip it by accident — but do
+not run it at all, in any form, even to preview. If the answer is "those
+messages should go", say so and let the user run it.
 
 **5. Never print a token.** Bot tokens live in `~/.discord-tools/.env` (mode
 0600). Point at where they live; never read them out, copy them, or paste one
@@ -120,7 +121,8 @@ sends the user's next message into the void or errors on delivery.
 
 ## Never run these
 
-- **`clear-messages`** — irreversible deletion. Rule 4 above.
+- **`clear-messages`** — irreversible deletion, including its server-wide
+  scope. Rule 4 above.
 - **`create` on your own initiative** — rule 3. Propose it, let the user say yes.
 - **`bot` with edit flags** (`--name`, `--description`, `--avatar`) — it edits
   the user's public-facing bot identity. `bot` bare (show profile) and
@@ -147,7 +149,9 @@ fix is `bot --invite` and a human clicking through, not a retry.
 Discord rate-limits per route; the CLI paces and retries, so a large export or
 an old-message clear is slow rather than broken. `clear-messages` on messages
 older than 14 days deletes one message per second by API design — the dry-run
-says how many fall in that bucket before anything happens.
+says how many fall in that bucket before anything happens. A server dry-run
+includes accessible archived threads and forum/media posts; skipped locations
+are explicit rather than silently counted as cleared.
 
 If `doctor` reports no token, `discord-tools auth` simply has not been run for
 that profile yet — say so. Never go looking for a token, and never write one

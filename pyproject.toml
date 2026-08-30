@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 # PyPI name: `discord-tools` is squatted by an archived self-bot package, so
 # the distribution is discord-tools-cli; the console script stays discord-tools.
 name = "discord-tools-cli"
-version = "0.2.1"
+version = "0.3.0"
 description = "Local Discord bot CLI for server/channel/thread ID discovery, message search/export, sending, channel creation, message clearing, and bot settings — with a guided Developer Portal setup."
 readme = "README.md"
 requires-python = ">=3.11"

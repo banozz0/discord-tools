@@ -11,7 +11,12 @@ from typing import Sequence
 from discord_tools.portal import invite_url, run_auth
 from discord_tools.config import ConfigError, load_config
 from discord_tools.discovery import discover_servers, format_tree
-from discord_tools.delete import clear_messages, confirm_clear_messages
+from discord_tools.delete import (
+    clear_messages,
+    clear_server_messages,
+    confirm_clear_messages,
+    confirm_clear_server_messages,
+)
 from discord_tools.doctor import run_doctor
 from discord_tools.bot import (
     apply_bot_edits,
@@ -110,8 +115,10 @@ def build_parser() -> argparse.ArgumentParser:
     for kind_parser in (create_channel_parser, create_category_parser, create_thread_parser):
         kind_parser.add_argument("--yes", action="store_true", help="Skip the confirmation prompt")
 
-    clear = subparsers.add_parser("clear-messages", help="Clear a channel or thread's messages (dry-run by default)")
-    clear.add_argument("--channel", required=True, type=snowflake, help="Channel or thread ID")
+    clear = subparsers.add_parser("clear-messages", help="Clear a channel, thread, or server's messages (dry-run by default)")
+    clear_scope = clear.add_mutually_exclusive_group(required=True)
+    clear_scope.add_argument("--channel", type=snowflake, help="Channel or thread ID")
+    clear_scope.add_argument("--server", type=snowflake, help="Clear every accessible message location in this server ID")
     clear.add_argument("--execute", action="store_true", help="Actually clear messages after typing DELETE")
 
     bot_parser = subparsers.add_parser("bot", help="Show or edit the active profile's bot settings and invite URL")
@@ -281,6 +288,17 @@ async def _run_create(client, args) -> int:
 
 
 async def _run_clear_messages(client, args) -> int:
+    if args.server is not None:
+        result = await clear_server_messages(
+            client,
+            args.server,
+            execute=args.execute,
+            confirm=confirm_clear_server_messages,
+            progress=print,
+        )
+        print(json.dumps(result, indent=2))
+        return 1 if result["cancelled"] or result["failures"] else 0
+
     result = await clear_messages(
         client,
         args.channel,

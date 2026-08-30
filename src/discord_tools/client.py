@@ -102,6 +102,33 @@ class DiscordClient:
             for thread in threads
         ]
 
+    async def list_archived_threads(self, channel_id: int) -> list[ThreadInfo]:
+        channel = await self._fetch_channel(channel_id)
+        if not hasattr(channel, "archived_threads"):
+            return []
+
+        archived = []
+        async for thread in channel.archived_threads(limit=None):
+            archived.append(thread)
+        if _channel_type_name(channel) not in ("forum", "media"):
+            try:
+                async for thread in channel.archived_threads(private=True, limit=None):
+                    archived.append(thread)
+            except discord.Forbidden:
+                # Without Manage Threads Discord refuses the all-private
+                # endpoint; the joined endpoint still exposes private threads
+                # this bot actually belongs to.
+                try:
+                    async for thread in channel.archived_threads(private=True, joined=True, limit=None):
+                        archived.append(thread)
+                except discord.Forbidden:
+                    pass
+
+        return [
+            ThreadInfo(id=thread.id, name=thread.name, parent_id=thread.parent_id, archived=True)
+            for thread in archived
+        ]
+
     async def list_members(self, server_id: int) -> list[MemberInfo]:
         """Every member of one server, paged through the REST list endpoint.
 

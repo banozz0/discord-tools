@@ -75,16 +75,27 @@ def test_send_flow_can_target_a_thread():
 
 
 def test_clear_flow_dry_runs_before_offering_execute():
-    code, calls, _output = drive(["5", "1", "1", "0"])
+    code, calls, _output = drive(["5", "1", "1", "1", "0"])
     assert code == 0
     assert [args.command for args in calls] == ["clear-messages", "clear-messages"]
     assert calls[0].execute is False
     assert calls[1].execute is True
     assert calls[0].channel == calls[1].channel == 10
+    assert calls[0].server is None
+
+
+def test_clear_flow_can_target_a_whole_server():
+    code, calls, _output = drive(["5", "2", "1", "0"])
+    assert code == 0
+    assert [args.command for args in calls] == ["clear-messages", "clear-messages"]
+    assert calls[0].execute is False
+    assert calls[1].execute is True
+    assert calls[0].server == calls[1].server == 1
+    assert calls[0].channel is None
 
 
 def test_clear_flow_backing_out_never_executes():
-    code, calls, _output = drive(["5", "1", "0", "0", "0", "0"])
+    code, calls, _output = drive(["5", "1", "1", "0", "0", "0", "0"])
     executed = [args for args in calls if getattr(args, "execute", False)]
     assert executed == []
 

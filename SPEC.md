@@ -77,6 +77,10 @@ bot per agent.
   `DELETE` confirms the server run; a failed or inaccessible location is
   reported and skipped while later locations continue, and partial results
   return a nonzero exit status. Channels, categories, and threads survive.
+- `--skip-threads` limits a server clear to channels only: threads and
+  forum/media posts are neither listed nor touched, the warning says so, and
+  the menu asks the same scope question before its dry-run. Invalid with
+  `--channel`. Default stays threads-included.
 - Destructive gates copy the sibling verbatim: dry-run default + `--execute` +
   typed `DELETE` for clears; full preview + y/N for send; allowlist env
   (`DISCORD_SEND_ALLOWLIST`) required for `--yes` sends; diff + confirm for

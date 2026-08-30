@@ -41,6 +41,20 @@ This will permanently delete ALL MESSAGES the bot can
 access across the selected server. Discord does not undo this.
 
 OK: Channels, categories, and threads will NOT be deleted.
+NOTE: Messages INSIDE threads are cleared too
+      (--skip-threads clears channels only).
+NOTE: Inaccessible locations will be reported and skipped.
+===================================================="""
+
+CLEAR_SERVER_MESSAGES_WARNING_SKIP_THREADS = """\
+====================================================
+WARNING: CLEAR SERVER MESSAGES (CHANNELS ONLY)
+
+This will permanently delete ALL MESSAGES the bot can
+access from the selected server's channels. Discord does not undo this.
+
+OK: Threads and their messages will NOT be touched.
+OK: Channels, categories, and threads will NOT be deleted.
 NOTE: Inaccessible locations will be reported and skipped.
 ===================================================="""
 
@@ -66,9 +80,9 @@ def confirm_clear_messages(*, read: Callable[[str], str] = input, write: Callabl
 
 
 def confirm_clear_server_messages(
-    *, read: Callable[[str], str] = input, write: Callable[[str], None] = print
+    *, include_threads: bool = True, read: Callable[[str], str] = input, write: Callable[[str], None] = print
 ) -> str:
-    write(CLEAR_SERVER_MESSAGES_WARNING)
+    write(CLEAR_SERVER_MESSAGES_WARNING if include_threads else CLEAR_SERVER_MESSAGES_WARNING_SKIP_THREADS)
     return read("Type DELETE to continue: ")
 
 
@@ -164,6 +178,7 @@ async def clear_server_messages(
     server_id: int,
     *,
     execute: bool = False,
+    include_threads: bool = True,
     confirm: Callable[[], str] = input,
     progress: Callable[[str], None] | None = None,
     sleep=asyncio.sleep,
@@ -177,34 +192,36 @@ async def clear_server_messages(
 
     channels = await client.list_channels(server_id)
     failures = []
-    try:
-        active_threads = await client.list_active_threads(server_id)
-    except RECOVERABLE_CLEAR_ERRORS as exc:
-        active_threads = []
-        failures.append(
-            {
-                "location_id": server.id,
-                "location_name": server.name,
-                "operation": "list active threads",
-                "error": str(exc),
-            }
-        )
-        progress(f"Could not list active threads in {server.name} ({server.id}): {exc}")
-
-    archived_threads = []
-    for channel in channels:
-        if channel.type in ("text", "news", "forum", "media"):
-            try:
-                archived_threads.extend(await client.list_archived_threads(channel.id))
-            except RECOVERABLE_CLEAR_ERRORS as exc:
-                failure = {
-                    "location_id": channel.id,
-                    "location_name": channel.name,
-                    "operation": "list archived threads",
+    active_threads = []
+    if include_threads:
+        try:
+            active_threads = await client.list_active_threads(server_id)
+        except RECOVERABLE_CLEAR_ERRORS as exc:
+            failures.append(
+                {
+                    "location_id": server.id,
+                    "location_name": server.name,
+                    "operation": "list active threads",
                     "error": str(exc),
                 }
-                failures.append(failure)
-                progress(f"Could not list archived threads in {channel.name} ({channel.id}): {exc}")
+            )
+            progress(f"Could not list active threads in {server.name} ({server.id}): {exc}")
+
+    archived_threads = []
+    if include_threads:
+        for channel in channels:
+            if channel.type in ("text", "news", "forum", "media"):
+                try:
+                    archived_threads.extend(await client.list_archived_threads(channel.id))
+                except RECOVERABLE_CLEAR_ERRORS as exc:
+                    failure = {
+                        "location_id": channel.id,
+                        "location_name": channel.name,
+                        "operation": "list archived threads",
+                        "error": str(exc),
+                    }
+                    failures.append(failure)
+                    progress(f"Could not list archived threads in {channel.name} ({channel.id}): {exc}")
 
     locations = [channel for channel in channels if channel.is_messageable]
     locations.extend(active_threads)

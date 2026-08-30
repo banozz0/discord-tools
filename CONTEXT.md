@@ -28,6 +28,8 @@ The terms this codebase uses, and the boundaries they imply.
   inventories every location before one server-wide `DELETE` prompt, keeps
   every container, continues after per-location failures, and reports a
   nonzero partial result rather than calling the server fully cleared.
+  `--skip-threads` (menu: "Channels only") narrows it to channels — threads
+  and forum/media posts are neither listed nor touched.
 - **Snowflake** — a Discord ID; its top bits encode a creation timestamp
   (`records.py::snowflake_time`). Threads are channels: a thread ID is valid
   anywhere a channel ID is.

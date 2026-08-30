@@ -119,6 +119,52 @@ def test_server_warning_names_the_larger_scope_and_what_survives():
     assert text == CLEAR_SERVER_MESSAGES_WARNING
     assert "across the selected server" in text
     assert "Channels, categories, and threads will NOT be deleted" in text
+    # The scary moment is where the escape hatch must be named.
+    assert "Messages INSIDE threads are cleared too" in text
+    assert "--skip-threads" in text
+
+
+def test_server_warning_states_when_threads_are_skipped():
+    output = []
+    answer = confirm_clear_server_messages(
+        include_threads=False, read=lambda _prompt: "DELETE", write=output.append
+    )
+    assert answer == "DELETE"
+    text = "\n".join(output)
+    assert "Threads and their messages will NOT be touched" in text
+    assert "Messages INSIDE threads are cleared too" not in text
+
+
+def test_server_clear_can_skip_threads_entirely():
+    class NoThreadCallsClient(FakeClient):
+        async def list_active_threads(self, server_id):
+            raise AssertionError("skipping threads must mean not listing them")
+
+        async def list_archived_threads(self, channel_id):
+            raise AssertionError("skipping threads must mean not listing them")
+
+    client = NoThreadCallsClient(
+        servers=[ServerInfo(id=1, name="Ops")],
+        channels={1: [ChannelInfo(id=10, name="general", type="text")]},
+        history={10: messages(RECENT), 101: messages(RECENT)},
+    )
+    result = asyncio.run(
+        clear_server_messages(
+            client,
+            1,
+            execute=True,
+            confirm=lambda: "DELETE",
+            include_threads=False,
+            sleep=lambda _s: _noop(),
+            now=NOW,
+        )
+    )
+
+    assert result["locations"] == 1
+    assert result["cleared"] == 1
+    assert result["failures"] == []
+    assert client.history_reads == [10]
+    assert client.deleted_single == [(10, RECENT)]
 
 
 def test_server_clear_wrong_confirmation_deletes_nothing():

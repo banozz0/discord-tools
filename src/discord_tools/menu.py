@@ -463,6 +463,7 @@ async def _flow_clear(*, session, runner, read, write) -> bool:
 
         channel_id = None
         server_id = None
+        skip_threads = False
         if scope == 0:
             picked = await _pick_channel(session=session, read=read, write=write)
             if picked is BACK:
@@ -473,8 +474,22 @@ async def _flow_clear(*, session, runner, read, write) -> bool:
             if server is BACK:
                 continue
             server_id = server.id
+            # The scope decides what the dry-run scans, so it must be asked
+            # before the dry-run — the counts on the next screen have to
+            # describe exactly what execute would touch.
+            thread_scope = choose(
+                ["Channels and threads", "Channels only (threads untouched)"],
+                title="Thread scope",
+                read=read,
+                write=write,
+            )
+            if thread_scope is BACK:
+                continue
+            skip_threads = thread_scope == 1
 
-        dry_run = _namespace(command="clear-messages", channel=channel_id, server=server_id, execute=False)
+        dry_run = _namespace(
+            command="clear-messages", channel=channel_id, server=server_id, execute=False, skip_threads=skip_threads
+        )
 
         # The dry-run always runs first: the menu must never be a shorter path
         # to a deletion than the flags are, and the counts (bulk vs one-by-one)
@@ -492,7 +507,9 @@ async def _flow_clear(*, session, runner, read, write) -> bool:
         if choice is BACK:
             continue
 
-        for_real = _namespace(command="clear-messages", channel=channel_id, server=server_id, execute=True)
+        for_real = _namespace(
+            command="clear-messages", channel=channel_id, server=server_id, execute=True, skip_threads=skip_threads
+        )
         return await _act(for_real, session=session, runner=runner, read=read, write=write)
 
 

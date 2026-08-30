@@ -279,7 +279,7 @@ def test_clear_server_confirms_once_and_continues_after_a_delete_failure(capsys,
 
     confirmations = []
 
-    def confirm():
+    def confirm(**kwargs):
         confirmations.append(True)
         return "DELETE"
 
@@ -307,6 +307,53 @@ def test_clear_server_confirms_once_and_continues_after_a_delete_failure(capsys,
     assert "missing Manage Messages" in output
     assert '"cleared": 4' in output
     assert '"operation": "clear messages"' in output
+
+
+def test_clear_server_skip_threads_clears_channels_only(capsys):
+    from types import SimpleNamespace
+
+    client = FakeClient(
+        servers=[ServerInfo(id=1, name="Ops")],
+        channels={
+            1: [
+                ChannelInfo(id=10, name="general", type="text"),
+                ChannelInfo(id=20, name="support", type="forum"),
+            ]
+        },
+        threads={1: [ThreadInfo(id=101, name="active-post", parent_id=20)]},
+        archived_threads={10: [ThreadInfo(id=102, name="old-thread", parent_id=10, archived=True)]},
+        history={
+            10: [SimpleNamespace(id=1)],
+            101: [SimpleNamespace(id=2)],
+            102: [SimpleNamespace(id=3)],
+        },
+    )
+
+    assert run_cli(["clear-messages", "--server", "1", "--skip-threads"], client) == 0
+    assert client.history_reads == [10]
+    output = capsys.readouterr().out
+    assert "general (10)" in output
+    assert "active-post" not in output
+    assert "old-thread" not in output
+    assert '"matched": 1' in output
+
+
+def test_skip_threads_with_channel_is_a_usage_error():
+    with pytest.raises(ValueError):
+        run_cli(["clear-messages", "--channel", "55", "--skip-threads"], FakeClient())
+
+
+def test_skip_threads_reaches_the_warning(monkeypatch):
+    kwargs_seen = []
+
+    def confirm(**kwargs):
+        kwargs_seen.append(kwargs)
+        return "no thanks"
+
+    monkeypatch.setattr("discord_tools.cli.confirm_clear_server_messages", confirm)
+    client = FakeClient(servers=[ServerInfo(id=1, name="Ops")])
+    run_cli(["clear-messages", "--server", "1", "--execute", "--skip-threads"], client)
+    assert kwargs_seen == [{"include_threads": False}]
 
 
 def test_clear_messages_execute_still_needs_typed_delete(capsys, monkeypatch):

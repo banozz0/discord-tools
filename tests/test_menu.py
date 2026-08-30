@@ -82,16 +82,28 @@ def test_clear_flow_dry_runs_before_offering_execute():
     assert calls[1].execute is True
     assert calls[0].channel == calls[1].channel == 10
     assert calls[0].server is None
+    assert calls[0].skip_threads is calls[1].skip_threads is False
 
 
 def test_clear_flow_can_target_a_whole_server():
-    code, calls, _output = drive(["5", "2", "1", "0"])
+    # scope: whole server -> thread scope: channels and threads -> execute
+    code, calls, _output = drive(["5", "2", "1", "1", "0"])
     assert code == 0
     assert [args.command for args in calls] == ["clear-messages", "clear-messages"]
     assert calls[0].execute is False
     assert calls[1].execute is True
     assert calls[0].server == calls[1].server == 1
     assert calls[0].channel is None
+    assert calls[0].skip_threads is calls[1].skip_threads is False
+
+
+def test_clear_flow_server_scope_can_skip_threads():
+    # scope: whole server -> thread scope: channels only -> execute
+    code, calls, _output = drive(["5", "2", "2", "1", "0"])
+    assert code == 0
+    assert [args.command for args in calls] == ["clear-messages", "clear-messages"]
+    assert calls[0].server == calls[1].server == 1
+    assert calls[0].skip_threads is calls[1].skip_threads is True
 
 
 def test_clear_flow_backing_out_never_executes():

@@ -120,6 +120,11 @@ def build_parser() -> argparse.ArgumentParser:
     clear_scope.add_argument("--channel", type=snowflake, help="Channel or thread ID")
     clear_scope.add_argument("--server", type=snowflake, help="Clear every accessible message location in this server ID")
     clear.add_argument("--execute", action="store_true", help="Actually clear messages after typing DELETE")
+    clear.add_argument(
+        "--skip-threads",
+        action="store_true",
+        help="With --server: clear channel messages only, leaving threads and forum/media posts untouched",
+    )
 
     bot_parser = subparsers.add_parser("bot", help="Show or edit the active profile's bot settings and invite URL")
     bot_parser.add_argument("--invite", action="store_true", help="Print only the invite URL")
@@ -288,12 +293,16 @@ async def _run_create(client, args) -> int:
 
 
 async def _run_clear_messages(client, args) -> int:
+    if args.skip_threads and args.server is None:
+        raise ValueError("--skip-threads only applies to --server clears; --channel already targets one location.")
     if args.server is not None:
+        include_threads = not args.skip_threads
         result = await clear_server_messages(
             client,
             args.server,
             execute=args.execute,
-            confirm=confirm_clear_server_messages,
+            include_threads=include_threads,
+            confirm=lambda: confirm_clear_server_messages(include_threads=include_threads),
             progress=print,
         )
         print(json.dumps(result, indent=2))

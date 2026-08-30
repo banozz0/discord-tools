@@ -54,7 +54,8 @@ asked for that specific thing in this conversation, and never invent a name.
 
 **4. Never run `clear-messages`.** It permanently deletes real messages and
 Discord does not undo it, whether scoped to one `--channel` or a whole
-`--server`. Dry-run is its default and the destructive path needs both
+`--server` (with or without `--skip-threads`, which limits a server clear to
+channels only). Dry-run is its default and the destructive path needs both
 `--execute` and a typed `DELETE`, so you will not trip it by accident — but do
 not run it at all, in any form, even to preview. If the answer is "those
 messages should go", say so and let the user run it.

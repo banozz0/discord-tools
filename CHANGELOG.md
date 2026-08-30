@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0 — 2026-08-30
+
+- `clear-messages --server` grows `--skip-threads`: clear channel messages
+  only, leaving threads and forum/media posts untouched (they are not even
+  listed). The menu's whole-server path asks the same "Channels and threads /
+  Channels only" question before its dry-run, and the DELETE warning states
+  which scope this run has. Threads-included stays the default.
+
 ## 0.3.0 — 2026-08-30
 
 - `clear-messages --server <id>`: dry-run and clear every accessible message

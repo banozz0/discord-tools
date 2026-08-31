@@ -53,9 +53,10 @@ class FakeClient:
         self.application_edits: list[dict] = []
         self.next_id = 900
         self.history_reads: list[int] = []
+        self.closed = False
 
     async def aclose(self):
-        pass
+        self.closed = True
 
     async def get_identity(self):
         return self.identity

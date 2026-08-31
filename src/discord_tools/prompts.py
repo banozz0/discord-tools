@@ -10,12 +10,16 @@ BACK = object()
 # Returned by edit_field when the user chose to empty a field, which is a different
 # answer from "keep it" (BACK) and from any value the field could hold.
 CLEAR = object()
-
-_NEXT = object()
-_PREV = object()
+# Returned by after_run: back to the root menu, or leave the menu altogether.
+MENU = object()
+EXIT = object()
 
 RULE = "--------------------------------------------"
 PAGE_SIZE = 9
+# Paging is on letters so that no numbered row ever moves: an item keeps its
+# number on every page, and so do the rows that follow the list.
+NEXT_KEY = "n"
+PREV_KEY = "p"
 
 
 @dataclass(frozen=True)
@@ -26,8 +30,29 @@ class Extra:
     label: str
 
 
-def _screen(title: str, labels: Sequence[str], back_label: str) -> str:
-    rows = [f"{number}. {label}" for number, label in enumerate(labels, start=1)]
+def _screen(
+    title: str,
+    labels: Sequence[str],
+    back_label: str,
+    *,
+    numbers: Sequence[int] | None = None,
+    pager: str | None = None,
+    trailing: Sequence[str] = (),
+) -> str:
+    """One screen: title, rule, numbered rows, an optional paging line, the rows
+    that follow the list, then 0.
+
+    `numbers` lets a paged list keep its own numbering (item 12 is 12 on every
+    page); without it the rows count from 1. `trailing` rows are already
+    formatted -- they carry their own numbers, which is how extras and control
+    rows stay put while the page changes. The paging line sits between the list
+    and them, which is also where the gap in the numbers falls on a later page.
+    """
+    numbers = list(range(1, len(labels) + 1)) if numbers is None else list(numbers)
+    rows = [f"{number}. {label}" for number, label in zip(numbers, labels)]
+    if pager is not None:
+        rows.append(pager)
+    rows.extend(trailing)
     return "\n".join([title, RULE, *rows, f"0. {back_label}"])
 
 
@@ -41,6 +66,50 @@ def choose(labels: Sequence[str], *, title: str, read, write, back_label: str = 
         if answer.isdecimal() and 1 <= int(answer) <= len(labels):
             return int(answer) - 1
         write("Pick one of the numbers listed.")
+
+
+class _Pages:
+    """The paging arithmetic `pick` uses.
+
+    Items are numbered across the whole list, not per page, and the rows after
+    the list (extras) are numbered after the last item, so nothing changes
+    number when the page does. A number from another page is a valid answer:
+    typing 12 on page 1 picks item 12 without paging to it.
+    """
+
+    def __init__(self, total: int, page_size: int) -> None:
+        self.total = total
+        self.page_size = page_size
+        self.page = 0
+
+    def window(self) -> range:
+        start = self.page * self.page_size
+        return range(start, min(start + self.page_size, self.total))
+
+    def pager(self) -> str | None:
+        remaining = self.total - self.window().stop
+        parts = []
+        if remaining > 0:
+            parts.append(f"{NEXT_KEY}. Next page ({remaining} more)")
+        if self.page > 0:
+            parts.append(f"{PREV_KEY}. Previous page")
+        return "   ".join(parts) or None
+
+    def turn(self, answer: str, write) -> bool:
+        """Handle a paging answer. True when `answer` was one, whether or not it moved."""
+        if answer == NEXT_KEY:
+            if self.window().stop < self.total:
+                self.page += 1
+            else:
+                write("This is the last page.")
+            return True
+        if answer == PREV_KEY:
+            if self.page > 0:
+                self.page -= 1
+            else:
+                write("This is the first page.")
+            return True
+        return False
 
 
 def pick(
@@ -58,35 +127,31 @@ def pick(
         write("Nothing to pick from.")
         return BACK
 
-    page = 0
+    pages = _Pages(len(items), page_size)
     while True:
-        start = page * page_size
-        window = list(items[start : start + page_size])
-        labels = [label(item) for item in window]
-        keys: list[Any] = list(window)
+        window = pages.window()
+        extra_rows = [f"{len(items) + offset}. {extra.label}" for offset, extra in enumerate(extras, start=1)]
+        write(
+            _screen(
+                title,
+                [label(items[index]) for index in window],
+                "Back",
+                numbers=[index + 1 for index in window],
+                pager=pages.pager(),
+                trailing=extra_rows,
+            )
+        )
 
-        remaining = len(items) - (start + len(window))
-        if remaining > 0:
-            labels.append(f"Next page ({remaining} more)")
-            keys.append(_NEXT)
-        if page > 0:
-            labels.append("Previous page")
-            keys.append(_PREV)
-        for extra in extras:
-            labels.append(extra.label)
-            keys.append(extra.key)
-
-        choice = choose(labels, title=title, read=read, write=write)
-        if choice is BACK:
+        answer = read("Choose: ").strip()
+        if answer == "0":
             return BACK
-
-        key = keys[choice]
-        if key is _NEXT:
-            page += 1
-        elif key is _PREV:
-            page -= 1
-        else:
-            return key
+        if pages.turn(answer.lower(), write):
+            continue
+        if answer.isdecimal() and 1 <= int(answer) <= len(items):
+            return items[int(answer) - 1]
+        if answer.isdecimal() and len(items) < int(answer) <= len(items) + len(extras):
+            return extras[int(answer) - len(items) - 1].key
+        write("Pick one of the numbers listed.")
 
 
 def ask_text(label: str, *, read, write, current: str | None = None) -> Any:
@@ -166,5 +231,31 @@ def edit_field(
 
 
 def after_action(*, read, write) -> bool:
-    """True to go back to the menu, False to exit."""
+    """True to go back to the menu, False to exit.
+
+    The plain version, for an action a re-run adds nothing to (doctor). Every
+    other action gets `after_run`.
+    """
     return read("Enter = menu, 0 = exit: ").strip() != "0"
+
+
+def after_run(*, read, write, title: str = "Done", rows: Sequence[tuple[Any, str]] = ()) -> Any:
+    """The screen after an action. Returns a row's key, MENU, or EXIT.
+
+    The caller owns the rows -- Run it again, Tweak it, Create another -- because
+    what a re-run means differs per action. Main menu is always the last row,
+    Enter still means the menu and 0 still exits, so the two answers every
+    earlier screen taught keep working here.
+    """
+    labels = [label for _key, label in rows] + ["Main menu"]
+    keys = [key for key, _label in rows] + [MENU]
+    while True:
+        write(_screen(title, labels, "Exit"))
+        answer = read("Choose (Enter = main menu): ").strip()
+        if answer == "":
+            return MENU
+        if answer == "0":
+            return EXIT
+        if answer.isdecimal() and 1 <= int(answer) <= len(labels):
+            return keys[int(answer) - 1]
+        write("Pick one of the numbers listed.")

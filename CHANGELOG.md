@@ -14,6 +14,12 @@
   terminal where the cursor landed; the sibling telegram-tools 3.5.1 carries
   the same table and the same rules.
 
+- The package points at a home page now: PyPI's Homepage link is
+  https://cli-tools-site.vercel.app/, the shared page for this tool and its
+  Telegram sibling, which shows the menu running and documents every command.
+  `Repository`, `Issues` and `Changelog` still go to GitHub, and the README
+  carries the same link as a badge.
+
 ## 0.5.0 — 2026-08-31
 
 The menu release: every flag reachable, back that stops forgetting, and a look.

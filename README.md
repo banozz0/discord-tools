@@ -1,5 +1,7 @@
 # discord-tools
 
+[![Site: cli-tools-site.vercel.app](https://img.shields.io/badge/site-cli--tools--site.vercel.app-5865f2?style=flat-square&labelColor=09090b)](https://cli-tools-site.vercel.app/)
+
 A local CLI for operating your Discord **bot**: discover server/channel/thread
 IDs, list server members, search and export messages, send messages, create
 channels and threads, clear messages, and manage the bot's settings — with a

@@ -39,7 +39,7 @@ dev = [
 discord-tools = "discord_tools.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/banozz0/discord-tools"
+Homepage = "https://cli-tools-site.vercel.app/"
 Repository = "https://github.com/banozz0/discord-tools"
 Issues = "https://github.com/banozz0/discord-tools/issues"
 Changelog = "https://github.com/banozz0/discord-tools/blob/main/CHANGELOG.md"

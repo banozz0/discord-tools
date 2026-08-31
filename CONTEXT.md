@@ -10,6 +10,8 @@ The terms this codebase uses, and the boundaries they imply.
 - **Profile** — a named bot token in `~/.discord-tools/.env`
   (`DISCORD_BOT_TOKENS=name:token,...`). A bot per agent is the intended use.
   `--profile` / `DISCORD_TOOLS_PROFILE` select one; `DISCORD_TOKEN` overrides.
+  The menu can switch mid-session, which closes the old login and drops every
+  cache — both belonged to the old token.
 - **Gate** — the confirmation pattern on every destructive path, copied from
   telegram-tools verbatim: send = preview + y/N (`--yes` needs the
   allowlist), create = preview + y/N, clear = dry-run default + `--execute` +
@@ -44,8 +46,22 @@ The terms this codebase uses, and the boundaries they imply.
 - **Record** — the plain dict a message becomes (`records.py`): what search
   prints and exports write. `has_media` keeps attachment-only messages from
   reading as empty.
+- **Screen** — what `prompts._screen` renders: a title over a rule, numbered
+  rows, an optional `n`/`p` paging line, then `0`. Items are numbered across the
+  whole list, so a row never changes number when the page does. `ui.paint`
+  recognises exactly that shape and is the menu's only colour boundary — the
+  default `write`/`read` paint, every prompt still returns plain strings, and an
+  injected read/write (every test) never sees an escape code.
+- **Trail** — the breadcrumb a screen's title carries (`Main › Clear › Ops`),
+  built by `ui.crumb`. A flow passes its own trail down; a screen never invents
+  one.
+- **After-run row** — the next step a flow owns once an action has run
+  (`menu.py`): `AGAIN` re-runs inside `_act`, `STAY` is handed back for the flow
+  to answer (Tweak it, Create another, Edit more), `MENU`/`EXIT` leave it.
 - **Runner contract** — the menu calls `cli.run(args, client=..., config=...)`
   with namespaces shaped exactly like parsed flags; a passed-in client is
-  owned by the caller and never closed by `run`.
+  owned by the caller and never closed by `run`. Its exit code is what titles
+  the after-run screen: 0 is Done, 1 (a declined confirm) is Not done, and a
+  caught error is Failed.
 
 Architecture decisions with more context than fits here go to `docs/adr/`.

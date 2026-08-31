@@ -930,7 +930,8 @@ async def _flow_profile(*, session, runner, read, write) -> bool:
 
         chosen = pick(
             names,
-            title=crumb(trail, f"now {current}"),
+            # No crumb for the current profile: the row itself is marked.
+            title=trail,
             label=lambda name: f"{name}{'  (current)' if name == current else ''}",
             read=read,
             write=write,

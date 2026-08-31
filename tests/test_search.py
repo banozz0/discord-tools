@@ -4,7 +4,8 @@ from types import SimpleNamespace
 
 from conftest import FakeClient
 
-from discord_tools.search import format_message_records, search_messages
+from discord_tools.columns import width
+from discord_tools.search import PREVIEW_WIDTH, format_message_records, preview, search_messages
 
 
 def message(message_id, *, content="hello", when=None, author_name="sven", attachments=()):
@@ -67,3 +68,41 @@ def test_format_marks_media_only_messages():
 
 def test_format_empty():
     assert "No messages matched" in format_message_records([])
+
+
+WALL = "Batch 5 recorded.\n\n" + "Verdict: accept. " * 12
+
+
+def test_preview_flattens_line_breaks_and_drops_blank_ones():
+    assert preview("one\n\ntwo") == "one / two"
+
+
+def test_preview_cuts_a_long_body_and_says_so_with_an_ellipsis():
+    cut = preview(WALL)
+    assert len(cut) == PREVIEW_WIDTH
+    assert cut.endswith("…")
+    assert cut.startswith("Batch 5 recorded. / Verdict: accept.")
+
+
+def test_preview_leaves_a_short_body_whole():
+    assert preview("ship it") == "ship it"
+
+
+def test_the_table_stays_one_row_per_message_and_flags_the_cut():
+    client = FakeClient(history={55: [message(1, content=WALL), message(2, content="ship it")]})
+    text = format_message_records(search(client))
+    rows = text.split("\n")
+    assert len(rows) == 4  # two messages, the count, the cut notice
+    assert "--output" in rows[-1]
+    # Every message row fits a 120-column terminal without wrapping.
+    assert all(width(row) <= 120 for row in rows[:2])
+
+
+def test_the_cut_notice_only_appears_when_something_was_cut():
+    client = FakeClient(history={55: [message(1, content="ship it")]})
+    assert "--output" not in format_message_records(search(client))
+
+
+def test_media_survives_the_cut():
+    client = FakeClient(history={55: [message(1, content=WALL, attachments=[SimpleNamespace(filename="a.png")])]})
+    assert "[media]" in format_message_records(search(client))

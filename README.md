@@ -32,7 +32,7 @@ scripts pass a subcommand.
 | `doctor` | Checks Python, config, token, intent, joined servers; `--channel <id>` adds per-channel permission checks and a message-visibility probe |
 | `discover` | Prints the server → channel → thread tree with every ID; `--server <id>` narrows, `--json <path>` writes a file |
 | `members` | Lists a server's members (ID, username, display name, bot flag); `--output <name>` exports JSON/CSV. Needs the privileged **Server Members** intent enabled in the portal |
-| `search` | Searches a channel/thread's history locally (Discord gives bots no search API): `--keyword`, `--from-user`, `--since`, `--until`, `--limit`; `--output <name>` exports JSON/CSV |
+| `search` | Searches a channel/thread's history locally (Discord gives bots no search API): `--keyword`, `--from-user`, `--since`, `--until`, `--limit`; `--output <name>` exports JSON/CSV. The printed table previews long bodies at 70 characters — exports carry them whole |
 | `send` | Posts as the bot after a full-message preview + y/N; `--yes` skips the prompt only for channels in `DISCORD_SEND_ALLOWLIST` |
 | `create` | `channel` / `category` / `thread`, each behind a confirmation |
 | `clear-messages` | Clears either `--channel <id>` or every accessible message location under `--server <id>`. Dry-run by default; deleting for real takes `--execute` **and** typing `DELETE`. Server clears include active/archived threads and forum/media posts (`--skip-threads` leaves them untouched and clears channels only), report skipped locations, and continue past per-location failures |

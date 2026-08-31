@@ -4,6 +4,7 @@ import pytest
 
 from conftest import FakeClient
 
+from discord_tools.columns import width
 from discord_tools.discovery import build_server_entry, discover_servers, format_tree
 from discord_tools.models import ChannelInfo, ServerInfo, ThreadInfo
 
@@ -57,3 +58,15 @@ def test_format_tree_shows_every_id():
 
 def test_format_tree_empty_names_the_invite():
     assert "--invite" in format_tree([])
+
+
+def test_format_tree_lines_up_ids_after_emoji_names():
+    # ⚙️ is two codepoints drawing two columns and 📚 is one drawing two, so
+    # padding on len() put these two rows a column out of line.
+    client = FakeClient(
+        servers=[ServerInfo(id=1, name="Hermes")],
+        channels={1: [ChannelInfo(id=10, name="📚vault-alerts", type="text"), ChannelInfo(id=11, name="⚙️system-alerts", type="text")]},
+        threads={},
+    )
+    vault, system = format_tree(asyncio.run(discover_servers(client))).split("\n")[1:3]
+    assert width(vault[: vault.index("10")]) == width(system[: system.index("11")])

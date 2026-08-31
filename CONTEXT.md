@@ -52,6 +52,10 @@ The terms this codebase uses, and the boundaries they imply.
   recognises exactly that shape and is the menu's only colour boundary — the
   default `write`/`read` paint, every prompt still returns plain strings, and an
   injected read/write (every test) never sees an escape code.
+- **Column** — a name padded to a fixed width so the ID beside it lines up
+  (`columns.py`). Measured in terminal columns, never in codepoints: an emoji
+  draws two, a variation selector draws none. `cell` cuts to fit (a picker row
+  must stay one line), `pad` never cuts (a tree's reader came for the name).
 - **Trail** — the breadcrumb a screen's title carries (`Main › Clear › Ops`),
   built by `ui.crumb`. A flow passes its own trail down; a screen never invents
   one.

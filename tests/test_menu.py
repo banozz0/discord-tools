@@ -4,6 +4,7 @@ import pytest
 from conftest import FakeClient
 
 from discord_tools.client import ClientError
+from discord_tools.columns import width
 from discord_tools.config import Config
 from discord_tools.menu import MenuSession, run_menu
 from discord_tools.models import ChannelInfo, MemberInfo, ServerInfo, ThreadInfo
@@ -389,3 +390,31 @@ def test_menu_session_loads_the_asked_for_profile(monkeypatch):
     session = MenuSession(profile="harry")
     assert session.config.profile == "harry"
     assert seen["profile"] == "harry"
+
+
+def test_channel_picker_lines_up_ids_after_emoji_names():
+    # The live picker put ⚙️system-alerts one column left of 📚vault-alerts:
+    # padding counted codepoints, the terminal draws columns.
+    session = make_session(
+        make_client(
+            channels={
+                1: [
+                    ChannelInfo(id=1542655090899288150, name="🚨alerts", type="text"),
+                    ChannelInfo(id=1542655103792586802, name="📰briefings", type="text"),
+                ]
+            },
+            threads={
+                1: [
+                    ThreadInfo(id=1542655133387591680, name="📚vault-alerts", parent_id=1542655090899288150),
+                    ThreadInfo(id=1542655124046880899, name="⚙️system-alerts", parent_id=1542655090899288150),
+                ]
+            },
+        )
+    )
+    _code, _calls, output = drive([SEARCH, "0", "0"], session=session)
+    rows = [line for line in screens(output).split("\n") if "15426551" in line or "15426550" in line]
+    assert len(rows) == 4
+    starts = {width(row[: row.index("15426")]) for row in rows if row.lstrip().startswith(("1.", "2."))}
+    assert len(starts) == 1  # the two channel rows
+    thread_starts = {width(row[: row.index("15426")]) for row in rows if ">" in row}
+    assert len(thread_starts) == 1  # ...and the two thread rows under them

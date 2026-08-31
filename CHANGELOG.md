@@ -43,6 +43,15 @@ The menu release: every flag reachable, back that stops forgetting, and a look.
 - The root menu is reordered so the two discovery entries sit together:
   servers & channels 1, members 2, search 3, send 4, create 5, clear 6, my bot
   7, guided setup 8, check setup 9, switch profile 10.
+- Every picker and the `discover` tree pad their name column by how many
+  terminal columns a name actually draws, not by how many codepoints it holds.
+  A channel called `⚙️system-alerts` used to sit one column left of
+  `📚vault-alerts` — the variation selector counts as a codepoint and draws
+  nothing, while an emoji draws two columns from one. Found in Sven's try-it.
+- `search`'s printed table cuts a long body at 70 characters and says so once at
+  the bottom, instead of printing whole posts and burying every row around them.
+  Blank lines collapse and a real line break still shows as ` / `. The table is
+  for finding a message; `--output` is how you read one. No export changed.
 - No flag changed, and `send`, `create` and `bot --yes` stay out of the menu:
   it is still never a shorter path past a gate.
 

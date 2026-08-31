@@ -7,6 +7,7 @@ from typing import Any
 
 from discord_tools import cli, ui
 from discord_tools.client import API_ERRORS, ClientError, start_client
+from discord_tools.columns import cell
 from discord_tools.config import ConfigError, load_config
 from discord_tools.prompts import (
     BACK,
@@ -203,7 +204,7 @@ async def _pick_server(*, session, read, write, trail: str = MAIN) -> Any:
     return pick(
         servers,
         title=crumb(trail, "Pick a server"),
-        label=lambda server: f"{server.name[:32]:<32}  {server.id}",
+        label=lambda server: f"{cell(server.name, 32)}  {server.id}",
         read=read,
         write=write,
     )
@@ -227,10 +228,10 @@ async def _pick_channel(*, session, read, write, messageable_only: bool = True, 
         for channel in channels:
             if channel.is_category or (messageable_only and not channel.is_messageable):
                 continue
-            rows.append((channel, f"# {channel.name[:30]:<30}  {channel.id}"))
+            rows.append((channel, f"# {cell(channel.name, 30)}  {channel.id}"))
             for thread in threads:
                 if thread.parent_id == channel.id:
-                    rows.append((thread, f"  > {thread.name[:28]:<28}  {thread.id}"))
+                    rows.append((thread, f"  > {cell(thread.name, 28)}  {thread.id}"))
 
         chosen = pick(
             rows,
@@ -568,7 +569,7 @@ def _pick_category(categories, *, title, read, write) -> Any:
             chosen = pick(
                 categories,
                 title=title,
-                label=lambda category: f"{category.name[:30]:<30}  {category.id}",
+                label=lambda category: f"{cell(category.name, 30)}  {category.id}",
                 read=read,
                 write=write,
                 extras=extras,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from discord_tools.columns import pad
 from discord_tools.models import ChannelInfo, ServerInfo, ThreadInfo
 
 
@@ -58,9 +59,9 @@ def build_server_entry(
 
 
 def _format_channel(entry: dict[str, Any], indent: str) -> list[str]:
-    lines = [f"{indent}# {entry['name']:<28} {entry['id']}  ({entry['type']})"]
+    lines = [f"{indent}# {pad(entry['name'], 28)} {entry['id']}  ({entry['type']})"]
     for thread in entry["threads"]:
-        lines.append(f"{indent}  > {thread['name']:<26} {thread['id']}  (thread)")
+        lines.append(f"{indent}  > {pad(thread['name'], 26)} {thread['id']}  (thread)")
     return lines
 
 

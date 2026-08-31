@@ -7,7 +7,7 @@ agent is the intended use, `--profile <name>` picks one.
 
 `SPEC.md` is the build contract — read it before touching code. Shaping record:
 `~/code/incubator/discord-tools/IDEA.md`. Conventions mirror
-`~/code/telegram-tools` (v3.5.0) deliberately: same menu-vs-subcommand split,
+`~/code/telegram-tools` (v3.6.0) deliberately: same menu-vs-subcommand split,
 same test culture, same release recipe — when in doubt, look at the sibling.
 
 ## Commands

@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 # the distribution is discord-tools-cli; the console script stays discord-tools.
 name = "discord-tools-cli"
 version = "0.5.1"
-description = "Local Discord bot CLI for server/channel/thread ID discovery, message search/export, sending, channel creation, message clearing, and bot settings — with a guided Developer Portal setup."
+description = "Local CLI for your own Discord servers, driven by a bot you own: server/channel/thread ID discovery, message search/export, sending, channel creation, message clearing, and bot settings — with a guided Developer Portal setup."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }

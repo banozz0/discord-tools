@@ -20,6 +20,15 @@
   `Repository`, `Issues` and `Changelog` still go to GitHub, and the README
   carries the same link as a badge.
 
+- The README and the PyPI summary lead with what you control instead of how it
+  authenticates. "A local CLI for operating your Discord **bot**" made the bot
+  the subject of the sentence, which reads like a tool for building bots rather
+  than one for running the servers you already have; both lines now open with
+  "your own Discord servers, driven by a bot you own", and the README says in
+  one clause why a bot is involved at all — Discord does not allow automating a
+  person's account. Wording only: no command, flag or behaviour changed, and
+  the no-self-bots rule is stated as plainly as before.
+
 ## 0.5.0 — 2026-08-31
 
 The menu release: every flag reachable, back that stops forgetting, and a look.

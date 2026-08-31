@@ -2,15 +2,16 @@
 
 [![Site: cli-tools-site.vercel.app](https://img.shields.io/badge/site-cli--tools--site.vercel.app-5865f2?style=flat-square&labelColor=09090b)](https://cli-tools-site.vercel.app/)
 
-A local CLI for operating your Discord **bot**: discover server/channel/thread
-IDs, list server members, search and export messages, send messages, create
-channels and threads, clear messages, and manage the bot's settings — with a
-guided setup that walks you through the Discord Developer Portal (the BotFather
-it never had).
+A local CLI for your own Discord servers, driven by a bot you own: discover
+server, channel and thread IDs, list server members, search and export
+messages, send messages, create channels and threads, clear messages, and
+manage the bot's settings — with a guided setup that walks you through the
+Discord Developer Portal.
 
 Sibling of [telegram-tools](https://github.com/banozz0/telegram-tools): same
 menu for humans, same subcommands for agents, same safety gates on anything
-destructive. Bot-token auth only — no self-bots, ever (Discord ToS).
+destructive. Bot-token auth only: Discord does not allow automating a person's
+account, so this drives a bot instead — no self-bots, ever (ToS).
 
 ## Install
 

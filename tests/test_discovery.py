@@ -61,12 +61,21 @@ def test_format_tree_empty_names_the_invite():
 
 
 def test_format_tree_lines_up_ids_after_emoji_names():
-    # ⚙️ is two codepoints drawing two columns and 📚 is one drawing two, so
-    # padding on len() put these two rows a column out of line.
+    # 📚 is one codepoint drawing two columns, ⚙️ two drawing one and 🇲🇹 two
+    # drawing four, so padding on len() put these rows out of line by up to
+    # three columns.
     client = FakeClient(
         servers=[ServerInfo(id=1, name="Hermes")],
-        channels={1: [ChannelInfo(id=10, name="📚vault-alerts", type="text"), ChannelInfo(id=11, name="⚙️system-alerts", type="text")]},
+        channels={
+            1: [
+                ChannelInfo(id=10, name="📚vault-alerts", type="text"),
+                ChannelInfo(id=11, name="⚙️system-alerts", type="text"),
+                ChannelInfo(id=12, name="⚠️incidents", type="text"),
+                ChannelInfo(id=13, name="🇲🇹malta", type="text"),
+            ]
+        },
         threads={},
     )
-    vault, system = format_tree(asyncio.run(discover_servers(client))).split("\n")[1:3]
-    assert width(vault[: vault.index("10")]) == width(system[: system.index("11")])
+    rows = format_tree(asyncio.run(discover_servers(client))).split("\n")[1:5]
+    starts = {width(row[: row.index(str(number))]) for row, number in zip(rows, (10, 11, 12, 13))}
+    assert len(starts) == 1

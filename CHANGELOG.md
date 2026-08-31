@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.1 — 2026-08-31
+
+- The picker's column widths are measured now, not assumed. 0.5.0 taught every
+  picker and the discover tree to pad in terminal columns, but two of its rules
+  were guesses and a real terminal disagreed on 5 of 14 shapes: `⚠️`, `❤️` and
+  `ℹ️` draw one column and not two (a variation selector draws nothing and does
+  not widen the character before it), a flag such as `🇲🇹` draws four and not two
+  (the terminal draws each half two wide instead of fusing the pair). So a
+  channel named `⚠️alerts` or `🇲🇹malta-briefings` still had its ID out of line —
+  the exact bug 0.5.0 set out to fix. `tests/test_columns.py` now carries the
+  fourteen shapes as a table, each one measured by printing it and asking the
+  terminal where the cursor landed; the sibling telegram-tools 3.5.1 carries
+  the same table and the same rules.
+
 ## 0.5.0 — 2026-08-31
 
 The menu release: every flag reachable, back that stops forgetting, and a look.

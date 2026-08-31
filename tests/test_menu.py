@@ -394,13 +394,14 @@ def test_menu_session_loads_the_asked_for_profile(monkeypatch):
 
 def test_channel_picker_lines_up_ids_after_emoji_names():
     # The live picker put ⚙️system-alerts one column left of 📚vault-alerts:
-    # padding counted codepoints, the terminal draws columns.
+    # padding counted codepoints, the terminal draws columns. ⚠️ and a flag
+    # are the shapes the first attempt at those columns still got wrong.
     session = make_session(
         make_client(
             channels={
                 1: [
-                    ChannelInfo(id=1542655090899288150, name="🚨alerts", type="text"),
-                    ChannelInfo(id=1542655103792586802, name="📰briefings", type="text"),
+                    ChannelInfo(id=1542655090899288150, name="⚠️alerts", type="text"),
+                    ChannelInfo(id=1542655103792586802, name="🇲🇹briefings", type="text"),
                 ]
             },
             threads={

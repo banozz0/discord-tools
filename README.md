@@ -4,7 +4,7 @@
 
 A local CLI for your own Discord servers, driven by a bot you own: discover
 server, channel and thread IDs, list server members, search and export
-messages, send messages, create channels and threads, clear messages, and
+messages, send messages, create and delete channels and threads, clear messages, and
 manage the bot's settings — with a guided setup that walks you through the
 Discord Developer Portal.
 
@@ -37,7 +37,9 @@ scripts pass a subcommand.
 | `members` | Lists a server's members (ID, username, display name, bot flag); `--output <name>` exports JSON/CSV. Needs the privileged **Server Members** intent enabled in the portal |
 | `search` | Searches a channel/thread's history locally (Discord gives bots no search API): `--keyword`, `--from-user`, `--since`, `--until`, `--limit`; `--output <name>` exports JSON/CSV. The printed table previews long bodies at 70 characters — exports carry them whole |
 | `send` | Posts as the bot after a full-message preview + y/N; `--yes` skips the prompt only for channels in `DISCORD_SEND_ALLOWLIST` |
-| `create` | `channel` / `category` / `thread`, each behind a confirmation |
+| `create` | `channel` (`--type text/news/voice/stage_voice/forum/media`) / `category` / `thread` (`--private`), each behind a confirmation. Every type `delete` can remove, `create` can make again |
+| `delete` | `channel` / `category` / `thread`. Dry-run by default; deleting for real takes `--execute` **and** typing the target's exact name. Deleting a category leaves its channels alive, just uncategorised. There is no `--yes` — deletion always needs a human |
+| `leave-server` | Makes the bot leave `--server <id>`; nothing in the server is deleted. Same gate as `delete`. Discord gives a bot no way to delete a server (that needs ownership, which a bot never has) |
 | `clear-messages` | Clears either `--channel <id>` or every accessible message location under `--server <id>`. Dry-run by default; deleting for real takes `--execute` **and** typing `DELETE`. Server clears include active/archived threads and forum/media posts (`--skip-threads` leaves them untouched and clears channels only), report skipped locations, and continue past per-location failures |
 | `bot` | Shows the active profile's bot (username, description, avatar, intent, invite URL); edits go behind a diff + confirm |
 
@@ -79,8 +81,13 @@ with something typed in it — a message, search filters, bot edits — asks fir
 Every flag has a row: `members`, `doctor --channel`, `bot --invite`, `bot --json`, a
 manual category ID for `create channel`, and *Switch profile* for the bot the rest of
 the session acts as. The exceptions are deliberate — `send`, `create` and `bot` never
-get `--yes` from the menu, and `clear-messages` always dry-runs first and still asks
-you to type `DELETE`. The menu is never a shorter path past a gate.
+get `--yes` from the menu, `clear-messages` always dry-runs first and still asks you to
+type `DELETE`, and `delete` and *Leave a server* dry-run first and still ask you to type
+the target's own name. The menu is never a shorter path past a gate.
+
+*Delete* lists categories, channels and threads nested the way Discord shows them and
+works out what kind of thing you picked, so you confirm the thing you saw rather than a
+name off a flat list.
 
 The message box takes several lines — end it with a `.` on its own line — so pasting
 a multi-line message works instead of feeding its later lines to the menu as answers.

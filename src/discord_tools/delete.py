@@ -5,7 +5,13 @@ from collections.abc import Callable, Iterable
 from datetime import UTC, datetime, timedelta
 
 from discord_tools.client import API_ERRORS, ClientError
-from discord_tools.models import DeleteResult
+from discord_tools.models import (
+    CATEGORY_TYPES,
+    GUILD_CHANNEL_TYPES,
+    THREAD_TYPES,
+    ContainerDeleteResult,
+    DeleteResult,
+)
 from discord_tools.records import snowflake_time
 
 # Discord's bulk-delete endpoint rejects messages older than 14 days, hard.
@@ -306,3 +312,167 @@ async def clear_server_messages(
         "cancelled": cancelled,
         "failures": failures,
     }
+
+
+# -- deleting the container itself ----------------------------------------
+
+RULE = "--------------------------------------------"
+
+# Which real Discord types each `delete` noun accepts. Naming the kind is the
+# second lock on the gate: pointing `delete thread` at a category is a typo
+# worth refusing, not a deletion worth confirming.
+DELETE_KIND_TYPES = {
+    "channel": GUILD_CHANNEL_TYPES,
+    "category": CATEGORY_TYPES,
+    "thread": THREAD_TYPES,
+}
+
+def kind_for_type(type_name: str) -> str | None:
+    """Which `delete` noun owns a real Discord type, or None if it owns none.
+
+    Lets a caller that already knows what it picked skip asking the user to
+    name the kind a second time.
+    """
+    for kind, types in DELETE_KIND_TYPES.items():
+        if type_name in types:
+            return kind
+    return None
+
+
+DELETE_CONSEQUENCES = {
+    "channel": """\
+GONE: The channel and every message in it.
+GONE: Every thread and forum post inside it.
+OK:   The rest of the server is untouched.""",
+    "category": """\
+GONE: The category itself.
+OK:   Channels inside it SURVIVE - they simply stop
+      being filed under a category. Nothing in them is lost.""",
+    "thread": """\
+GONE: The thread and every message in it.
+OK:   The parent channel is untouched.""",
+}
+
+LEAVE_SERVER_WARNING = """\
+====================================================
+WARNING: LEAVE SERVER
+
+The bot will leave this server. Discord gives a bot no
+way to delete a server it does not own, and a bot never
+owns one.
+
+OK:   Nothing in the server is deleted.
+NOTE: Getting back in needs a fresh invite from someone
+      with Manage Server.
+===================================================="""
+
+
+def format_delete_preview(kind: str, name: str, target_id: int, *, where: str) -> str:
+    """What is about to stop existing, so the typed name is an informed answer."""
+    return "\n".join(
+        [
+            "====================================================",
+            f"WARNING: DELETE {kind.upper()}",
+            "",
+            "This permanently deletes a real object on Discord.",
+            "Discord does not undo this.",
+            RULE,
+            f"Kind   {kind}",
+            f"Name   {name}",
+            f"ID     {target_id}",
+            f"Where  {where}",
+            RULE,
+            DELETE_CONSEQUENCES[kind],
+            "====================================================",
+        ]
+    )
+
+
+def confirm_delete(
+    preview: str, name: str, *, read: Callable[[str], str] = input, write: Callable[[str], None] = print
+) -> str:
+    """Ask for the target's own name.
+
+    Typing DELETE would only prove intent to delete something; typing the name
+    proves intent to delete *this* one, which is the mistake worth catching.
+    """
+    write(preview)
+    return read(f"Type the exact name ({name}) to continue: ")
+
+
+def _names_match(typed: str, name: str) -> bool:
+    # Case-insensitive for the same reason the DELETE gate is: the proof of
+    # intent is knowing which object you picked, not holding the shift key.
+    return typed.strip().casefold() == name.casefold()
+
+
+async def delete_container(
+    client,
+    target_id: int,
+    *,
+    kind: str,
+    execute: bool = False,
+    confirm: Callable[[str, str], str] = confirm_delete,
+    progress: Callable[[str], None] | None = None,
+) -> ContainerDeleteResult:
+    """Delete one channel, category, or thread after a dry-run and a typed name."""
+    progress = progress or (lambda _message: None)
+
+    target = await client.get_channel(target_id)
+    allowed = DELETE_KIND_TYPES[kind]
+    if target.type not in allowed:
+        raise ValueError(
+            f"{target_id} is a {target.type}, not a {kind}. "
+            f"`delete {kind}` accepts: {', '.join(allowed)}."
+        )
+
+    where = f"parent {target.parent_id}" if target.parent_id else "top level"
+    preview = format_delete_preview(kind, target.name, target.id, where=where)
+
+    if not execute:
+        progress(preview)
+        progress(f"Dry-run: {kind} {target.name} ({target.id}) would be deleted. Re-run with --execute to do it.")
+        return ContainerDeleteResult(kind=kind, id=target.id, name=target.name, dry_run=True)
+
+    if not _names_match(confirm(preview, target.name), target.name):
+        progress(f"Delete {kind} cancelled - the typed name did not match.")
+        return ContainerDeleteResult(kind=kind, id=target.id, name=target.name, dry_run=False, cancelled=True)
+
+    await client.delete_channel(target.id)
+    progress(f"Deleted {kind} {target.name} ({target.id})")
+    return ContainerDeleteResult(kind=kind, id=target.id, name=target.name, dry_run=False, deleted=True)
+
+
+def confirm_leave_server(
+    name: str, *, read: Callable[[str], str] = input, write: Callable[[str], None] = print
+) -> str:
+    write(LEAVE_SERVER_WARNING)
+    return read(f"Type the exact server name ({name}) to continue: ")
+
+
+async def leave_server(
+    client,
+    server_id: int,
+    *,
+    execute: bool = False,
+    confirm: Callable[[str], str] = confirm_leave_server,
+    progress: Callable[[str], None] | None = None,
+) -> ContainerDeleteResult:
+    progress = progress or (lambda _message: None)
+
+    server = next((entry for entry in await client.list_servers() if entry.id == server_id), None)
+    if server is None:
+        raise ValueError(f"The bot is not in a server with ID {server_id}.")
+
+    if not execute:
+        progress(LEAVE_SERVER_WARNING)
+        progress(f"Dry-run: the bot would leave {server.name} ({server.id}). Re-run with --execute to do it.")
+        return ContainerDeleteResult(kind="server", id=server.id, name=server.name, dry_run=True)
+
+    if not _names_match(confirm(server.name), server.name):
+        progress("Leave server cancelled - the typed name did not match.")
+        return ContainerDeleteResult(kind="server", id=server.id, name=server.name, dry_run=False, cancelled=True)
+
+    await client.leave_server(server.id)
+    progress(f"Left {server.name} ({server.id})")
+    return ContainerDeleteResult(kind="server", id=server.id, name=server.name, dry_run=False, deleted=True)

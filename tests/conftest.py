@@ -49,6 +49,8 @@ class FakeClient:
         self.deleted_single: list[tuple[int, int]] = []
         self.deleted_bulk: list[tuple[int, list[int]]] = []
         self.created: list[dict] = []
+        self.deleted_channels: list[int] = []
+        self.left_servers: list[int] = []
         self.user_edits: list[dict] = []
         self.application_edits: list[dict] = []
         self.next_id = 900
@@ -103,20 +105,28 @@ class FakeClient:
     async def bulk_delete(self, channel_id, message_ids):
         self.deleted_bulk.append((channel_id, list(message_ids)))
 
-    async def create_channel(self, server_id, name, *, category_id=None):
+    async def create_channel(self, server_id, name, *, category_id=None, kind="text"):
         self.next_id += 1
-        self.created.append({"kind": "channel", "server_id": server_id, "name": name, "category_id": category_id})
-        return ChannelInfo(id=self.next_id, name=name, type="text", parent_id=category_id)
+        self.created.append(
+            {"kind": "channel", "server_id": server_id, "name": name, "category_id": category_id, "type": kind}
+        )
+        return ChannelInfo(id=self.next_id, name=name, type=kind, parent_id=category_id)
 
     async def create_category(self, server_id, name):
         self.next_id += 1
         self.created.append({"kind": "category", "server_id": server_id, "name": name})
         return ChannelInfo(id=self.next_id, name=name, type="category", parent_id=None)
 
-    async def create_thread(self, channel_id, name):
+    async def create_thread(self, channel_id, name, *, private=False):
         self.next_id += 1
-        self.created.append({"kind": "thread", "channel_id": channel_id, "name": name})
+        self.created.append({"kind": "thread", "channel_id": channel_id, "name": name, "private": private})
         return ThreadInfo(id=self.next_id, name=name, parent_id=channel_id, archived=False)
+
+    async def delete_channel(self, channel_id):
+        self.deleted_channels.append(channel_id)
+
+    async def leave_server(self, server_id):
+        self.left_servers.append(server_id)
 
     async def permissions_in(self, channel_id):
         return dict(self.permissions.get(channel_id, {}))

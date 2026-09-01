@@ -9,6 +9,7 @@ from discord_tools import cli, ui
 from discord_tools.client import API_ERRORS, ClientError, start_client
 from discord_tools.columns import cell
 from discord_tools.config import ConfigError, load_config
+from discord_tools.delete import kind_for_type
 from discord_tools.prompts import (
     BACK,
     CLEAR,
@@ -37,7 +38,9 @@ ROOT_ITEMS = (
     "Search / export messages",
     "Send a message",
     "Create a channel, category, or thread",
+    "Delete a channel, category, or thread",
     "Clear messages",
+    "Leave a server",
     "My bot",
     "Set up a bot (guided)",
     "Check setup",
@@ -548,9 +551,25 @@ async def _flow_send(*, session, runner, read, write) -> bool:
 CREATE_ANOTHER = (STAY, "Create another")
 
 CREATE_KINDS = (
-    ("channel", "Text channel"),
+    ("channel", "Channel"),
     ("category", "Category"),
     ("thread", "Thread in a text channel"),
+)
+
+# Every type `delete` accepts, in the order a human reaches for them. Text
+# first: it is the common answer and should stay one keystroke away.
+CREATE_CHANNEL_TYPES = (
+    ("text", "Text channel"),
+    ("voice", "Voice channel"),
+    ("forum", "Forum channel"),
+    ("news", "Announcement channel"),
+    ("stage_voice", "Stage channel"),
+    ("media", "Media channel"),
+)
+
+CREATE_THREAD_KINDS = (
+    (False, "Public thread"),
+    (True, "Private thread"),
 )
 
 _TYPE_A_CATEGORY = "Type a category ID"
@@ -603,19 +622,48 @@ async def _flow_create(*, session, runner, read, write) -> bool:
         kind_trail = crumb(trail, label)
 
         if kind == "thread":
+            visibility = choose(
+                [label for _private, label in CREATE_THREAD_KINDS],
+                title=crumb(kind_trail, "Visibility"),
+                read=read,
+                write=write,
+            )
+            if visibility is BACK:
+                continue
+            private, _visibility_label = CREATE_THREAD_KINDS[visibility]
             picked = await _pick_channel(session=session, read=read, write=write, trail=kind_trail)
             if picked is BACK:
                 continue
             name = ask_text("Thread name", read=read, write=write)
             if name is BACK:
                 continue
-            args = _namespace(command="create", create_kind="thread", channel=picked.id, name=name, yes=False)
+            args = _namespace(
+                command="create",
+                create_kind="thread",
+                channel=picked.id,
+                name=name,
+                private=private,
+                yes=False,
+            )
             result = await _act(
                 args, session=session, runner=runner, read=read, write=write, trail=kind_trail, rows=(CREATE_ANOTHER,)
             )
             if result is not STAY:
                 return result is not EXIT
             continue
+
+        channel_type = "text"
+        if kind == "channel":
+            picked_type = choose(
+                [type_label for _name, type_label in CREATE_CHANNEL_TYPES],
+                title=crumb(kind_trail, "Channel type"),
+                read=read,
+                write=write,
+            )
+            if picked_type is BACK:
+                continue
+            channel_type, label = CREATE_CHANNEL_TYPES[picked_type]
+            kind_trail = crumb(trail, label)
 
         server = await _pick_server(session=session, read=read, write=write, trail=kind_trail)
         if server is BACK:
@@ -639,10 +687,175 @@ async def _flow_create(*, session, runner, read, write) -> bool:
             server=server.id,
             name=name,
             category=category_id,
+            channel_type=channel_type,
             yes=False,
         )
         result = await _act(
             args, session=session, runner=runner, read=read, write=write, trail=kind_trail, rows=(CREATE_ANOTHER,)
+        )
+        if result is not STAY:
+            return result is not EXIT
+
+
+# Deleting twice is never what anyone means -- the thing is gone -- so the row
+# after one is "delete something else", back at the target list.
+DELETE_ANOTHER = (STAY, "Delete something else")
+
+_DELETE_TYPE_LABELS = {
+    "category": "category",
+    "text": "text channel",
+    "news": "announcement channel",
+    "voice": "voice channel",
+    "stage_voice": "stage channel",
+    "forum": "forum channel",
+    "media": "media channel",
+    "public_thread": "thread",
+    "private_thread": "private thread",
+    "news_thread": "announcement thread",
+}
+
+
+async def _pick_deletable(*, session, read, write, trail: str) -> Any:
+    """Anything the bot could delete in one server, or BACK.
+
+    Categories, channels and threads in one list, nested the way Discord shows
+    them, so the thing picked is the thing seen -- picking off a flat list of
+    names is how the wrong `general` gets deleted.
+    """
+    while True:
+        server = await _pick_server(session=session, read=read, write=write, trail=trail)
+        if server is BACK:
+            return BACK
+
+        channels = await session.channels(server.id)
+        threads = await session.threads(server.id)
+        categories = [channel for channel in channels if channel.is_category]
+        loose = [channel for channel in channels if not channel.is_category]
+
+        rows: list[tuple[Any, str]] = []
+
+        def add_channel(channel, indent: str) -> None:
+            rows.append((channel, f"{indent}# {cell(channel.name, 28)}  {channel.id}"))
+            for thread in threads:
+                if thread.parent_id == channel.id:
+                    rows.append((thread, f"{indent}  > {cell(thread.name, 26)}  {thread.id}"))
+
+        for category in categories:
+            rows.append((category, f"[] {cell(category.name, 28)}  {category.id}"))
+            for channel in loose:
+                if channel.parent_id == category.id:
+                    add_channel(channel, "  ")
+        for channel in loose:
+            if channel.parent_id not in {category.id for category in categories}:
+                add_channel(channel, "")
+
+        chosen = pick(
+            rows,
+            title=crumb(trail, f"Pick what to delete in {server.name}"),
+            label=lambda row: row[1],
+            read=read,
+            write=write,
+            extras=(Extra("manual", _TYPE_AN_ID),),
+        )
+        if chosen is BACK:
+            if await _single_server(session):
+                return BACK
+            continue
+        if chosen == "manual":
+            typed = _ask_id("Channel, category, or thread ID", read=read, write=write)
+            if typed is BACK:
+                continue
+            client = await session.client()
+            return await client.get_channel(typed)
+        return chosen[0]
+
+
+async def _flow_delete(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Delete")
+    while True:
+        target = await _pick_deletable(session=session, read=read, write=write, trail=trail)
+        if target is BACK:
+            return True
+
+        # A thread from the listing has no `type`; everything else names its own.
+        type_name = getattr(target, "type", None) or "public_thread"
+        kind = kind_for_type(type_name)
+        if kind is None:
+            write(f"error: {target.name} is a {type_name}, which discord-tools cannot delete.")
+            if not after_action(read=read, write=write):
+                return False
+            continue
+
+        where = crumb(trail, f"{_DELETE_TYPE_LABELS.get(type_name, type_name)} {target.name}")
+        dry_run = _namespace(
+            command="delete",
+            delete_kind=kind,
+            channel=target.id,
+            category=target.id,
+            thread=target.id,
+            execute=False,
+        )
+
+        # The dry-run always runs first: the menu must never be a shorter path
+        # to a deletion than the flags are.
+        if await _call(dry_run, session=session, runner=runner, write=write) is None:
+            return after_action(read=read, write=write)
+
+        choice = choose(
+            [f"Delete it for real (asks you to type {target.name})"],
+            title=crumb(where, "Dry-run done"),
+            read=read,
+            write=write,
+            back_label="Back to the target list",
+        )
+        if choice is BACK:
+            continue
+
+        for_real = _namespace(**{**vars(dry_run), "execute": True})
+        result = await _act(
+            for_real,
+            session=session,
+            runner=runner,
+            read=read,
+            write=write,
+            trail=where,
+            rows=(DELETE_ANOTHER,),
+        )
+        if result is not STAY:
+            return result is not EXIT
+
+
+async def _flow_leave(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Leave a server")
+    while True:
+        server = await _pick_server(session=session, read=read, write=write, trail=trail)
+        if server is BACK:
+            return True
+
+        where = crumb(trail, server.name)
+        dry_run = _namespace(command="leave-server", server=server.id, execute=False)
+        if await _call(dry_run, session=session, runner=runner, write=write) is None:
+            return after_action(read=read, write=write)
+
+        choice = choose(
+            [f"Leave it for real (asks you to type {server.name})"],
+            title=crumb(where, "Nothing is deleted"),
+            read=read,
+            write=write,
+            back_label="Back to the server list",
+        )
+        if choice is BACK:
+            continue
+
+        for_real = _namespace(**{**vars(dry_run), "execute": True})
+        result = await _act(
+            for_real,
+            session=session,
+            runner=runner,
+            read=read,
+            write=write,
+            trail=where,
+            rows=((STAY, "Leave another"),),
         )
         if result is not STAY:
             return result is not EXIT
@@ -971,7 +1184,9 @@ async def run_menu(*, read=None, write=None, session=None, runner=None, profile:
         _flow_search,
         _flow_send,
         _flow_create,
+        _flow_delete,
         _flow_clear,
+        _flow_leave,
         _flow_bot,
         _flow_auth,
         _flow_doctor,

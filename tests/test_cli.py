@@ -7,7 +7,7 @@ from conftest import FakeClient
 
 from discord_tools.cli import build_parser, positive_int, run, snowflake
 from discord_tools.config import Config
-from discord_tools.models import ChannelInfo, MemberInfo, ServerInfo, ThreadInfo
+from discord_tools.models import GUILD_CHANNEL_TYPES, ChannelInfo, MemberInfo, ServerInfo, ThreadInfo
 
 TEST_CONFIG = Config(token="a.b.c")
 
@@ -432,3 +432,98 @@ def test_discover_json_writes_a_file_not_stdout(tmp_path, capsys):
     assert capsys.readouterr().out == ""
     tree = json.loads(path.read_text())
     assert tree[0]["name"] == "Ops"
+
+
+# -- delete ---------------------------------------------------------------
+
+DELETE_SERVER = ServerInfo(id=1, name="My Server")
+DELETE_CHANNELS = {
+    10: ChannelInfo(id=10, name="general", type="text", parent_id=5),
+    5: ChannelInfo(id=5, name="Work", type="category"),
+    77: ChannelInfo(id=77, name="standup", type="public_thread", parent_id=10),
+}
+
+
+def delete_client():
+    return FakeClient(channel_info=dict(DELETE_CHANNELS), servers=[DELETE_SERVER])
+
+
+def test_delete_without_a_kind_says_which_kinds_exist():
+    client = delete_client()
+    with pytest.raises(ValueError) as excinfo:
+        run_cli(["delete"], client)
+    assert "channel, category, thread" in str(excinfo.value)
+    assert "leave-server" in str(excinfo.value)
+
+
+def test_delete_is_a_dry_run_by_default(capsys):
+    client = delete_client()
+    assert run_cli(["delete", "channel", "--channel", "10"], client) == 0
+    assert client.deleted_channels == []
+    printed = capsys.readouterr().out
+    assert "general" in printed
+    assert '"dry_run": true' in printed
+
+
+def test_delete_execute_needs_the_exact_name(monkeypatch):
+    client = delete_client()
+    monkeypatch.setattr("discord_tools.cli.confirm_delete", lambda _preview, _name: "nope")
+    assert run_cli(["delete", "channel", "--channel", "10", "--execute"], client) == 1
+    assert client.deleted_channels == []
+
+    monkeypatch.setattr("discord_tools.cli.confirm_delete", lambda _preview, name: name)
+    assert run_cli(["delete", "channel", "--channel", "10", "--execute"], client) == 0
+    assert client.deleted_channels == [10]
+
+
+def test_delete_category_reaches_the_category(monkeypatch):
+    client = delete_client()
+    monkeypatch.setattr("discord_tools.cli.confirm_delete", lambda _preview, name: name)
+    assert run_cli(["delete", "category", "--category", "5", "--execute"], client) == 0
+    assert client.deleted_channels == [5]
+
+
+def test_delete_thread_refuses_a_category_id(monkeypatch):
+    client = delete_client()
+    monkeypatch.setattr("discord_tools.cli.confirm_delete", lambda _preview, name: name)
+    with pytest.raises(ValueError):
+        run_cli(["delete", "thread", "--thread", "5", "--execute"], client)
+    assert client.deleted_channels == []
+
+
+def test_leave_server_dry_run_then_execute(monkeypatch):
+    client = delete_client()
+    assert run_cli(["leave-server", "--server", "1"], client) == 0
+    assert client.left_servers == []
+
+    monkeypatch.setattr("discord_tools.cli.confirm_leave_server", lambda name: name)
+    assert run_cli(["leave-server", "--server", "1", "--execute"], client) == 0
+    assert client.left_servers == [1]
+
+
+# -- create parity --------------------------------------------------------
+
+
+def test_create_channel_type_reaches_the_client():
+    client = FakeClient(servers=[DELETE_SERVER])
+    assert run_cli(["create", "channel", "--server", "1", "--name", "lounge", "--type", "voice", "--yes"], client) == 0
+    assert client.created[0]["type"] == "voice"
+
+
+def test_create_channel_defaults_to_text():
+    client = FakeClient(servers=[DELETE_SERVER])
+    run_cli(["create", "channel", "--server", "1", "--name", "notes", "--yes"], client)
+    assert client.created[0]["type"] == "text"
+
+
+def test_create_private_thread():
+    client = FakeClient(channel_info=dict(DELETE_CHANNELS))
+    run_cli(["create", "thread", "--channel", "10", "--name", "secret", "--private", "--yes"], client)
+    assert client.created[0]["private"] is True
+
+
+def test_create_offers_every_type_delete_accepts():
+    parser = build_parser()
+    for kind in GUILD_CHANNEL_TYPES:
+        args = parser.parse_args(["create", "channel", "--server", "1", "--name", "x", "--type", kind])
+        assert args.channel_type == kind

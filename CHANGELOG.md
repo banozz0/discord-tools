@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.6.0 — 2026-09-01
+
+- `delete` removes the container, not just the messages inside it. The tool
+  could make a channel, a category or a thread and then had no way to take one
+  back — a server scaffolded with discord-tools could only be unscaffolded in
+  the app. `discord-tools delete channel|category|thread` closes that, with the
+  gate one notch tighter than `clear-messages`: dry-run by default, and the
+  real run wants `--execute` **and** the target's own name typed back, not the
+  word `DELETE`. For a container the mistake worth catching is deleting the
+  *wrong* one, and only the name catches that. There is deliberately no
+  `--yes`: an agent can create, send and clear unattended, and can never
+  destroy a channel.
+
+- Naming the kind is a second lock. `delete thread --thread <id>` pointed at a
+  category is refused before anything is asked, naming the real type. The
+  preview says what survives, per kind and truthfully: deleting a category
+  leaves its channels alive and simply uncategorised, deleting a channel takes
+  its threads and forum posts with it, deleting a thread leaves the parent
+  channel alone.
+
+- `leave-server` instead of a server delete. Discord's delete-guild endpoint
+  needs guild ownership, a bot never has it, and discord.py deprecated the call
+  in 2.6 — offering it would be a command that always fails. Leaving is the
+  real capability, so it is its own subcommand rather than a lie inside
+  `delete`, dry-runs by default, wants the server's name typed, and says on its
+  own warning that nothing in the server is deleted and getting back in needs a
+  fresh invite.
+
+- `create` now covers every type `delete` can remove, which is the point:
+  no cleanup this tool performs is a one-way door. `create channel --type`
+  takes text (default), news, voice, stage_voice, forum and media, and
+  `create thread --private` makes a private thread. The vocabulary lives once,
+  in `models.py`, and `client.py` asserts at import that every deletable type
+  has a maker — the parity rule is structural, not a convention to remember.
+
+- The menu carries both, and never as a shorter path past a gate. *Delete a
+  channel, category, or thread* lists categories, channels and threads nested
+  the way Discord shows them, works out what kind of thing you picked so you
+  never name it yourself, dry-runs, and only then offers a row that says which
+  name it is about to ask for. *Leave a server* is its own row for the same
+  reason the subcommand is. Creating a channel now asks the type (text first)
+  and a thread asks public or private, so the menu has the same parity the
+  flags do.
+
+- Two new root menu rows shift the numbering: *Delete* is 6, *Clear messages*
+  moves to 7, *Leave a server* is 8, and everything below moves down two.
+
 ## 0.5.1 — 2026-08-31
 
 - The picker's column widths are measured now, not assumed. 0.5.0 taught every

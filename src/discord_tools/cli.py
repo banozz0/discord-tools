@@ -16,6 +16,10 @@ from discord_tools.delete import (
     clear_server_messages,
     confirm_clear_messages,
     confirm_clear_server_messages,
+    confirm_delete,
+    confirm_leave_server,
+    delete_container,
+    leave_server,
 )
 from discord_tools.doctor import run_doctor
 from discord_tools.bot import (
@@ -33,6 +37,7 @@ from discord_tools.create import (
     format_create_preview,
 )
 from discord_tools.exporters import write_records
+from discord_tools.models import GUILD_CHANNEL_TYPES
 from discord_tools.members import format_member_records, list_server_members
 from discord_tools.search import all_content_empty, format_message_records, search_messages
 from discord_tools.send import confirm_send, format_send_preview, require_send_allowed, send_to_channel
@@ -99,10 +104,17 @@ def build_parser() -> argparse.ArgumentParser:
     create_parser = subparsers.add_parser("create", help="Create a channel, category, or thread")
     create_kinds = create_parser.add_subparsers(dest="create_kind")
 
-    create_channel_parser = create_kinds.add_parser("channel", help="Create a text channel")
+    create_channel_parser = create_kinds.add_parser("channel", help="Create a channel of any type delete can remove")
     create_channel_parser.add_argument("--server", required=True, type=snowflake, help="Server ID")
     create_channel_parser.add_argument("--name", required=True, help="Channel name")
     create_channel_parser.add_argument("--category", type=snowflake, help="Category ID to file it under")
+    create_channel_parser.add_argument(
+        "--type",
+        dest="channel_type",
+        choices=GUILD_CHANNEL_TYPES,
+        default="text",
+        help="Channel type to create (default: text)",
+    )
 
     create_category_parser = create_kinds.add_parser("category", help="Create a category")
     create_category_parser.add_argument("--server", required=True, type=snowflake, help="Server ID")
@@ -111,6 +123,9 @@ def build_parser() -> argparse.ArgumentParser:
     create_thread_parser = create_kinds.add_parser("thread", help="Create a thread in a text channel")
     create_thread_parser.add_argument("--channel", required=True, type=snowflake, help="Parent channel ID")
     create_thread_parser.add_argument("--name", required=True, help="Thread name")
+    create_thread_parser.add_argument(
+        "--private", action="store_true", help="Make a private thread instead of a public one"
+    )
 
     for kind_parser in (create_channel_parser, create_category_parser, create_thread_parser):
         kind_parser.add_argument("--yes", action="store_true", help="Skip the confirmation prompt")
@@ -124,6 +139,36 @@ def build_parser() -> argparse.ArgumentParser:
         "--skip-threads",
         action="store_true",
         help="With --server: clear channel messages only, leaving threads and forum/media posts untouched",
+    )
+
+    delete_parser = subparsers.add_parser(
+        "delete",
+        help="Delete a channel, category, or thread (dry-run by default; see leave-server for servers)",
+    )
+    delete_kinds = delete_parser.add_subparsers(dest="delete_kind")
+
+    delete_channel_parser = delete_kinds.add_parser("channel", help="Delete a channel and everything in it")
+    delete_channel_parser.add_argument("--channel", required=True, type=snowflake, help="Channel ID")
+
+    delete_category_parser = delete_kinds.add_parser(
+        "category", help="Delete a category (the channels inside it survive, uncategorised)"
+    )
+    delete_category_parser.add_argument("--category", required=True, type=snowflake, help="Category ID")
+
+    delete_thread_parser = delete_kinds.add_parser("thread", help="Delete a thread or forum post")
+    delete_thread_parser.add_argument("--thread", required=True, type=snowflake, help="Thread ID")
+
+    for kind_parser in (delete_channel_parser, delete_category_parser, delete_thread_parser):
+        kind_parser.add_argument(
+            "--execute", action="store_true", help="Actually delete it after typing its exact name"
+        )
+
+    leave_parser = subparsers.add_parser(
+        "leave-server", help="Make the bot leave a server (nothing in it is deleted; dry-run by default)"
+    )
+    leave_parser.add_argument("--server", required=True, type=snowflake, help="Server ID")
+    leave_parser.add_argument(
+        "--execute", action="store_true", help="Actually leave after typing the server's exact name"
     )
 
     bot_parser = subparsers.add_parser("bot", help="Show or edit the active profile's bot settings and invite URL")
@@ -278,18 +323,48 @@ async def _run_create(client, args) -> int:
 
     confirm = None
     if not args.yes:
-        preview = format_create_preview(args.create_kind, args.name, where=where)
+        shown = args.channel_type if args.create_kind == "channel" else args.create_kind
+        if args.create_kind == "thread" and args.private:
+            shown = "private thread"
+        preview = format_create_preview(shown, args.name, where=where)
         confirm = partial(confirm_create, preview)
 
     if args.create_kind == "channel":
-        created = await create_channel(client, args.server, args.name, category_id=args.category, confirm=confirm)
+        created = await create_channel(
+            client, args.server, args.name, category_id=args.category, kind=args.channel_type, confirm=confirm
+        )
     elif args.create_kind == "category":
         created = await create_category(client, args.server, args.name, confirm=confirm)
     else:
-        created = await create_thread(client, args.channel, args.name, confirm=confirm)
+        created = await create_thread(client, args.channel, args.name, private=args.private, confirm=confirm)
 
     print(json.dumps(created.to_dict(), indent=2))
     return 1 if created.cancelled else 0
+
+
+async def _run_delete(client, args) -> int:
+    if args.delete_kind is None:
+        raise ValueError("delete needs one of: channel, category, thread. For a server, use `leave-server`.")
+
+    target_id = {"channel": "channel", "category": "category", "thread": "thread"}[args.delete_kind]
+    result = await delete_container(
+        client,
+        getattr(args, target_id),
+        kind=args.delete_kind,
+        execute=args.execute,
+        confirm=confirm_delete,
+        progress=print,
+    )
+    print(json.dumps(result.to_dict(), indent=2))
+    return 1 if result.cancelled else 0
+
+
+async def _run_leave_server(client, args) -> int:
+    result = await leave_server(
+        client, args.server, execute=args.execute, confirm=confirm_leave_server, progress=print
+    )
+    print(json.dumps(result.to_dict(), indent=2))
+    return 1 if result.cancelled else 0
 
 
 async def _run_clear_messages(client, args) -> int:
@@ -360,6 +435,10 @@ async def _dispatch(client, args, config) -> int:
         return await _run_send(client, args, config)
     if args.command == "create":
         return await _run_create(client, args)
+    if args.command == "delete":
+        return await _run_delete(client, args)
+    if args.command == "leave-server":
+        return await _run_leave_server(client, args)
     if args.command == "clear-messages":
         return await _run_clear_messages(client, args)
     if args.command == "bot":

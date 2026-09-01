@@ -51,8 +51,18 @@ the message, show it to them, and let them send it or add the entry.
 **3. Never run `create` unprompted.** New channels, categories and threads are
 real, visible objects other people see appear. Create one only when the user
 asked for that specific thing in this conversation, and never invent a name.
+`--type` picks the channel type (text, news, voice, stage_voice, forum, media);
+default is text. Whatever `delete` can remove, `create` can make again.
 
-**4. Never run `clear-messages`.** It permanently deletes real messages and
+**4. Never run `delete` or `leave-server`.** They destroy the container, not
+its messages: a channel and everything in it, a category, a thread, or the
+bot's own membership of a server. Neither has a `--yes` — the destructive path
+needs `--execute` plus the target's exact name typed at a prompt, which no
+agent can answer. That is deliberate, not an obstacle to route around: do not
+drive them through the menu, a pty, or a piped answer. If the user wants
+something gone, give them the exact command and let them run it.
+
+**5. Never run `clear-messages`.** It permanently deletes real messages and
 Discord does not undo it, whether scoped to one `--channel` or a whole
 `--server` (with or without `--skip-threads`, which limits a server clear to
 channels only). Dry-run is its default and the destructive path needs both
@@ -60,12 +70,12 @@ channels only). Dry-run is its default and the destructive path needs both
 not run it at all, in any form, even to preview. If the answer is "those
 messages should go", say so and let the user run it.
 
-**5. Never print a token.** Bot tokens live in `~/.discord-tools/.env` (mode
+**6. Never print a token.** Bot tokens live in `~/.discord-tools/.env` (mode
 0600). Point at where they live; never read them out, copy them, or paste one
 into a reply. `doctor` exists precisely so setup can be checked without any of
 that reaching the screen.
 
-**6. If the CLI errors, say so.** An invalid token, a missing permission, a
+**7. If the CLI errors, say so.** An invalid token, a missing permission, a
 rate limit — that *is* the answer. Never guess a channel ID: a made-up ID
 sends the user's next message into the void or errors on delivery.
 
@@ -84,6 +94,8 @@ sends the user's next message into the void or errors on delivery.
 | a long or multi-line message | pipe it: `... \| discord-tools send --channel <id> --text - --yes` |
 | "send them that file" (allowlisted) | `discord-tools send --channel <id> --file /path --text "caption" --yes` |
 | "make a channel/thread" (they asked) | `discord-tools create channel --server <id> --name "..." --yes` |
+| "make a voice/forum channel" (they asked) | `discord-tools create channel --server <id> --name "..." --type voice --yes` |
+| "delete that channel" | hand them `discord-tools delete channel --channel <id> --execute` — rule 4, they run it |
 | "which bot am I, can it see X?" | `discord-tools doctor` / `doctor --channel <id>` |
 | "the invite URL for the bot" | `discord-tools bot --invite` |
 | "set up a new bot" | `discord-tools auth` (interactive — the human runs it) |
@@ -122,8 +134,11 @@ sends the user's next message into the void or errors on delivery.
 
 ## Never run these
 
+- **`delete` and `leave-server`** — they remove the channel, category, thread
+  or server membership itself. Rule 4 above. Both refuse to run unattended by
+  construction; hand the user the command instead.
 - **`clear-messages`** — irreversible deletion, including its server-wide
-  scope. Rule 4 above.
+  scope. Rule 5 above.
 - **`create` on your own initiative** — rule 3. Propose it, let the user say yes.
 - **`bot` with edit flags** (`--name`, `--description`, `--avatar`) — it edits
   the user's public-facing bot identity. `bot` bare (show profile) and

@@ -15,7 +15,8 @@ same test culture, same release recipe — when in doubt, look at the sibling.
 auth (guided portal setup) · discover (server/channel/thread IDs) ·
 members (server member list; needs the privileged Server Members intent) ·
 search/export (history fetch + local filter; Discord gives bots no search
-API) · send · create (channel/thread/category) · clear-messages · bot
+API) · send · create (channel/thread/category, every type delete accepts) ·
+delete (channel/category/thread) · leave-server · clear-messages · bot
 (settings + invite URL for the active profile) · doctor (token,
 message-content intent, servers, per-channel perms). v1 (all but members)
 shipped 2026-08-27 after the joint testing session.
@@ -60,7 +61,13 @@ Single-context: `CONTEXT.md` + `docs/adr/` at the root. See `docs/agents/domain.
 
 Same gates as the sibling, non-negotiable: `clear-messages` dry-runs by
 default, executes only with `--execute` + typed `DELETE` (bulk API caps at
-14 days; older messages delete one-by-one, slower). `send` previews the full
-message + y/N; `--yes` requires the destination in `DISCORD_SEND_ALLOWLIST`
-(unset = refuse). `create` and `bot` settings confirm before touching anything
-real. The menu is never a shorter path past a gate.
+14 days; older messages delete one-by-one, slower). `delete` and `leave-server`
+dry-run by default and execute only with `--execute` + the target's **exact
+name** typed back — the wrong-target mistake is the one worth catching, and
+neither has a `--yes`, so deletion is never unattended. `send` previews the
+full message + y/N; `--yes` requires the destination in
+`DISCORD_SEND_ALLOWLIST` (unset = refuse). `create` and `bot` settings confirm
+before touching anything real. The menu is never a shorter path past a gate.
+
+Parity rule: anything `delete` removes, `create` can make again — the channel
+vocabulary lives once in `models.py` and both sides key off it.

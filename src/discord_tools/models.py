@@ -4,6 +4,14 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
+# The channel vocabulary, in one place because it is a contract rather than a
+# list: `create --type` offers exactly what `delete channel` accepts, so a
+# cleanup can always be undone by making the thing again.
+GUILD_CHANNEL_TYPES = ("text", "news", "voice", "stage_voice", "forum", "media")
+THREAD_TYPES = ("public_thread", "private_thread", "news_thread")
+CATEGORY_TYPES = ("category",)
+
+
 @dataclass(frozen=True)
 class ServerInfo:
     id: int
@@ -145,6 +153,32 @@ class DeleteResult:
             "bulk_deletable": self.bulk,
             "single_delete_only": self.single,
             "cleared": self.deleted,
+            "dry_run": self.dry_run,
+            "cancelled": self.cancelled,
+        }
+
+
+@dataclass(frozen=True)
+class ContainerDeleteResult:
+    """What `delete` was pointed at and whether it went through.
+
+    Separate from `DeleteResult`: that one counts messages inside a container
+    that survives, this one is the container itself going away.
+    """
+
+    kind: str
+    id: int
+    name: str
+    dry_run: bool
+    deleted: bool = False
+    cancelled: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "id": self.id,
+            "name": self.name,
+            "deleted": self.deleted,
             "dry_run": self.dry_run,
             "cancelled": self.cancelled,
         }

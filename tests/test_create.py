@@ -37,7 +37,9 @@ def test_confirmed_channel_create():
     result = asyncio.run(create_channel(client, 1, "builds", category_id=20, confirm=lambda: True))
     assert result.cancelled is False
     assert result.id is not None
-    assert client.created == [{"kind": "channel", "server_id": 1, "name": "builds", "category_id": 20}]
+    assert client.created == [
+        {"kind": "channel", "server_id": 1, "name": "builds", "category_id": 20, "type": "text"}
+    ]
 
 
 def test_category_and_thread_create():

@@ -10,7 +10,11 @@ from discord_tools.menu import MenuSession, run_menu
 from discord_tools.models import ChannelInfo, MemberInfo, ServerInfo, ThreadInfo
 
 # Root rows, so a test says which screen it is on instead of a bare number.
-DISCOVER, MEMBERS, SEARCH, SEND, CREATE, CLEAR, BOT, AUTH, DOCTOR, PROFILE = (str(number) for number in range(1, 11))
+# fmt: off
+(
+    DISCOVER, MEMBERS, SEARCH, SEND, CREATE, DELETE, CLEAR, LEAVE, BOT, AUTH, DOCTOR, PROFILE,
+) = (str(number) for number in range(1, 13))
+# fmt: on
 
 
 def make_client(**overrides):
@@ -240,7 +244,7 @@ def test_bot_flow_asks_before_discarding_staged_edits():
 
 
 def test_create_thread_flow():
-    code, calls, _output = drive([CREATE, "3", "1", "hotfix", "0"])
+    code, calls, _output = drive([CREATE, "3", "1", "1", "hotfix", "0"])
     args = calls[0]
     assert args.command == "create"
     assert args.create_kind == "thread"
@@ -251,7 +255,7 @@ def test_create_thread_flow():
 
 def test_create_channel_offers_a_typed_category_id_when_there_are_none():
     # Text channel -> name -> "Type a category ID" (row 2 of the two answers) -> id
-    code, calls, output = drive([CREATE, "1", "releases", "2", "424242", "0"])
+    code, calls, output = drive([CREATE, "1", "1", "releases", "2", "424242", "0"])
     args = calls[0]
     assert args.create_kind == "channel"
     assert args.name == "releases"
@@ -260,7 +264,7 @@ def test_create_channel_offers_a_typed_category_id_when_there_are_none():
 
 
 def test_create_channel_can_still_say_no_category():
-    code, calls, _output = drive([CREATE, "1", "releases", "1", "0"])
+    code, calls, _output = drive([CREATE, "1", "1", "releases", "1", "0"])
     assert calls[0].category is None
 
 
@@ -275,7 +279,7 @@ def test_create_channel_picks_a_listed_category_and_still_offers_a_typed_one():
             }
         )
     )
-    code, calls, output = drive([CREATE, "1", "releases", "1", "0"], session=session)
+    code, calls, output = drive([CREATE, "1", "1", "releases", "1", "0"], session=session)
     assert calls[0].category == 20
     text = screens(output)
     assert "2. No category" in text
@@ -419,3 +423,102 @@ def test_channel_picker_lines_up_ids_after_emoji_names():
     assert len(starts) == 1  # the two channel rows
     thread_starts = {width(row[: row.index("15426")]) for row in rows if ">" in row}
     assert len(thread_starts) == 1  # ...and the two thread rows under them
+
+
+# -- delete ---------------------------------------------------------------
+
+
+def test_delete_flow_dry_runs_before_offering_execute():
+    # Delete -> (single server auto-picked) -> row 1 is #general -> for real -> exit
+    code, calls, _output = drive([DELETE, "1", "1", "0"])
+    assert code == 0
+    assert [args.command for args in calls] == ["delete", "delete"]
+    assert calls[0].execute is False
+    assert calls[1].execute is True
+    assert calls[1].delete_kind == "channel"
+    assert calls[1].channel == 10
+
+
+def test_delete_flow_derives_the_kind_from_what_was_picked():
+    # Row 2 is the thread indented under #general.
+    code, calls, _output = drive([DELETE, "2", "1", "0"])
+    assert calls[1].delete_kind == "thread"
+    assert calls[1].thread == 101
+
+
+def test_delete_flow_knows_a_category_when_it_sees_one():
+    session = make_session(
+        make_client(
+            channels={
+                1: [
+                    ChannelInfo(id=5, name="Work", type="category"),
+                    ChannelInfo(id=10, name="general", type="text", parent_id=5),
+                ]
+            },
+            threads={1: []},
+        )
+    )
+    code, calls, _output = drive([DELETE, "1", "1", "0"], session=session)
+    assert calls[1].delete_kind == "category"
+    assert calls[1].category == 5
+
+
+def test_delete_flow_backing_out_never_executes():
+    code, calls, _output = drive([DELETE, "1", "0", "0", "0"])
+    executed = [args for args in calls if getattr(args, "execute", False)]
+    assert executed == []
+
+
+def test_delete_flow_names_the_target_before_the_point_of_no_return():
+    _code, _calls, output = drive([DELETE, "1", "1", "0"])
+    assert "Delete it for real (asks you to type general)" in screens(output)
+
+
+def test_delete_flow_refuses_a_type_it_cannot_delete():
+    session = make_session(
+        make_client(channels={1: [ChannelInfo(id=99, name="somewhere", type="mystery")]}, threads={1: []})
+    )
+    code, calls, output = drive([DELETE, "1", "0", "0"], session=session)
+    assert calls == []
+    assert "cannot delete" in screens(output)
+
+
+# -- leaving a server -----------------------------------------------------
+
+
+def test_leave_flow_dry_runs_before_offering_execute():
+    code, calls, _output = drive([LEAVE, "1", "0"])
+    assert [args.command for args in calls] == ["leave-server", "leave-server"]
+    assert calls[0].execute is False
+    assert calls[1].execute is True
+    assert calls[1].server == 1
+
+
+def test_leave_flow_says_nothing_is_deleted():
+    _code, _calls, output = drive([LEAVE, "1", "0"])
+    assert "Nothing is deleted" in screens(output)
+
+
+# -- create parity in the menu -------------------------------------------
+
+
+def test_menu_can_create_every_type_it_can_delete():
+    from discord_tools.delete import DELETE_KIND_TYPES
+    from discord_tools.menu import CREATE_CHANNEL_TYPES, CREATE_THREAD_KINDS
+
+    assert {name for name, _label in CREATE_CHANNEL_TYPES} == set(DELETE_KIND_TYPES["channel"])
+    assert len(CREATE_THREAD_KINDS) == 2
+
+
+def test_menu_creates_a_voice_channel():
+    # Create -> Channel -> Voice channel -> name -> no category -> exit
+    code, calls, _output = drive([CREATE, "1", "2", "lounge", "1", "0"])
+    assert calls[0].create_kind == "channel"
+    assert calls[0].channel_type == "voice"
+    assert calls[0].name == "lounge"
+
+
+def test_menu_creates_a_private_thread():
+    code, calls, _output = drive([CREATE, "3", "2", "1", "hush", "0"])
+    assert calls[0].create_kind == "thread"
+    assert calls[0].private is True

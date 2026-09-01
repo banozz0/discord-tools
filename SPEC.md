@@ -39,19 +39,22 @@ bot per agent.
 9. As an agent, I want `send` to post a message to a channel or thread as the bot, so that automations can report into Discord.
 10. As a user, I want `send` to preview the full message and ask y/N before posting, so that nothing goes public by accident.
 11. As an agent operator, I want `send --yes` to work only for destinations on an explicit allowlist (unset = refuse), so that unattended sends are constrained to channels I chose.
-12. As a user, I want `create` to make channels, threads, and categories behind a confirmation, so that I can scaffold a server without the app and without accidental objects.
-13. As a user, I want `clear-messages` to target either one channel/thread or every accessible message location in a server, and to dry-run by default, so that I can see the blast radius before anything happens.
-14. As a user, I want `clear-messages` execution to require `--execute` plus typing `DELETE`, so that real deletion is never one keystroke away.
-15. As a user, I want the dry-run to report per-location and total counts for messages inside the 14-day bulk-delete window versus one-by-one deletion (slower), so that I know what to expect before confirming.
-16. As a user, I want `bot` to show and edit the active profile's name, avatar, and description behind a diff + confirm, so that I manage bot identity without the portal.
-17. As a user, I want `bot` to print the invite URL with the right permission bits, so that adding the bot to another server is copy-paste.
-18. As a human, I want bare `discord-tools` to open the same menu style as telegram-tools, so that I never memorize subcommands.
-19. As a telegram-tools user, I want the menus, flags, and gate behavior to feel identical, so that I carry my habits over with zero relearning.
-20. As an agent, I want a bundled skill (`skill/SKILL.md`) describing the CLI surface, so that any Claude session can drive the tool correctly.
-21. As a contributor, I want the test suite to run with no network and no real token, so that CI and local runs are safe and fast.
-22. As a user, I want clear errors when the message-content intent is off (content comes back empty), so that the classic silent-empty-export trap is named instead of mysterious.
-23. As a user, I want rate limits handled with pacing and retry, so that big exports and slow deletes finish instead of erroring.
-24. As a security-conscious user, I want the token stored 0600 and never printed, committed, or logged, so that a leaked terminal scroll never leaks the bot.
+12. As a user, I want `create` to make channels of any type, threads, and categories behind a confirmation, so that I can scaffold a server without the app and without accidental objects.
+13. As a user, I want `delete` to remove a channel, category, or thread, and `leave-server` to get the bot out of a server, so that a server I scaffolded with this tool can be unscaffolded with it too.
+14. As a user, I want `delete` to dry-run by default and to require the target's exact name typed back before it executes, so that the mistake it catches is deleting the *wrong* thing, not merely deleting.
+15. As a user, I want everything `delete` can remove to be something `create` can make again, so that no cleanup is a one-way door.
+16. As a user, I want `clear-messages` to target either one channel/thread or every accessible message location in a server, and to dry-run by default, so that I can see the blast radius before anything happens.
+17. As a user, I want `clear-messages` execution to require `--execute` plus typing `DELETE`, so that real deletion is never one keystroke away.
+18. As a user, I want the dry-run to report per-location and total counts for messages inside the 14-day bulk-delete window versus one-by-one deletion (slower), so that I know what to expect before confirming.
+19. As a user, I want `bot` to show and edit the active profile's name, avatar, and description behind a diff + confirm, so that I manage bot identity without the portal.
+20. As a user, I want `bot` to print the invite URL with the right permission bits, so that adding the bot to another server is copy-paste.
+21. As a human, I want bare `discord-tools` to open the same menu style as telegram-tools, so that I never memorize subcommands.
+22. As a telegram-tools user, I want the menus, flags, and gate behavior to feel identical, so that I carry my habits over with zero relearning.
+23. As an agent, I want a bundled skill (`skill/SKILL.md`) describing the CLI surface, so that any Claude session can drive the tool correctly.
+24. As a contributor, I want the test suite to run with no network and no real token, so that CI and local runs are safe and fast.
+25. As a user, I want clear errors when the message-content intent is off (content comes back empty), so that the classic silent-empty-export trap is named instead of mysterious.
+26. As a user, I want rate limits handled with pacing and retry, so that big exports and slow deletes finish instead of erroring.
+27. As a security-conscious user, I want the token stored 0600 and never printed, committed, or logged, so that a leaked terminal scroll never leaks the bot.
 
 ## Implementation Decisions
 
@@ -81,6 +84,15 @@ bot per agent.
   forum/media posts are neither listed nor touched, the warning says so, and
   the menu asks the same scope question before its dry-run. Invalid with
   `--channel`. Default stays threads-included.
+- The channel-type vocabulary lives once, in `models.py`, and both `create`
+  and `delete` key off it — the parity rule is a structural assert, not a
+  convention someone has to remember.
+- Deleting a server is not offered: Discord's endpoint needs guild ownership,
+  which a bot never has (and discord.py deprecated the call in 2.6).
+  `leave-server` is the honest substitute and says so on its own warning.
+- `delete` and `leave-server` gate on the target's typed name rather than the
+  word `DELETE`: for a container the dominant risk is the wrong target, not
+  the absent intent. Neither takes `--yes`, so an agent cannot execute either.
 - Destructive gates copy the sibling verbatim: dry-run default + `--execute` +
   typed `DELETE` for clears; full preview + y/N for send; allowlist env
   (`DISCORD_SEND_ALLOWLIST`) required for `--yes` sends; diff + confirm for
@@ -101,6 +113,11 @@ bot per agent.
   refusals) — never internals.
 - Prior art: telegram-tools' suite (339 no-network tests) is the model; CI
   additionally runs `compileall` and a per-subcommand `--help` smoke.
+- Gate tests are mandatory for `delete` too: no `--execute` deletes nothing,
+  a near-miss name deletes nothing, typing `DELETE` at a name prompt deletes
+  nothing, and naming the wrong kind is refused before anything is asked.
+- One test asserts the parity rule directly: the set of types `delete channel`
+  accepts equals the set `create --type` can make.
 - Gate tests are mandatory: clear without `--execute` deletes nothing; wrong
   typed confirmation aborts; `send --yes` without allowlist refuses; every
   destructive path has a refusal test before a success test.

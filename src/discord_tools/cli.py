@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import sys
 from functools import partial
 from pathlib import Path
@@ -36,7 +35,7 @@ from discord_tools.create import (
     create_thread,
     format_create_preview,
 )
-from discord_tools.exporters import write_records
+from discord_tools.exporters import json_text, write_records
 from discord_tools.models import GUILD_CHANNEL_TYPES
 from discord_tools.members import format_member_records, list_server_members
 from discord_tools.search import all_content_empty, format_message_records, search_messages
@@ -185,7 +184,7 @@ def build_parser() -> argparse.ArgumentParser:
 def _write_json(payload, path: str) -> None:
     output = Path(path)
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(payload, indent=2, default=str) + "\n")
+    output.write_text(json_text(payload) + "\n", encoding="utf-8")
 
 
 async def _run_discover(client, args) -> int:
@@ -302,7 +301,7 @@ async def _run_send(client, args, config) -> int:
         confirm = partial(confirm_send, preview)
 
     result = await send_to_channel(client, channel, text, files=files, confirm=confirm)
-    print(json.dumps(result.to_dict(), indent=2))
+    print(json_text(result.to_dict()))
     return 1 if result.cancelled else 0
 
 
@@ -338,7 +337,7 @@ async def _run_create(client, args) -> int:
     else:
         created = await create_thread(client, args.channel, args.name, private=args.private, confirm=confirm)
 
-    print(json.dumps(created.to_dict(), indent=2))
+    print(json_text(created.to_dict()))
     return 1 if created.cancelled else 0
 
 
@@ -355,7 +354,7 @@ async def _run_delete(client, args) -> int:
         confirm=confirm_delete,
         progress=print,
     )
-    print(json.dumps(result.to_dict(), indent=2))
+    print(json_text(result.to_dict()))
     return 1 if result.cancelled else 0
 
 
@@ -363,7 +362,7 @@ async def _run_leave_server(client, args) -> int:
     result = await leave_server(
         client, args.server, execute=args.execute, confirm=confirm_leave_server, progress=print
     )
-    print(json.dumps(result.to_dict(), indent=2))
+    print(json_text(result.to_dict()))
     return 1 if result.cancelled else 0
 
 
@@ -380,7 +379,7 @@ async def _run_clear_messages(client, args) -> int:
             confirm=lambda: confirm_clear_server_messages(include_threads=include_threads),
             progress=print,
         )
-        print(json.dumps(result, indent=2))
+        print(json_text(result))
         return 1 if result["cancelled"] or result["failures"] else 0
 
     result = await clear_messages(
@@ -390,7 +389,7 @@ async def _run_clear_messages(client, args) -> int:
         confirm=confirm_clear_messages,
         progress=print,
     )
-    print(json.dumps(result.to_dict(), indent=2))
+    print(json_text(result.to_dict()))
     return 1 if result.cancelled else 0
 
 
@@ -416,11 +415,11 @@ async def _run_bot(client, args, config) -> int:
 
     if not args.yes:
         if not confirm_bot_edits(format_edit_diff(identity, plan)):
-            print(json.dumps({"applied": [], "cancelled": True}, indent=2))
+            print(json_text({"applied": [], "cancelled": True}))
             return 1
 
     applied = await apply_bot_edits(client, plan)
-    print(json.dumps({"applied": applied, "cancelled": False}, indent=2))
+    print(json_text({"applied": applied, "cancelled": False}))
     return 0
 
 

@@ -1,6 +1,21 @@
 # Changelog
 
-## 0.6.1 — 2026-09-01
+## 0.6.2 — 2026-09-01
+
+- JSON output prints the emoji instead of escaping it. `json.dumps` escapes
+  non-ASCII by default, so a channel named `🩺health` came back as
+  `"\ud83e\ude7ahealth"` while every other line of the same output — the
+  pickers, the discover tree, the CSV export — drew the emoji. Same name, two
+  spellings, one terminal. Both are valid JSON and any parser read the old form
+  fine; only one of them is readable by a person, which is who reads the menu.
+- The setting lives in one place rather than on nine calls: a `json_text()`
+  helper in `exporters.py` is now the only way this tool emits JSON, so the next
+  command added cannot quietly reintroduce the escaping.
+- JSON and CSV exports are written as UTF-8 explicitly. Raw non-ASCII through
+  Python's default would use the machine's locale encoding and could fail where
+  the old ASCII-only output never could — and the CSV path already wrote emoji
+  raw at locale encoding, so that latent case is closed too.
+
 
 - Three things Sven's try-it found in `delete`, all about what the screens say.
   The warning banner was printed twice in one menu flow — once for the dry-run,

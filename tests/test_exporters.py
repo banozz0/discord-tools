@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from discord_tools.exporters import resolve_export_path, write_records
+from discord_tools.exporters import json_text, resolve_export_path, write_records
 
 RECORDS = [
     {"id": 1, "text": "hello", "has_media": False},
@@ -41,3 +41,33 @@ def test_unknown_format_rejected(tmp_path):
 
 def test_resolve_expands_user(tmp_path):
     assert resolve_export_path("~/somewhere/file.json").is_absolute()
+
+
+# -- non-ASCII names ------------------------------------------------------
+
+EMOJI_ROWS = [{"id": 1542655078270246993, "name": "\U0001fa7ahealth", "type": "text"}]
+
+
+def test_json_text_writes_the_emoji_not_its_escape():
+    """A name the pickers draw as 🩺health must not print as \\ud83e\\ude7ahealth."""
+    text = json_text(EMOJI_ROWS[0])
+    assert "\U0001fa7ahealth" in text
+    assert "\\ud83e" not in text
+
+
+def test_json_export_round_trips_an_emoji_name(tmp_path):
+    path = write_records(EMOJI_ROWS, tmp_path / "channels.json", "json")
+    assert json.loads(path.read_text(encoding="utf-8")) == EMOJI_ROWS
+
+
+def test_csv_export_round_trips_an_emoji_name(tmp_path):
+    path = write_records(EMOJI_ROWS, tmp_path / "channels.csv", "csv")
+    assert "\U0001fa7ahealth" in path.read_text(encoding="utf-8")
+
+
+def test_both_formats_are_written_as_utf8_whatever_the_locale(tmp_path):
+    """Explicit encoding, not the locale's: the old ASCII output could not fail."""
+    for name, fmt in (("a.json", "json"), ("a.csv", "csv")):
+        path = write_records(EMOJI_ROWS, tmp_path / name, fmt)
+        # Decodes as UTF-8 on any machine, which is the property being pinned.
+        assert "\U0001fa7ahealth" in path.read_bytes().decode("utf-8")

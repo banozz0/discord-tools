@@ -1,6 +1,21 @@
 # Changelog
 
-## 0.6.0 — 2026-09-01
+## 0.6.1 — 2026-09-01
+
+- Three things Sven's try-it found in `delete`, all about what the screens say.
+  The warning banner was printed twice in one menu flow — once for the dry-run,
+  once to confirm — which is exactly how a person learns to skim it; the dry-run
+  now prints a compact line plus the same GONE/OK consequences, and the banner
+  belongs to the confirm alone, the screen that can still be stopped.
+- The preview said `Where  parent 1542641014190375072`, which is not a check
+  anyone can perform. It names the parent now — `under 🤖 Agents (1542…)` — and
+  falls back to the bare ID only when the parent cannot be read. A target with
+  no parent says `at the top level` instead of nothing.
+- The row before the point of no return read `Delete it for real (asks you to
+  type 🩺health)`, and a tester typed the name at that screen, where only a row
+  number is an answer. It now reads `Delete it for real - the next screen asks
+  for its exact name`, which says when.
+
 
 - `delete` removes the container, not just the messages inside it. The tool
   could make a channel, a category or a thread and then had no way to take one

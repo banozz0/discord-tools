@@ -802,7 +802,7 @@ async def _flow_delete(*, session, runner, read, write) -> bool:
             return after_action(read=read, write=write)
 
         choice = choose(
-            [f"Delete it for real (asks you to type {target.name})"],
+            ["Delete it for real - the next screen asks for its exact name"],
             title=crumb(where, "Dry-run done"),
             read=read,
             write=write,
@@ -838,7 +838,7 @@ async def _flow_leave(*, session, runner, read, write) -> bool:
             return after_action(read=read, write=write)
 
         choice = choose(
-            [f"Leave it for real (asks you to type {server.name})"],
+            ["Leave it for real - the next screen asks for the server's exact name"],
             title=crumb(where, "Nothing is deleted"),
             read=read,
             write=write,

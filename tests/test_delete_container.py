@@ -186,3 +186,64 @@ def test_every_delete_kind_has_a_consequence_notice():
     for kind in DELETE_KIND_TYPES:
         preview = format_delete_preview(kind, "x", 1, where="top level")
         assert "GONE:" in preview and "OK:" in preview
+
+
+# -- what the dry-run and the confirm each say ----------------------------
+
+
+def test_the_dry_run_does_not_print_the_confirm_banner():
+    """Seen twice in one menu flow, a warning banner becomes wallpaper."""
+    fake = client()
+    lines = []
+    asyncio.run(delete_container(fake, 10, kind="channel", confirm=never_asked, progress=lines.append))
+    printed = "\n".join(lines)
+    assert "WARNING: DELETE" not in printed
+    # The consequences still show; only the box is gone.
+    assert "every message in it" in printed
+    assert "Nothing has been deleted" in printed
+
+
+def test_the_confirm_still_carries_the_full_banner():
+    fake = client()
+    seen = {}
+
+    def confirm(preview, name):
+        seen["preview"] = preview
+        return name
+
+    asyncio.run(delete_container(fake, 10, kind="channel", execute=True, confirm=confirm))
+    assert "WARNING: DELETE CHANNEL" in seen["preview"]
+
+
+def test_the_parent_is_named_not_just_numbered():
+    """`Where parent 1542641014190375072` is not a check anyone can perform."""
+    fake = client()
+    seen = {}
+
+    def confirm(preview, name):
+        seen["preview"] = preview
+        return name
+
+    asyncio.run(delete_container(fake, 10, kind="channel", execute=True, confirm=confirm))
+    assert "under Work (5)" in seen["preview"]
+
+
+def test_a_top_level_target_says_so():
+    fake = client()
+    lines = []
+    asyncio.run(delete_container(fake, 5, kind="category", confirm=never_asked, progress=lines.append))
+    assert "at the top level" in "\n".join(lines)
+
+
+def test_an_unreadable_parent_falls_back_to_its_id():
+    fake = client()
+
+    async def refuse(channel_id):
+        if channel_id == 5:
+            raise PermissionError("no access to that category")
+        return CLIENT_INFO[channel_id]
+
+    fake.get_channel = refuse
+    lines = []
+    asyncio.run(delete_container(fake, 10, kind="channel", confirm=never_asked, progress=lines.append))
+    assert "under parent 5" in "\n".join(lines)

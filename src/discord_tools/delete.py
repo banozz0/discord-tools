@@ -388,6 +388,21 @@ def format_delete_preview(kind: str, name: str, target_id: int, *, where: str) -
     )
 
 
+def format_delete_summary(kind: str, name: str, target_id: int, *, where: str) -> str:
+    """The dry-run's version: what it is and what would go, without the banner.
+
+    The banner belongs to the confirm. Printing it twice in one menu flow --
+    once for the dry-run, once to confirm -- is how people learn to skim it.
+    """
+    return "\n".join(
+        [
+            f"Dry-run: {kind} {name} ({target_id}), {where}.",
+            DELETE_CONSEQUENCES[kind],
+            "Nothing has been deleted. Re-run with --execute to do it for real.",
+        ]
+    )
+
+
 def confirm_delete(
     preview: str, name: str, *, read: Callable[[str], str] = input, write: Callable[[str], None] = print
 ) -> str:
@@ -404,6 +419,21 @@ def _names_match(typed: str, name: str) -> bool:
     # Case-insensitive for the same reason the DELETE gate is: the proof of
     # intent is knowing which object you picked, not holding the shift key.
     return typed.strip().casefold() == name.casefold()
+
+
+async def _describe_parent(client, parent_id: int | None) -> str:
+    """The parent's name, so the preview names something the user can recognise.
+
+    A bare ID is not a check anyone can perform. Falls back to the ID when the
+    parent cannot be read - the target's own name is still the gate.
+    """
+    if not parent_id:
+        return "at the top level"
+    try:
+        parent = await client.get_channel(parent_id)
+    except RECOVERABLE_CLEAR_ERRORS:
+        return f"under parent {parent_id}"
+    return f"under {parent.name} ({parent.id})"
 
 
 async def delete_container(
@@ -426,13 +456,13 @@ async def delete_container(
             f"`delete {kind}` accepts: {', '.join(allowed)}."
         )
 
-    where = f"parent {target.parent_id}" if target.parent_id else "top level"
-    preview = format_delete_preview(kind, target.name, target.id, where=where)
+    where = await _describe_parent(client, target.parent_id)
 
     if not execute:
-        progress(preview)
-        progress(f"Dry-run: {kind} {target.name} ({target.id}) would be deleted. Re-run with --execute to do it.")
+        progress(format_delete_summary(kind, target.name, target.id, where=where))
         return ContainerDeleteResult(kind=kind, id=target.id, name=target.name, dry_run=True)
+
+    preview = format_delete_preview(kind, target.name, target.id, where=where)
 
     if not _names_match(confirm(preview, target.name), target.name):
         progress(f"Delete {kind} cancelled - the typed name did not match.")

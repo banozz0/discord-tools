@@ -1,0 +1,747 @@
+{
+  "auth": {
+    "options": {
+      "-h": {
+        "choices": null,
+        "help": "show this help message and exit",
+        "nargs": 0,
+        "option_strings": [
+          "-h",
+          "--help"
+        ],
+        "required": false
+      }
+    },
+    "subcommands": []
+  },
+  "bot": {
+    "options": {
+      "--avatar": {
+        "choices": null,
+        "help": "Path to a new avatar image",
+        "nargs": null,
+        "option_strings": [
+          "--avatar"
+        ],
+        "required": false
+      },
+      "--description": {
+        "choices": null,
+        "help": "Set the application description shown on the bot's profile",
+        "nargs": null,
+        "option_strings": [
+          "--description"
+        ],
+        "required": false
+      },
+      "--invite": {
+        "choices": null,
+        "help": "Print only the invite URL",
+        "nargs": 0,
+        "option_strings": [
+          "--invite"
+        ],
+        "required": false
+      },
+      "--json": {
+        "choices": null,
+        "help": "Write the bot profile to this JSON file",
+        "nargs": null,
+        "option_strings": [
+          "--json"
+        ],
+        "required": false
+      },
+      "--name": {
+        "choices": null,
+        "help": "Set the bot's username",
+        "nargs": null,
+        "option_strings": [
+          "--name"
+        ],
+        "required": false
+      },
+      "--yes": {
+        "choices": null,
+        "help": "Skip the confirmation prompt",
+        "nargs": 0,
+        "option_strings": [
+          "--yes"
+        ],
+        "required": false
+      },
+      "-h": {
+        "choices": null,
+        "help": "show this help message and exit",
+        "nargs": 0,
+        "option_strings": [
+          "-h",
+          "--help"
+        ],
+        "required": false
+      }
+    },
+    "subcommands": []
+  },
+  "clear-messages": {
+    "options": {
+      "--channel": {
+        "choices": null,
+        "help": "Channel or thread ID",
+        "nargs": null,
+        "option_strings": [
+          "--channel"
+        ],
+        "required": false
+      },
+      "--execute": {
+        "choices": null,
+        "help": "Actually clear messages after typing DELETE",
+        "nargs": 0,
+        "option_strings": [
+          "--execute"
+        ],
+        "required": false
+      },
+      "--server": {
+        "choices": null,
+        "help": "Clear every accessible message location in this server ID",
+        "nargs": null,
+        "option_strings": [
+          "--server"
+        ],
+        "required": false
+      },
+      "--skip-threads": {
+        "choices": null,
+        "help": "With --server: clear channel messages only, leaving threads and forum/media posts untouched",
+        "nargs": 0,
+        "option_strings": [
+          "--skip-threads"
+        ],
+        "required": false
+      },
+      "-h": {
+        "choices": null,
+        "help": "show this help message and exit",
+        "nargs": 0,
+        "option_strings": [
+          "-h",
+          "--help"
+        ],
+        "required": false
+      }
+    },
+    "subcommands": []
+  },
+  "create": {
+    "options": {
+      "-h": {
+        "choices": null,
+        "help": "show this help message and exit",
+        "nargs": 0,
+        "option_strings": [
+          "-h",
+          "--help"
+        ],
+        "required": false
+      }
+    },
+    "subcommands": [
+      "category",
+      "channel",
+      "thread"
+    ]
+  },
+  "create category": {
+    "options": {
+      "--name": {
+        "choices": null,
+        "help": "Category name",
+        "nargs": null,
+        "option_strings": [
+          "--name"
+        ],
+        "required": true
+      },
+      "--server": {
+        "choices": null,
+        "help": "Server ID",
+        "nargs": null,
+        "option_strings": [
+          "--server"
+        ],
+        "required": true
+      },
+      "--yes": {
+        "choices": null,
+        "help": "Skip the confirmation prompt",
+        "nargs": 0,
+        "option_strings": [
+          "--yes"
+        ],
+        "required": false
+      },
+      "-h": {
+        "choices": null,
+        "help": "show this help message and exit",
+        "nargs": 0,
+        "option_strings": [
+          "-h",
+          "--help"
+        ],
+        "required": false
+      }
+    },
+    "subcommands": []
+  },
+  "create channel": {
+    "options": {
+      "--category": {
+        "choices": null,
+        "help": "Category ID to file it under",
+        "nargs": null,
+        "option_strings": [
+          "--category"
+        ],
+        "required": false
+      },
+      "--name": {
+        "choices": null,
+        "help": "Channel name",
+        "nargs": null,
+        "option_strings": [
+          "--name"
+        ],
+        "required": true
+      },
+      "--server": {
+        "choices": null,
+        "help": "Server ID",
+        "nargs": null,
+        "option_strings": [
+          "--server"
+        ],
+        "required": true
+      },
+      "--type": {
+        "choices": [
+          "forum",
+          "media",
+          "news",
+          "stage_voice",
+          "text",
+          "voice"
+        ],
+        "help": "Channel type to create (default: text)",
+        "nargs": null,
+        "option_strings": [
+          "--type"
+        ],
+        "required": false
+      },
+      "--yes": {
+        "choices": null,
+        "help": "Skip the confirmation prompt",
+        "nargs": 0,
+        "option_strings": [
+          "--yes"
+        ],
+        "required": false
+      },
+      "-h": {
+        "choices": null,
+        "help": "show this help message and exit",
+        "nargs": 0,
+        "option_strings": [
+          "-h",
+          "--help"
+        ],
+        "required": false
+      }
+    },
+    "subcommands": []
+  },
+  "create thread": {
+    "options": {
+      "--channel": {
+        "choices": null,
+        "help": "Parent channel ID",
+        "nargs": null,
+        "option_strings": [
+          "--channel"
+        ],
+        "required": true
+      },
+      "--name": {
+        "choices": null,
+        "help": "Thread name",
+        "nargs": null,
+        "option_strings": [
+          "--name"
+        ],
+        "required": true
+      },
+      "--private": {
+        "choices": null,
+        "help": "Make a private thread instead of a public one",
+        "nargs": 0,
+        "option_strings": [
+          "--private"
+        ],
+        "required": false
+      },
+      "--yes": {
+        "choices": null,
+        "help": "Skip the confirmation prompt",
+        "nargs": 0,
+        "option_strings": [
+          "--yes"
+        ],
+        "required": false
+      },
+      "-h": {
+        "choices": null,
+        "help": "show this help message and exit",
+        "nargs": 0,
+        "option_strings": [
+          "-h",
+          "--help"
+        ],
+        "required": false
+      }
+    },
+    "subcommands": []
+  },
+  "delete": {
+    "options": {
+      "-h": {
+        "choices": null,
+        "help": "show this help message and exit",
+        "nargs": 0,
+        "option_strings": [
+          "-h",
+          "--help"
+        ],
+        "required": false
+      }
+    },
+    "subcommands": [
+      "category",
+      "channel",
+      "thread"
+    ]
+  },
+  "delete category": {
+    "options": {
+      "--category": {
+        "choices": null,
+        "help": "Category ID",
+        "nargs": null,
+        "option_strings": [
+          "--category"
+        ],
+        "required": true
+      },
+      "--execute": {
+        "choices": null,
+        "help": "Actually delete it after typing its exact name",
+        "nargs": 0,
+        "option_strings": [
+          "--execute"
+        ],
+        "required": false
+      },
+      "-h": {
+        "choices": null,
+        "help": "show this help message and exit",
+        "nargs": 0,
+        "option_strings": [
+          "-h",
+          "--help"
+        ],
+        "required": false
+      }
+    },
+    "subcommands": []
+  },
+  "delete channel": {
+    "options": {
+      "--channel": {
+        "choices": null,
+        "help": "Channel ID",
+        "nargs": null,
+        "option_strings": [
+          "--channel"
+        ],
+        "required": true
+      },
+      "--execute": {
+        "choices": null,
+        "help": "Actually delete it after typing its exact name",
+        "nargs": 0,
+        "option_strings": [
+          "--execute"
+        ],
+        "required": false
+      },
+      "-h": {
+        "choices": null,
+        "help": "show this help message and exit",
+        "nargs": 0,
+        "option_strings": [
+          "-h",
+          "--help"
+        ],
+        "required": false
+      }
+    },
+    "subcommands": []
+  },
+  "delete thread": {
+    "options": {
+      "--execute": {
+        "choices": null,
+        "help": "Actually delete it after typing its exact name",
+        "nargs": 0,
+        "option_strings": [
+          "--execute"
+        ],
+        "required": false
+      },
+      "--thread": {
+        "choices": null,
+        "help": "Thread ID",
+        "nargs": null,
+        "option_strings": [
+          "--thread"
+        ],
+        "required": true
+      },
+      "-h": {
+        "choices": null,
+        "help": "show this help message and exit",
+        "nargs": 0,
+        "option_strings": [
+          "-h",
+          "--help"
+        ],
+        "required": false
+      }
+    },
+    "subcommands": []
+  },
+  "discover": {
+    "options": {
+      "--json": {
+        "choices": null,
+        "help": "Write the tree to this JSON file instead of printing",
+        "nargs": null,
+        "option_strings": [
+          "--json"
+        ],
+        "required": false
+      },
+      "--server": {
+        "choices": null,
+        "help": "Limit to one server ID",
+        "nargs": null,
+        "option_strings": [
+          "--server"
+        ],
+        "required": false
+      },
+      "-h": {
+        "choices": null,
+        "help": "show this help message and exit",
+        "nargs": 0,
+        "option_strings": [
+          "-h",
+          "--help"
+        ],
+        "required": false
+      }
+    },
+    "subcommands": []
+  },
+  "doctor": {
+    "options": {
+      "--channel": {
+        "choices": null,
+        "help": "Also check the bot's permissions and message visibility in this channel/thread ID",
+        "nargs": null,
+        "option_strings": [
+          "--channel"
+        ],
+        "required": false
+      },
+      "-h": {
+        "choices": null,
+        "help": "show this help message and exit",
+        "nargs": 0,
+        "option_strings": [
+          "-h",
+          "--help"
+        ],
+        "required": false
+      }
+    },
+    "subcommands": []
+  },
+  "leave-server": {
+    "options": {
+      "--execute": {
+        "choices": null,
+        "help": "Actually leave after typing the server's exact name",
+        "nargs": 0,
+        "option_strings": [
+          "--execute"
+        ],
+        "required": false
+      },
+      "--server": {
+        "choices": null,
+        "help": "Server ID",
+        "nargs": null,
+        "option_strings": [
+          "--server"
+        ],
+        "required": true
+      },
+      "-h": {
+        "choices": null,
+        "help": "show this help message and exit",
+        "nargs": 0,
+        "option_strings": [
+          "-h",
+          "--help"
+        ],
+        "required": false
+      }
+    },
+    "subcommands": []
+  },
+  "members": {
+    "options": {
+      "--format": {
+        "choices": [
+          "csv",
+          "json"
+        ],
+        "help": "Export format",
+        "nargs": null,
+        "option_strings": [
+          "--format"
+        ],
+        "required": false
+      },
+      "--output": {
+        "choices": null,
+        "help": "Output file; relative names land in ~/.discord-tools/exports/. Prints a readable table when omitted",
+        "nargs": null,
+        "option_strings": [
+          "--output"
+        ],
+        "required": false
+      },
+      "--server": {
+        "choices": null,
+        "help": "Server ID",
+        "nargs": null,
+        "option_strings": [
+          "--server"
+        ],
+        "required": true
+      },
+      "-h": {
+        "choices": null,
+        "help": "show this help message and exit",
+        "nargs": 0,
+        "option_strings": [
+          "-h",
+          "--help"
+        ],
+        "required": false
+      }
+    },
+    "subcommands": []
+  },
+  "root": {
+    "options": {
+      "--profile": {
+        "choices": null,
+        "help": "Named bot profile from ~/.discord-tools/ (default: default)",
+        "nargs": null,
+        "option_strings": [
+          "--profile"
+        ],
+        "required": false
+      },
+      "-h": {
+        "choices": null,
+        "help": "show this help message and exit",
+        "nargs": 0,
+        "option_strings": [
+          "-h",
+          "--help"
+        ],
+        "required": false
+      }
+    },
+    "subcommands": [
+      "auth",
+      "bot",
+      "clear-messages",
+      "create",
+      "delete",
+      "discover",
+      "doctor",
+      "leave-server",
+      "members",
+      "search",
+      "send"
+    ]
+  },
+  "search": {
+    "options": {
+      "--channel": {
+        "choices": null,
+        "help": "Channel or thread ID",
+        "nargs": null,
+        "option_strings": [
+          "--channel"
+        ],
+        "required": true
+      },
+      "--format": {
+        "choices": [
+          "csv",
+          "json"
+        ],
+        "help": "Export format",
+        "nargs": null,
+        "option_strings": [
+          "--format"
+        ],
+        "required": false
+      },
+      "--from-user": {
+        "choices": null,
+        "help": "Author username or ID",
+        "nargs": null,
+        "option_strings": [
+          "--from-user"
+        ],
+        "required": false
+      },
+      "--keyword": {
+        "choices": null,
+        "help": "Case-insensitive text filter",
+        "nargs": null,
+        "option_strings": [
+          "--keyword",
+          "--contains"
+        ],
+        "required": false
+      },
+      "--limit": {
+        "choices": null,
+        "help": "Maximum exported messages",
+        "nargs": null,
+        "option_strings": [
+          "--limit"
+        ],
+        "required": false
+      },
+      "--output": {
+        "choices": null,
+        "help": "Output file; relative names land in ~/.discord-tools/exports/. Prints a readable table when omitted",
+        "nargs": null,
+        "option_strings": [
+          "--output"
+        ],
+        "required": false
+      },
+      "--since": {
+        "choices": null,
+        "help": "Inclusive ISO date or datetime lower bound",
+        "nargs": null,
+        "option_strings": [
+          "--since"
+        ],
+        "required": false
+      },
+      "--until": {
+        "choices": null,
+        "help": "Inclusive ISO date or datetime upper bound",
+        "nargs": null,
+        "option_strings": [
+          "--until"
+        ],
+        "required": false
+      },
+      "-h": {
+        "choices": null,
+        "help": "show this help message and exit",
+        "nargs": 0,
+        "option_strings": [
+          "-h",
+          "--help"
+        ],
+        "required": false
+      }
+    },
+    "subcommands": []
+  },
+  "send": {
+    "options": {
+      "--channel": {
+        "choices": null,
+        "help": "Channel or thread ID",
+        "nargs": null,
+        "option_strings": [
+          "--channel"
+        ],
+        "required": true
+      },
+      "--file": {
+        "choices": null,
+        "help": "Attach a file; repeatable",
+        "nargs": null,
+        "option_strings": [
+          "--file"
+        ],
+        "required": false
+      },
+      "--text": {
+        "choices": null,
+        "help": "Message text, or - to read it from stdin; optional when --file is given",
+        "nargs": null,
+        "option_strings": [
+          "--text"
+        ],
+        "required": false
+      },
+      "--yes": {
+        "choices": null,
+        "help": "Skip the preview and send; the channel must be in DISCORD_SEND_ALLOWLIST",
+        "nargs": 0,
+        "option_strings": [
+          "--yes"
+        ],
+        "required": false
+      },
+      "-h": {
+        "choices": null,
+        "help": "show this help message and exit",
+        "nargs": 0,
+        "option_strings": [
+          "-h",
+          "--help"
+        ],
+        "required": false
+      }
+    },
+    "subcommands": []
+  }
+}

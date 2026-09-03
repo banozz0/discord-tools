@@ -1,0 +1,233 @@
+========================================================================
+discord-tools --help
+========================================================================
+usage: discord-tools [-h] [--profile PROFILE]
+                     {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,bot} ...
+
+positional arguments:
+  {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,bot}
+    auth                Guided bot setup: Developer Portal walkthrough, token check, invite URL
+    doctor              Check token, message-content intent, servers, and channel permissions
+    discover            List the server -> channel -> thread tree with IDs
+    search              Search and export messages (history fetch + local filter)
+    members             List a server's members with usernames and IDs
+    send                Send a message to a channel or thread as the bot
+    create              Create a channel, category, or thread
+    clear-messages      Clear a channel, thread, or server's messages (dry-run by default)
+    delete              Delete a channel, category, or thread (dry-run by default; see leave-
+                        server for servers)
+    leave-server        Make the bot leave a server (nothing in it is deleted; dry-run by default)
+    bot                 Show or edit the active profile's bot settings and invite URL
+
+options:
+  -h, --help            show this help message and exit
+  --profile PROFILE     Named bot profile from ~/.discord-tools/ (default: default)
+
+========================================================================
+discord-tools auth --help
+========================================================================
+usage: discord-tools auth [-h]
+
+options:
+  -h, --help  show this help message and exit
+
+========================================================================
+discord-tools doctor --help
+========================================================================
+usage: discord-tools doctor [-h] [--channel CHANNEL]
+
+options:
+  -h, --help         show this help message and exit
+  --channel CHANNEL  Also check the bot's permissions and message visibility in this
+                     channel/thread ID
+
+========================================================================
+discord-tools discover --help
+========================================================================
+usage: discord-tools discover [-h] [--server SERVER] [--json JSON_OUTPUT]
+
+options:
+  -h, --help          show this help message and exit
+  --server SERVER     Limit to one server ID
+  --json JSON_OUTPUT  Write the tree to this JSON file instead of printing
+
+========================================================================
+discord-tools search --help
+========================================================================
+usage: discord-tools search [-h] --channel CHANNEL [--keyword KEYWORD] [--from-user FROM_USER]
+                            [--since SINCE] [--until UNTIL] [--limit LIMIT] [--format {json,csv}]
+                            [--output OUTPUT]
+
+options:
+  -h, --help            show this help message and exit
+  --channel CHANNEL     Channel or thread ID
+  --keyword, --contains KEYWORD
+                        Case-insensitive text filter
+  --from-user FROM_USER
+                        Author username or ID
+  --since SINCE         Inclusive ISO date or datetime lower bound
+  --until UNTIL         Inclusive ISO date or datetime upper bound
+  --limit LIMIT         Maximum exported messages
+  --format {json,csv}   Export format
+  --output OUTPUT       Output file; relative names land in ~/.discord-tools/exports/. Prints a
+                        readable table when omitted
+
+========================================================================
+discord-tools members --help
+========================================================================
+usage: discord-tools members [-h] --server SERVER [--format {json,csv}] [--output OUTPUT]
+
+options:
+  -h, --help           show this help message and exit
+  --server SERVER      Server ID
+  --format {json,csv}  Export format
+  --output OUTPUT      Output file; relative names land in ~/.discord-tools/exports/. Prints a
+                       readable table when omitted
+
+========================================================================
+discord-tools send --help
+========================================================================
+usage: discord-tools send [-h] --channel CHANNEL [--text TEXT] [--file PATH] [--yes]
+
+options:
+  -h, --help         show this help message and exit
+  --channel CHANNEL  Channel or thread ID
+  --text TEXT        Message text, or - to read it from stdin; optional when --file is given
+  --file PATH        Attach a file; repeatable
+  --yes              Skip the preview and send; the channel must be in DISCORD_SEND_ALLOWLIST
+
+========================================================================
+discord-tools create --help
+========================================================================
+usage: discord-tools create [-h] {channel,category,thread} ...
+
+positional arguments:
+  {channel,category,thread}
+    channel             Create a channel of any type delete can remove
+    category            Create a category
+    thread              Create a thread in a text channel
+
+options:
+  -h, --help            show this help message and exit
+
+========================================================================
+discord-tools create channel --help
+========================================================================
+usage: discord-tools create channel [-h] --server SERVER --name NAME [--category CATEGORY]
+                                    [--type {text,news,voice,stage_voice,forum,media}] [--yes]
+
+options:
+  -h, --help            show this help message and exit
+  --server SERVER       Server ID
+  --name NAME           Channel name
+  --category CATEGORY   Category ID to file it under
+  --type {text,news,voice,stage_voice,forum,media}
+                        Channel type to create (default: text)
+  --yes                 Skip the confirmation prompt
+
+========================================================================
+discord-tools create category --help
+========================================================================
+usage: discord-tools create category [-h] --server SERVER --name NAME [--yes]
+
+options:
+  -h, --help       show this help message and exit
+  --server SERVER  Server ID
+  --name NAME      Category name
+  --yes            Skip the confirmation prompt
+
+========================================================================
+discord-tools create thread --help
+========================================================================
+usage: discord-tools create thread [-h] --channel CHANNEL --name NAME [--private] [--yes]
+
+options:
+  -h, --help         show this help message and exit
+  --channel CHANNEL  Parent channel ID
+  --name NAME        Thread name
+  --private          Make a private thread instead of a public one
+  --yes              Skip the confirmation prompt
+
+========================================================================
+discord-tools clear-messages --help
+========================================================================
+usage: discord-tools clear-messages [-h] (--channel CHANNEL | --server SERVER) [--execute]
+                                    [--skip-threads]
+
+options:
+  -h, --help         show this help message and exit
+  --channel CHANNEL  Channel or thread ID
+  --server SERVER    Clear every accessible message location in this server ID
+  --execute          Actually clear messages after typing DELETE
+  --skip-threads     With --server: clear channel messages only, leaving threads and forum/media
+                     posts untouched
+
+========================================================================
+discord-tools delete --help
+========================================================================
+usage: discord-tools delete [-h] {channel,category,thread} ...
+
+positional arguments:
+  {channel,category,thread}
+    channel             Delete a channel and everything in it
+    category            Delete a category (the channels inside it survive, uncategorised)
+    thread              Delete a thread or forum post
+
+options:
+  -h, --help            show this help message and exit
+
+========================================================================
+discord-tools delete channel --help
+========================================================================
+usage: discord-tools delete channel [-h] --channel CHANNEL [--execute]
+
+options:
+  -h, --help         show this help message and exit
+  --channel CHANNEL  Channel ID
+  --execute          Actually delete it after typing its exact name
+
+========================================================================
+discord-tools delete category --help
+========================================================================
+usage: discord-tools delete category [-h] --category CATEGORY [--execute]
+
+options:
+  -h, --help           show this help message and exit
+  --category CATEGORY  Category ID
+  --execute            Actually delete it after typing its exact name
+
+========================================================================
+discord-tools delete thread --help
+========================================================================
+usage: discord-tools delete thread [-h] --thread THREAD [--execute]
+
+options:
+  -h, --help       show this help message and exit
+  --thread THREAD  Thread ID
+  --execute        Actually delete it after typing its exact name
+
+========================================================================
+discord-tools leave-server --help
+========================================================================
+usage: discord-tools leave-server [-h] --server SERVER [--execute]
+
+options:
+  -h, --help       show this help message and exit
+  --server SERVER  Server ID
+  --execute        Actually leave after typing the server's exact name
+
+========================================================================
+discord-tools bot --help
+========================================================================
+usage: discord-tools bot [-h] [--invite] [--json JSON_OUTPUT] [--name NAME]
+                         [--description DESCRIPTION] [--avatar AVATAR] [--yes]
+
+options:
+  -h, --help            show this help message and exit
+  --invite              Print only the invite URL
+  --json JSON_OUTPUT    Write the bot profile to this JSON file
+  --name NAME           Set the bot's username
+  --description DESCRIPTION
+                        Set the application description shown on the bot's profile
+  --avatar AVATAR       Path to a new avatar image
+  --yes                 Skip the confirmation prompt

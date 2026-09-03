@@ -11,6 +11,28 @@ GUILD_CHANNEL_TYPES = ("text", "news", "voice", "stage_voice", "forum", "media")
 THREAD_TYPES = ("public_thread", "private_thread", "news_thread")
 CATEGORY_TYPES = ("category",)
 
+# Which noun owns each real Discord type. `delete` uses it as the second lock
+# on its gate — pointing `delete thread` at a category is a typo worth
+# refusing — and it is also the resource-id kind, so a resolved target and a
+# delete both call the same thing the same word.
+CONTAINER_KIND_TYPES = {
+    "channel": GUILD_CHANNEL_TYPES,
+    "category": CATEGORY_TYPES,
+    "thread": THREAD_TYPES,
+}
+
+
+def kind_for_type(type_name: str) -> str | None:
+    """Which noun owns a real Discord type, or None if it owns none.
+
+    Lets a caller that already knows what it picked skip asking the user to
+    name the kind a second time.
+    """
+    for kind, types in CONTAINER_KIND_TYPES.items():
+        if type_name in types:
+            return kind
+    return None
+
 
 @dataclass(frozen=True)
 class ServerInfo:

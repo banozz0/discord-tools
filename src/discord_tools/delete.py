@@ -6,11 +6,10 @@ from datetime import UTC, datetime, timedelta
 
 from discord_tools.client import API_ERRORS, ClientError
 from discord_tools.models import (
-    CATEGORY_TYPES,
-    GUILD_CHANNEL_TYPES,
-    THREAD_TYPES,
+    CONTAINER_KIND_TYPES,
     ContainerDeleteResult,
     DeleteResult,
+    kind_for_type,
 )
 from discord_tools.records import snowflake_time
 
@@ -320,23 +319,10 @@ RULE = "--------------------------------------------"
 
 # Which real Discord types each `delete` noun accepts. Naming the kind is the
 # second lock on the gate: pointing `delete thread` at a category is a typo
-# worth refusing, not a deletion worth confirming.
-DELETE_KIND_TYPES = {
-    "channel": GUILD_CHANNEL_TYPES,
-    "category": CATEGORY_TYPES,
-    "thread": THREAD_TYPES,
-}
-
-def kind_for_type(type_name: str) -> str | None:
-    """Which `delete` noun owns a real Discord type, or None if it owns none.
-
-    Lets a caller that already knows what it picked skip asking the user to
-    name the kind a second time.
-    """
-    for kind, types in DELETE_KIND_TYPES.items():
-        if type_name in types:
-            return kind
-    return None
+# worth refusing, not a deletion worth confirming. The mapping lives in
+# models.py beside the vocabulary it is built from, because a resolved target
+# names its kind with the same words.
+DELETE_KIND_TYPES = CONTAINER_KIND_TYPES
 
 
 DELETE_CONSEQUENCES = {

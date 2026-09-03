@@ -33,6 +33,7 @@ class FakeClient:
         channel_info: dict[int, ChannelInfo] | None = None,
         history: dict[int, list] | None = None,
         permissions: dict[int, dict[str, bool]] | None = None,
+        guild_permissions: dict[int, dict[str, bool]] | None = None,
         members: dict[int, list[MemberInfo]] | None = None,
     ) -> None:
         self.identity = identity
@@ -43,6 +44,7 @@ class FakeClient:
         self.channel_info = channel_info or {}
         self.history = history or {}
         self.permissions = permissions or {}
+        self.guild_perms = guild_permissions or {}
         self.members = members or {}
 
         self.sent: list[dict] = []
@@ -55,6 +57,9 @@ class FakeClient:
         self.application_edits: list[dict] = []
         self.next_id = 900
         self.history_reads: list[int] = []
+        # Every audit reason a write was handed, in call order: what Discord's
+        # own audit log would show.
+        self.reasons: list[str | None] = []
         self.closed = False
 
     async def aclose(self):
@@ -99,37 +104,46 @@ class FakeClient:
         self.sent.append({"channel_id": channel_id, "text": text, "files": list(files), "id": self.next_id})
         return self.next_id
 
-    async def delete_message(self, channel_id, message_id):
+    async def delete_message(self, channel_id, message_id, *, reason=None):
         self.deleted_single.append((channel_id, message_id))
+        self.reasons.append(reason)
 
-    async def bulk_delete(self, channel_id, message_ids):
+    async def bulk_delete(self, channel_id, message_ids, *, reason=None):
         self.deleted_bulk.append((channel_id, list(message_ids)))
+        self.reasons.append(reason)
 
-    async def create_channel(self, server_id, name, *, category_id=None, kind="text"):
+    async def create_channel(self, server_id, name, *, category_id=None, kind="text", reason=None):
         self.next_id += 1
         self.created.append(
             {"kind": "channel", "server_id": server_id, "name": name, "category_id": category_id, "type": kind}
         )
+        self.reasons.append(reason)
         return ChannelInfo(id=self.next_id, name=name, type=kind, parent_id=category_id)
 
-    async def create_category(self, server_id, name):
+    async def create_category(self, server_id, name, *, reason=None):
         self.next_id += 1
         self.created.append({"kind": "category", "server_id": server_id, "name": name})
+        self.reasons.append(reason)
         return ChannelInfo(id=self.next_id, name=name, type="category", parent_id=None)
 
-    async def create_thread(self, channel_id, name, *, private=False):
+    async def create_thread(self, channel_id, name, *, private=False, reason=None):
         self.next_id += 1
         self.created.append({"kind": "thread", "channel_id": channel_id, "name": name, "private": private})
+        self.reasons.append(reason)
         return ThreadInfo(id=self.next_id, name=name, parent_id=channel_id, archived=False)
 
-    async def delete_channel(self, channel_id):
+    async def delete_channel(self, channel_id, *, reason=None):
         self.deleted_channels.append(channel_id)
+        self.reasons.append(reason)
 
     async def leave_server(self, server_id):
         self.left_servers.append(server_id)
 
     async def permissions_in(self, channel_id):
         return dict(self.permissions.get(channel_id, {}))
+
+    async def guild_permissions(self, server_id):
+        return dict(self.guild_perms.get(server_id, {}))
 
     async def edit_bot_user(self, *, username=None, avatar_path=None):
         self.user_edits.append({"username": username, "avatar_path": avatar_path})

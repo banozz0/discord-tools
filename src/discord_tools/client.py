@@ -34,12 +34,24 @@ def _channel_type_name(channel: Any) -> str:
 # contract with `delete`: anything deletable can be made again, so a cleanup is
 # never a one-way door.
 CHANNEL_KINDS = {
-    "text": lambda guild, name, category: guild.create_text_channel(name, category=category),
-    "news": lambda guild, name, category: guild.create_text_channel(name, category=category, news=True),
-    "voice": lambda guild, name, category: guild.create_voice_channel(name, category=category),
-    "stage_voice": lambda guild, name, category: guild.create_stage_channel(name, category=category),
-    "forum": lambda guild, name, category: guild.create_forum(name, category=category),
-    "media": lambda guild, name, category: guild.create_forum(name, category=category, media=True),
+    "text": lambda guild, name, category, reason: guild.create_text_channel(
+        name, category=category, reason=reason
+    ),
+    "news": lambda guild, name, category, reason: guild.create_text_channel(
+        name, category=category, news=True, reason=reason
+    ),
+    "voice": lambda guild, name, category, reason: guild.create_voice_channel(
+        name, category=category, reason=reason
+    ),
+    "stage_voice": lambda guild, name, category, reason: guild.create_stage_channel(
+        name, category=category, reason=reason
+    ),
+    "forum": lambda guild, name, category, reason: guild.create_forum(
+        name, category=category, reason=reason
+    ),
+    "media": lambda guild, name, category, reason: guild.create_forum(
+        name, category=category, media=True, reason=reason
+    ),
 }
 
 assert tuple(CHANNEL_KINDS) == GUILD_CHANNEL_TYPES, "every deletable channel type needs a maker"
@@ -216,51 +228,65 @@ class DiscordClient:
         message = await channel.send(content=text or None, files=attachments or None)
         return message.id
 
-    async def delete_message(self, channel_id: int, message_id: int) -> None:
-        await self._client.http.delete_message(channel_id, message_id)
+    async def delete_message(self, channel_id: int, message_id: int, *, reason: str | None = None) -> None:
+        await self._client.http.delete_message(channel_id, message_id, reason=reason)
 
-    async def bulk_delete(self, channel_id: int, message_ids: Sequence[int]) -> None:
-        await self._client.http.delete_messages(channel_id, list(message_ids))
+    async def bulk_delete(
+        self, channel_id: int, message_ids: Sequence[int], *, reason: str | None = None
+    ) -> None:
+        await self._client.http.delete_messages(channel_id, list(message_ids), reason=reason)
 
     # -- creation ---------------------------------------------------------
 
     async def create_channel(
-        self, server_id: int, name: str, *, category_id: int | None = None, kind: str = "text"
+        self,
+        server_id: int,
+        name: str,
+        *,
+        category_id: int | None = None,
+        kind: str = "text",
+        reason: str | None = None,
     ) -> ChannelInfo:
         guild = await self._fetch_guild(server_id)
         category = discord.Object(id=category_id) if category_id else None
         maker = CHANNEL_KINDS.get(kind)
         if maker is None:
             raise ClientError(f"Cannot create a {kind!r} channel - known kinds: {', '.join(CHANNEL_KINDS)}.")
-        channel = await maker(guild, name, category)
+        channel = await maker(guild, name, category, reason)
         return ChannelInfo(
             id=channel.id, name=channel.name, type=_channel_type_name(channel), parent_id=category_id
         )
 
-    async def create_category(self, server_id: int, name: str) -> ChannelInfo:
+    async def create_category(self, server_id: int, name: str, *, reason: str | None = None) -> ChannelInfo:
         guild = await self._fetch_guild(server_id)
-        category = await guild.create_category(name)
+        category = await guild.create_category(name, reason=reason)
         return ChannelInfo(id=category.id, name=category.name, type="category", parent_id=None)
 
-    async def create_thread(self, channel_id: int, name: str, *, private: bool = False) -> ThreadInfo:
+    async def create_thread(
+        self, channel_id: int, name: str, *, private: bool = False, reason: str | None = None
+    ) -> ThreadInfo:
         channel = await self._fetch_channel(channel_id)
         if not hasattr(channel, "create_thread"):
             raise ClientError(f"Channel {channel_id} ({_channel_type_name(channel)}) cannot hold threads.")
         kind = discord.ChannelType.private_thread if private else discord.ChannelType.public_thread
-        thread = await channel.create_thread(name=name, type=kind)
+        thread = await channel.create_thread(name=name, type=kind, reason=reason)
         return ThreadInfo(id=thread.id, name=thread.name, parent_id=channel_id, archived=False)
 
     # -- deletion ---------------------------------------------------------
 
-    async def delete_channel(self, channel_id: int) -> None:
+    async def delete_channel(self, channel_id: int, *, reason: str | None = None) -> None:
         """Delete a channel, category, or thread - they all share one endpoint."""
         channel = await self._fetch_channel(channel_id)
         if not hasattr(channel, "delete"):
             raise ClientError(f"Channel {channel_id} ({_channel_type_name(channel)}) cannot be deleted.")
-        await channel.delete()
+        await channel.delete(reason=reason)
 
     async def leave_server(self, server_id: int) -> None:
-        """Leave a server. Deleting one needs guild ownership, which a bot never has."""
+        """Leave a server. Deleting one needs guild ownership, which a bot never has.
+
+        No audit reason: Discord's leave endpoint takes none, and there is no
+        server-side record to attach one to once the bot is out.
+        """
         guild = await self._fetch_guild(server_id)
         await guild.leave()
 
@@ -282,6 +308,17 @@ class DiscordClient:
             raise ClientError(f"Channel {channel_id} was not found in server {guild.name}.")
         permissions = channel.permissions_for(member)
         return {name: value for name, value in permissions}
+
+    async def guild_permissions(self, server_id: int) -> dict[str, bool]:
+        """The bot's server-wide permissions, for a write that names no channel.
+
+        `permissions_in` needs somewhere to compute overwrites against;
+        creating a channel at the top level of a server has no such place, and
+        the right that governs it is held on the server itself.
+        """
+        guild = await self._fetch_guild(server_id)
+        member = await guild.fetch_member(self._client.user.id)
+        return {name: value for name, value in member.guild_permissions}
 
     # -- plumbing ---------------------------------------------------------
 

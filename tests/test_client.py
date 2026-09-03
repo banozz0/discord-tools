@@ -177,8 +177,8 @@ def test_delete_channel_calls_delete_on_whatever_it_fetched(monkeypatch):
     deleted = []
     channel = SimpleNamespace(type=SimpleNamespace(name="voice"))
 
-    async def delete():
-        deleted.append(True)
+    async def delete(*, reason=None):
+        deleted.append(reason)
 
     channel.delete = delete
     client = DiscordClient(SimpleNamespace())
@@ -187,8 +187,10 @@ def test_delete_channel_calls_delete_on_whatever_it_fetched(monkeypatch):
         return channel
 
     monkeypatch.setattr(client, "_fetch_channel", fetch_channel)
-    asyncio.run(client.delete_channel(11))
-    assert deleted == [True]
+    asyncio.run(client.delete_channel(11, reason="cli-tools delete plan abcd1234"))
+    # The reason reaches Discord's audit log, so a write this tool made can be
+    # told apart from one someone made in the app.
+    assert deleted == ["cli-tools delete plan abcd1234"]
 
 
 def test_delete_refuses_something_with_no_delete(monkeypatch):

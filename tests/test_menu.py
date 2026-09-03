@@ -4,7 +4,7 @@ import pytest
 from conftest import FakeClient
 
 from discord_tools.client import ClientError
-from discord_tools.columns import width
+from discord_tools._core.columns import width
 from discord_tools.config import Config
 from discord_tools.menu import MenuSession, run_menu
 from discord_tools.models import ChannelInfo, MemberInfo, ServerInfo, ThreadInfo

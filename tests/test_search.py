@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from conftest import FakeClient
 
-from discord_tools.columns import width
+from discord_tools._core.columns import width
 from discord_tools.search import PREVIEW_WIDTH, format_message_records, preview, search_messages
 
 

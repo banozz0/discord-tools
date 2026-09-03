@@ -1,4 +1,4 @@
-from discord_tools.columns import cell, pad, width
+from discord_tools._core.columns import cell, pad, width
 
 # Two channel names len() ranks one way and the terminal draws the same:
 # VAULT counts 13 characters and SYSTEM 15, and both draw 14 columns.

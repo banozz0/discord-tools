@@ -7,7 +7,7 @@ from typing import Any
 
 from discord_tools import cli, ui
 from discord_tools.client import API_ERRORS, ClientError, start_client
-from discord_tools.columns import cell
+from discord_tools._core.columns import cell
 from discord_tools.config import ConfigError, load_config
 from discord_tools.delete import kind_for_type
 from discord_tools.prompts import (

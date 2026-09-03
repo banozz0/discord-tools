@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from discord_tools.columns import pad
+from discord_tools._core.columns import pad
 from discord_tools.models import ChannelInfo, ServerInfo, ThreadInfo
 
 

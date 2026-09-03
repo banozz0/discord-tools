@@ -1,14 +1,16 @@
 # discord-tools — agent brief
 
-Public repo — contributor-facing. telegram-tools for Discord: a local CLI on
-Discord's **bot system** — no self-bots, ever (ToS).
+Public repo — contributor-facing. A local CLI for your own Discord servers,
+on Discord's **bot system** — no self-bots, ever (ToS).
 Bot token per profile in `~/.discord-tools/` (0600, env override); a bot per
 agent is the intended use, `--profile <name>` picks one.
 
 `SPEC.md` is the build contract — read it before touching code. Shaping record:
-`~/code/incubator/discord-tools/IDEA.md`. Conventions mirror
-`~/code/telegram-tools` (v3.7.0) deliberately: same menu-vs-subcommand split,
-same test culture, same release recipe — when in doubt, look at the sibling.
+`~/code/incubator/discord-tools/IDEA.md`. The menu-vs-subcommand split, the
+test culture and the shared output contract are fixed by the suite
+specification at
+`~/code/cli-tools-site/docs/architecture/full-suite-architecture.md` — read
+that when a convention is in question, never another repository.
 
 ## Commands
 
@@ -26,8 +28,7 @@ shipped 2026-08-27 after the joint testing session.
 PyPI account is **banozz** (not the GitHub handle); the distribution is
 **discord-tools-cli** (`discord-tools` is squatted by an archived unrelated
 package) while the console script stays `discord-tools`. Recipe + traps: the
-maintainer's private runbook (same one as telegram-tools). Rebuild `dist/`
-after any source edit.
+maintainer's private runbook. Rebuild `dist/` after any source edit.
 
 ## Working here
 

@@ -12,8 +12,8 @@ The terms this codebase uses, and the boundaries they imply.
   `--profile` / `DISCORD_TOOLS_PROFILE` select one; `DISCORD_TOKEN` overrides.
   The menu can switch mid-session, which closes the old login and drops every
   cache — both belonged to the old token.
-- **Gate** — the confirmation pattern on every destructive path, copied from
-  telegram-tools verbatim: send = preview + y/N (`--yes` needs the
+- **Gate** — the confirmation pattern on every destructive path, fixed by
+  the suite specification: send = preview + y/N (`--yes` needs the
   allowlist), create = preview + y/N, clear = dry-run default + `--execute` +
   typed `DELETE`, bot edits = diff + confirm. The menu builds the same args
   the flags would and never sets `yes`/`execute` itself — it is never a
@@ -53,13 +53,13 @@ The terms this codebase uses, and the boundaries they imply.
   default `write`/`read` paint, every prompt still returns plain strings, and an
   injected read/write (every test) never sees an escape code.
 - **Column** — a name padded to a fixed width so the ID beside it lines up
-  (`columns.py`). Measured in terminal columns, never in codepoints: an emoji
-  draws two, a variation selector draws none and does not widen what it
+  (`_core/columns.py`). Measured in terminal columns, never in codepoints: an
+  emoji draws two, a variation selector draws none and does not widen what it
   follows, each half of a flag draws two. Those numbers come from a real
-  terminal — `tests/test_columns.py` carries the fourteen measured shapes, and
-  the sibling telegram-tools carries the same table. `cell` cuts to fit (a
-  picker row must stay one line), `pad` never cuts (a tree's reader came for
-  the name).
+  terminal — `tests/test_columns.py` carries the fourteen measured shapes and
+  runs them against the vendored copy, which is the one that ships. `cell` cuts
+  to fit (a picker row must stay one line), `pad` never cuts (a tree's reader
+  came for the name).
 - **Trail** — the breadcrumb a screen's title carries (`Main › Clear › Ops`),
   built by `ui.crumb`. A flow passes its own trail down; a screen never invents
   one.

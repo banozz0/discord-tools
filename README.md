@@ -8,10 +8,10 @@ messages, send messages, create and delete channels and threads, clear messages,
 manage the bot's settings — with a guided setup that walks you through the
 Discord Developer Portal.
 
-Sibling of [telegram-tools](https://github.com/banozz0/telegram-tools): same
-menu for humans, same subcommands for agents, same safety gates on anything
-destructive. Bot-token auth only: Discord does not allow automating a person's
-account, so this drives a bot instead — no self-bots, ever (ToS).
+One menu for humans, the same commands as flags for agents, and a safety
+gate on anything destructive. Bot-token auth only: Discord does not allow
+automating a person's account, so this drives a bot instead — no self-bots,
+ever (ToS).
 
 ## Install
 

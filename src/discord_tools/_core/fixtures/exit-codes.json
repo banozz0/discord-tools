@@ -1,0 +1,24 @@
+{
+  "schema": "cli-tools/exit-codes/1",
+  "note": "The shared exit code table. No existing code changes meaning; 3 is new and only reachable under --json.",
+  "codes": {
+    "0": "done: ok, empty, dry_run",
+    "1": "not done: cancelled at a gate, declined confirm, partial (some locations failed)",
+    "2": "refused: usage, config, permission, platform error, unsafe download, disk budget",
+    "3": "approval required and no tty to ask on (only reachable under --json)",
+    "130": "interrupted"
+  },
+  "statuses": {
+    "ok": 0,
+    "empty": 0,
+    "dry_run": 0,
+    "cancelled": 1,
+    "partial": 1,
+    "refused": 2,
+    "failed": 2
+  },
+  "errors": {
+    "APPROVAL_REQUIRED": 3,
+    "INTERRUPTED": 130
+  }
+}

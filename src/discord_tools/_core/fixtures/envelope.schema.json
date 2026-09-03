@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cli-tools/envelope/1",
+  "title": "cli-tools envelope, version 1",
+  "description": "The machine-output object every command emits under --json. Additive changes stay in /1; a removed or renamed key is /2.",
+  "type": "object",
+  "required": [
+    "schema", "tool", "version", "command", "args", "identity", "target",
+    "status", "result", "plan", "evidence", "warnings", "error", "meta"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {"const": "envelope"},
+    "schema": {"const": "cli-tools/envelope/1"},
+    "tool": {"type": "string", "minLength": 1},
+    "version": {"type": "string", "minLength": 1},
+    "command": {"type": "string", "minLength": 1},
+    "args": {"type": "object"},
+    "identity": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/identity"}]},
+    "target": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/target"}]},
+    "status": {"enum": ["ok", "empty", "partial", "dry_run", "cancelled", "refused", "failed"]},
+    "result": {"type": "object"},
+    "plan": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/plan"}]},
+    "evidence": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/evidence"}]},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "error": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/error"}]},
+    "meta": {"$ref": "#/$defs/meta"}
+  },
+  "$defs": {
+    "rid": {
+      "type": "string",
+      "pattern": "^[a-z]{2}:[a-z]+:[A-Za-z0-9_-]+(:[A-Za-z0-9_-]+)?$"
+    },
+    "identity": {
+      "type": "object",
+      "required": ["platform", "mode", "label", "id", "profile", "via"],
+      "additionalProperties": false,
+      "properties": {
+        "platform": {"type": "string", "minLength": 1},
+        "mode": {"enum": ["account", "bot"]},
+        "label": {"type": "string", "minLength": 1},
+        "id": {"type": "string", "pattern": "^[a-z]{2}:(user|bot):[A-Za-z0-9_-]+$"},
+        "profile": {"type": "string", "minLength": 1},
+        "via": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/rid"}]}
+      }
+    },
+    "target": {
+      "type": "object",
+      "required": ["rid", "kind", "title", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "rid": {"$ref": "#/$defs/rid"},
+        "kind": {"enum": [
+          "chat", "topic", "user", "bot", "message", "guild", "category", "channel",
+          "thread", "role", "member", "invite", "webhook", "event"
+        ]},
+        "platform": {"type": "string", "minLength": 1},
+        "ids": {"type": "object", "additionalProperties": {"type": "string"}},
+        "title": {"type": "string"},
+        "path": {"type": "array", "items": {"type": "string"}},
+        "type": {"type": ["string", "null"]}
+      }
+    },
+    "plan": {
+      "type": "object",
+      "required": ["plan_id", "approval", "preflight"],
+      "additionalProperties": false,
+      "properties": {
+        "plan_id": {"type": "string", "pattern": "^[0-9a-f]{16}$"},
+        "approval": {"enum": ["prompt_y", "typed_delete", "typed_name", "yes_allowlist"]},
+        "preflight": {
+          "type": "object",
+          "required": ["required", "held", "missing"],
+          "additionalProperties": false,
+          "properties": {
+            "required": {"type": "array", "items": {"type": "string"}},
+            "held": {"type": "array", "items": {"type": "string"}},
+            "missing": {"type": "array", "items": {"type": "string"}}
+          }
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["readback", "fetched_at"],
+      "additionalProperties": false,
+      "properties": {
+        "readback": {"type": "string", "minLength": 1},
+        "fetched_at": {"type": "string", "minLength": 1}
+      }
+    },
+    "error": {
+      "type": "object",
+      "required": ["code", "message", "hint", "retryable", "platform"],
+      "additionalProperties": false,
+      "properties": {
+        "code": {"enum": [
+          "CONFIG_MISSING", "CONFIG_INVALID", "LOGIN_REQUIRED", "SESSION_IN_USE",
+          "IDENTITY_MISMATCH", "IDENTITY_MODE_UNSUPPORTED", "TARGET_NOT_FOUND",
+          "TARGET_AMBIGUOUS", "TARGET_KIND_MISMATCH", "NOT_ALLOWLISTED",
+          "APPROVAL_REQUIRED", "GATE_MISMATCH", "PLAN_DRIFT", "PERMISSION_DENIED",
+          "HIERARCHY_DENIED", "INTENT_MISSING", "PLATFORM_UNSUPPORTED", "PLATFORM_ERROR",
+          "RATE_LIMITED", "PARTIAL_FAILURE", "ARCHIVE_UNAVAILABLE",
+          "SCHEMA_MIGRATION_REQUIRED", "DISK_BUDGET", "UNSAFE_BLOCKED",
+          "SCANNER_UNAVAILABLE", "RUNNER_LOCKED", "RUNNER_NOT_RUNNING", "RULE_INVALID",
+          "COMMAND_MISSING", "BULK_LIMIT", "INTERRUPTED"
+        ]},
+        "message": {"type": "string", "minLength": 1},
+        "hint": {"type": ["string", "null"]},
+        "retryable": {"type": "boolean"},
+        "platform": {"type": ["string", "null"]}
+      }
+    },
+    "meta": {
+      "type": "object",
+      "required": ["started", "duration_ms", "api_calls", "waited_ms"],
+      "additionalProperties": false,
+      "properties": {
+        "started": {"type": "string", "minLength": 1},
+        "duration_ms": {"type": "integer", "minimum": 0},
+        "api_calls": {"type": "integer", "minimum": 0},
+        "waited_ms": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

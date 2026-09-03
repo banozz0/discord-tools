@@ -1,0 +1,91 @@
+{
+  "schema": "cli-tools/redaction/1",
+  "note": "Forbidden shapes, matched in this order. Shapes only, no vendor names; fixture hosts are example.invalid. A tool's tests grep their own output with `patterns`; `cases` prove the rewrite; `clean` is what must survive untouched. Decided on the first card: the path of a secrets file (~/.<tool>/.env) is not a secret and stays, because the spec's own error hint prints one; its contents never reach an envelope. The two token samples are deliberately mis-shaped for a vendor scanner while still matching the regexes above: the numeric one carries a 12-digit id and a secret part that starts with no known prefix, the three-segment one is 23.7.40 rather than any real length. A push protection rule blocks a public repository on a sample that looks live, so a sample that looks live costs the tools their commits - keep new samples shape-valid and vendor-invalid.",
+  "patterns": [
+    {
+      "name": "token_numeric_colon",
+      "about": "a bot token shaped <8 or more digits>:<35 url-safe characters>; the digit run is open-ended because bot ids grow",
+      "regex": "(?<![\\d:])\\d{8,}:[A-Za-z0-9_-]{35}(?![A-Za-z0-9_-])",
+      "replace": "<redacted token>"
+    },
+    {
+      "name": "token_three_segment",
+      "about": "a bot token shaped <23-28>.<6-7>.<27+> url-safe characters",
+      "regex": "(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{23,28}\\.[A-Za-z0-9_-]{6,7}\\.[A-Za-z0-9_-]{27,}",
+      "replace": "<redacted token>"
+    },
+    {
+      "name": "app_hash_hex32",
+      "about": "a 32-character lowercase hex application hash; an md5 checksum or an undashed UUID has the same shape and is redacted too, the safe side",
+      "regex": "\\b[0-9a-f]{32}\\b",
+      "replace": "<redacted hash>"
+    },
+    {
+      "name": "phone_plus",
+      "about": "an international phone number written with a leading plus, 7 to 15 digits with optional separators; reduced to its last two digits. A signed count like +1234567 has the same shape and is reduced too; counts in a result are numbers, not strings, so this only bites prose",
+      "regex": "(?<![\\w+])\\+(?:[ ().-]*\\d){7,15}(?!\\d)",
+      "replace": "…{last2}"
+    },
+    {
+      "name": "phone_double_zero",
+      "about": "an international phone number written with a leading 00; reduced to its last two digits",
+      "regex": "(?<![\\d+])00(?:[ ().-]*\\d){7,15}(?!\\d)",
+      "replace": "…{last2}"
+    },
+    {
+      "name": "session_path_profile",
+      "about": "a session file path under profiles/<name>/, replaced by the profile it belongs to",
+      "regex": "[\\w~./-]*profiles/([\\w.-]+)/[\\w./-]*\\.session(?:-journal|-shm|-wal)?(?![\\w.-])",
+      "replace": "<profile \\1 session>"
+    },
+    {
+      "name": "session_path_legacy",
+      "about": "any other session file path, which belongs to the default profile",
+      "regex": "[\\w~./-]*\\.session(?:-journal|-shm|-wal)?(?![\\w.-])",
+      "replace": "<profile default session>"
+    },
+    {
+      "name": "webhook_url",
+      "about": "a webhook URL whose path is /api/webhooks/<id>/<token>; the token segment is replaced",
+      "regex": "(/api/webhooks/\\d+/)[A-Za-z0-9_-]+",
+      "replace": "\\1<redacted>"
+    },
+    {
+      "name": "invite_link",
+      "about": "a chat invite link with a /+<hash> or /joinchat/<hash> path; kept only when showing one is the command's purpose",
+      "regex": "((?:https?://)?[\\w.-]+\\.[a-z]{2,}/)(?:\\+|joinchat/)([A-Za-z0-9_-]{5,})",
+      "replace": "\\1+<redacted>",
+      "keep_when": "invites"
+    }
+  ],
+  "cases": [
+    {"name": "numeric token", "in": "bot 123456789012:SampleTokenSegmentNotARealSecret000 is live", "out": "bot <redacted token> is live"},
+    {"name": "three-segment token", "in": "token SampleTokenSegmentAAAAA.Sample7.abcdefghijklmnopqrstuvwxyz0123456789abcd seen", "out": "token <redacted token> seen"},
+    {"name": "application hash", "in": "api hash 0123456789abcdef0123456789abcdef set", "out": "api hash <redacted hash> set"},
+    {"name": "phone with plus and spaces", "in": "call +356 9912 3456 now", "out": "call …56 now"},
+    {"name": "phone with plus and punctuation", "in": "from +1 (555) 010-9999", "out": "from …99"},
+    {"name": "phone with double zero", "in": "dial 0035699123456 now", "out": "dial …56 now"},
+    {"name": "session under a profile", "in": "session ~/.x-tools/profiles/dobby/session.session opened", "out": "session <profile dobby session> opened"},
+    {"name": "legacy session file", "in": "using /Users/sven/.x-tools/x-tools.session-journal now", "out": "using <profile default session> now"},
+    {"name": "webhook URL", "in": "https://example.invalid/api/webhooks/123456/AbCdEfGh_ij-klmnop", "out": "https://example.invalid/api/webhooks/123456/<redacted>"},
+    {"name": "invite with plus", "in": "join https://example.invalid/+AbCdEfGhIjK today", "out": "join https://example.invalid/+<redacted> today"},
+    {"name": "invite with joinchat", "in": "join example.invalid/joinchat/AbCdEfGhIjK", "out": "join example.invalid/+<redacted>"}
+  ],
+  "clean": [
+    "-1001234567890:141",
+    "tg:topic:-1001234567890:141",
+    "dc:channel:1542641014190375072",
+    "1000000000000000000",
+    "2026-09-02T12:30:58Z",
+    "plan b7f1e2d3c4b5a697",
+    "@mygroup",
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "97d9fee0a1b2c3d4e5f60718293a4b5c6d7e8f90",
+    "~/.x-tools/.env",
+    "3.7.2",
+    "Sven (…78)",
+    "add 1542641014190375072 to the allowlist in ~/.x-tools/.env, or run without --yes",
+    "general-announcements",
+    "https://example.invalid/channels/123/456"
+  ]
+}

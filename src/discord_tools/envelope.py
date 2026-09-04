@@ -35,11 +35,6 @@ from discord_tools._core.plan import Evidence, Plan
 
 TOOL = "discord-tools"
 
-# Commands whose payload is a list of records worth streaming under --jsonl.
-# Everything else emits the closing envelope alone: the flag stays global and
-# always valid, it just has nothing to stream.
-STREAMING = {"search": "message", "members": "member", "discover": "server"}
-
 
 @dataclass
 class Outcome:

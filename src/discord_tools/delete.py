@@ -5,12 +5,7 @@ from collections.abc import Callable, Iterable
 from datetime import UTC, datetime, timedelta
 
 from discord_tools.client import API_ERRORS, ClientError
-from discord_tools.models import (
-    CONTAINER_KIND_TYPES,
-    ContainerDeleteResult,
-    DeleteResult,
-    kind_for_type,
-)
+from discord_tools.models import CONTAINER_KIND_TYPES, ContainerDeleteResult, DeleteResult
 from discord_tools.records import snowflake_time
 
 # Discord's bulk-delete endpoint rejects messages older than 14 days, hard.

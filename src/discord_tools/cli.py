@@ -427,7 +427,7 @@ def _attachments(paths: list[str] | None) -> list[str]:
     return files
 
 
-async def _plan(client, out, *, command, identity, targets, mutations, approval, rights):
+async def _plan(client, *, command, identity, targets, mutations, approval, rights):
     return await plans.build(
         command=command,
         identity=identity,
@@ -466,7 +466,6 @@ async def _run_send(client, args, config, out) -> Outcome:
     async def build():
         return await _plan(
             client,
-            out,
             command=out.command,
             identity=identity,
             targets=(await resolver.resolve(args.channel),),
@@ -486,6 +485,7 @@ async def _run_send(client, args, config, out) -> Outcome:
         return Outcome(status="refused", target=target, plan=write.plan, error=write.refusal)
 
     confirm = None
+    ask = not args.yes
     if args.yes:
         require_send_allowed(config.send_allowlist, args.channel)
     else:
@@ -495,12 +495,14 @@ async def _run_send(client, args, config, out) -> Outcome:
         )
         if refusal is not None:
             return Outcome(status="refused", target=target, plan=write.plan, error=refusal)
-        channel = await client.get_channel(args.channel)
+    # Fetched once: the preview and the send are about the same channel, and
+    # asking Discord twice for it is a call that buys nothing.
+    channel = await client.get_channel(args.channel)
+    if ask:
         preview = format_send_preview(channel, text, sender=identity.label, files=files)
         out.say(plans.format_preflight(write.plan))
         confirm = partial(confirm_send, preview, write=out.say)
 
-    channel = await client.get_channel(args.channel)
     result = await send_to_channel(
         client, channel, text, files=files, confirm=confirm, before_write=_drift_guard(out, write, build)
     )
@@ -529,18 +531,17 @@ async def _run_create(client, args, config, out) -> Outcome:
         rights = plans.REQUIRED_RIGHTS["create-thread-private" if args.private else "create-thread"]
         container = args.channel
     else:
-        # A channel filed under a category is governed by the category's own
-        # overwrites; one at the top level by the server's permissions.
-        parent = await resolver.resolve(
-            args.category if kind == "channel" and args.category else args.server,
-            kind=None if kind == "channel" and args.category else "guild",
-        )
+        under_category = kind == "channel" and args.category
+        # A channel filed under a category is governed by that category's own
+        # overwrites; one at the top level, by the server's permissions. With
+        # no category the two are the same thing, so it is resolved once.
         server = await resolver.resolve(args.server, kind="guild")
+        parent = await resolver.resolve(args.category) if under_category else server
         where = f"in server {server.title} ({args.server})"
-        if kind == "channel" and args.category:
-            where += f", under category {args.category}"
+        if under_category:
+            where += f", under {parent.title} ({args.category})"
         rights = plans.REQUIRED_RIGHTS[f"create-{kind}"]
-        container = args.category if kind == "channel" and args.category else args.server
+        container = args.category if under_category else args.server
 
     shown = args.channel_type if kind == "channel" else kind
     if kind == "thread" and args.private:
@@ -549,7 +550,6 @@ async def _run_create(client, args, config, out) -> Outcome:
     async def build():
         return await _plan(
             client,
-            out,
             command=out.command,
             identity=identity,
             targets=(await resolver.resolve(container, kind=parent.kind),),
@@ -633,7 +633,6 @@ async def _run_delete(client, args, config, out) -> Outcome:
     async def build():
         return await _plan(
             client,
-            out,
             command=out.command,
             identity=identity,
             targets=(await resolver.resolve(target_id, kind=kind),),
@@ -687,7 +686,6 @@ async def _run_leave_server(client, args, config, out) -> Outcome:
     async def build():
         return await _plan(
             client,
-            out,
             command=out.command,
             identity=identity,
             targets=(await resolver.resolve(args.server, kind="guild"),),
@@ -746,7 +744,6 @@ async def _run_clear_messages(client, args, config, out) -> Outcome:
     async def build():
         return await _plan(
             client,
-            out,
             command=out.command,
             identity=identity,
             targets=(await resolver.resolve(target_id, kind="guild" if server_clear else None),),
@@ -864,23 +861,25 @@ async def _run_bot(client, args, config, out) -> Outcome:
             print(format_bot_profile(bot_identity, profile=config.profile))
         return Outcome(status="ok", result=profile)
 
-    edits = build_edit_plan(bot_identity, **requested)
+    async def plan_for(current):
+        changes = build_edit_plan(current, **requested)
+        return changes, await _plan(
+            client,
+            command=out.command,
+            identity=identity,
+            targets=(),
+            mutations=tuple(
+                Mutation(op="edit_bot", rid=identity.id, params={"field": change.field, "to": change.new})
+                for change in changes
+            ),
+            approval="prompt_y",
+            rights=plans.REQUIRED_RIGHTS["bot"],
+        )
+
+    edits, write = await plan_for(bot_identity)
     if not edits:
         out.say("Nothing to change - every requested value is already set.")
         return Outcome(status="ok", result={"applied": [], "cancelled": False})
-
-    write = await _plan(
-        client,
-        out,
-        command=out.command,
-        identity=identity,
-        targets=(),
-        mutations=tuple(
-            Mutation(op="edit_bot", rid=identity.id, params={"field": change.field}) for change in edits
-        ),
-        approval="prompt_y",
-        rights=plans.REQUIRED_RIGHTS["bot"],
-    )
 
     if not args.yes:
         refusal = out.approval_unavailable("Add --yes, or answer the diff in a terminal.")
@@ -890,7 +889,13 @@ async def _run_bot(client, args, config, out) -> Outcome:
             out.payload({"applied": [], "cancelled": True})
             return Outcome(status="cancelled", plan=write.plan, result={"applied": [], "cancelled": True})
 
-    applied = await apply_bot_edits(client, edits)
+    async def rebuild():
+        # Read from Discord again: a value someone else set while the diff was
+        # on screen makes a plan that no longer matches the one agreed to.
+        _changes, again = await plan_for(await client.get_identity())
+        return again
+
+    applied = await apply_bot_edits(client, edits, before_write=_drift_guard(out, write, rebuild))
     out.payload({"applied": applied, "cancelled": False})
     evidence = await plans.read_back(
         "the bot profile could not be read back",

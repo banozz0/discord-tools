@@ -178,6 +178,24 @@ def test_an_unchanged_target_goes_through(monkeypatch):
     assert client.deleted_channels == [701]
 
 
+def test_a_bot_edit_someone_else_made_first_refuses(monkeypatch):
+    import dataclasses
+
+    client = a_server()
+
+    def answer_yes_after_someone_else_edits(_diff, **_kwargs):
+        # Someone sets the description to the requested value while the diff is
+        # on screen, so by the time the answer lands there is nothing to apply.
+        client.identity = dataclasses.replace(client.identity, description="new words")
+        return True
+
+    monkeypatch.setattr("discord_tools.cli.confirm_bot_edits", answer_yes_after_someone_else_edits)
+    code, stdout, _stderr = emit(["--json", "bot", "--description", "new words"], client)
+
+    assert (code, envelope_of(stdout)["error"]["code"]) == (2, "PLAN_DRIFT")
+    assert client.application_edits == []
+
+
 # -- readback -------------------------------------------------------------
 
 

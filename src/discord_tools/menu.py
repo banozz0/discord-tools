@@ -10,7 +10,7 @@ from discord_tools.client import API_ERRORS, ClientError, start_client
 from discord_tools.plans import PlanDriftError
 from discord_tools._core.columns import cell
 from discord_tools.config import ConfigError, load_config
-from discord_tools.delete import kind_for_type
+from discord_tools.models import kind_for_type
 from discord_tools.prompts import (
     BACK,
     CLEAR,

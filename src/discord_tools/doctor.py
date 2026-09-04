@@ -149,7 +149,7 @@ async def channel_checks(client, channel_id: int, *, sample: int = 5) -> list[Do
     return checks
 
 
-async def run_doctor(
+async def collect_checks(
     *,
     env: Mapping[str, str] | None = None,
     version_info: tuple[int, ...] | None = None,
@@ -157,9 +157,8 @@ async def run_doctor(
     profile: str | None = None,
     channel_id: int | None = None,
     open_client: Callable[..., Any] | None = None,
-    write: Callable[[str], None] = print,
-) -> int:
-    """Print every check. Exit 1 if any failed.
+) -> list[DoctorCheck]:
+    """Every check, run in order, as objects rather than as printed lines.
 
     `open_client` is the async context manager factory used for the live
     checks; None (with a loadable config) means use the real one. Live checks
@@ -196,6 +195,28 @@ async def run_doctor(
     elif channel_id is not None:
         checks.append(DoctorCheck("WARN", "Channel checks skipped - no working token to run them with"))
 
+    return checks
+
+
+async def run_doctor(
+    *,
+    env: Mapping[str, str] | None = None,
+    version_info: tuple[int, ...] | None = None,
+    home: Path | None = None,
+    profile: str | None = None,
+    channel_id: int | None = None,
+    open_client: Callable[..., Any] | None = None,
+    write: Callable[[str], None] = print,
+) -> int:
+    """Print every check. Exit 1 if any failed."""
+    checks = await collect_checks(
+        env=env,
+        version_info=version_info,
+        home=home,
+        profile=profile,
+        channel_id=channel_id,
+        open_client=open_client,
+    )
     for check in checks:
         write(check.format())
     return 1 if any(check.failed for check in checks) else 0

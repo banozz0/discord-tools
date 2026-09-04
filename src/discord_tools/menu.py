@@ -7,6 +7,7 @@ from typing import Any
 
 from discord_tools import cli, ui
 from discord_tools.client import API_ERRORS, ClientError, start_client
+from discord_tools.plans import PlanDriftError
 from discord_tools._core.columns import cell
 from discord_tools.config import ConfigError, load_config
 from discord_tools.delete import kind_for_type
@@ -28,7 +29,7 @@ from discord_tools.ui import crumb
 
 # What the menu turns into a printed line instead of an exit. Anything not
 # named here is a bug and should still be loud.
-MENU_ERRORS = (ConfigError, ClientError, ValueError, OSError) + API_ERRORS
+MENU_ERRORS = (ConfigError, ClientError, PlanDriftError, ValueError, OSError) + API_ERRORS
 
 ROOT_TITLE = "discord-tools"
 MAIN = "Main"

@@ -113,20 +113,21 @@ async def _delete_messages(
     *,
     progress: Callable[[str], None],
     sleep,
+    reason: str | None = None,
 ) -> tuple[int, Exception | None]:
     deleted = 0
     try:
         for batch in _chunks(bulk, BULK_BATCH):
             if len(batch) == 1:
                 # The bulk endpoint requires at least two ids; one goes the single way.
-                await client.delete_message(channel_id, batch[0])
+                await client.delete_message(channel_id, batch[0], reason=reason)
             else:
-                await client.bulk_delete(channel_id, batch)
+                await client.bulk_delete(channel_id, batch, reason=reason)
             deleted += len(batch)
             progress(f"Cleared {deleted}/{len(ids)} message(s)")
 
         for message_id in single:
-            await client.delete_message(channel_id, message_id)
+            await client.delete_message(channel_id, message_id, reason=reason)
             deleted += 1
             if deleted % 10 == 0 or deleted == len(ids):
                 progress(f"Cleared {deleted}/{len(ids)} message(s)")
@@ -145,7 +146,15 @@ async def clear_messages(
     progress: Callable[[str], None] | None = None,
     sleep=asyncio.sleep,
     now: datetime | None = None,
+    before_write=None,
+    reason: str | None = None,
 ) -> DeleteResult:
+    """Clear one channel or thread after a dry-run and a typed DELETE.
+
+    `before_write` runs after the gate is answered and before the first
+    deletion; raising from it stops the clear. `reason` travels to Discord's
+    own audit log with every delete call.
+    """
     progress = progress or (lambda _message: None)
 
     ids, bulk, single = await _scan_messages(client, channel_id, now=now)
@@ -163,6 +172,9 @@ async def clear_messages(
         progress("Clear messages cancelled")
         return DeleteResult(matched=len(ids), bulk=len(bulk), single=len(single), deleted=0, dry_run=False, cancelled=True)
 
+    if before_write is not None:
+        await before_write()
+
     deleted, error = await _delete_messages(
         client,
         channel_id,
@@ -171,6 +183,7 @@ async def clear_messages(
         single,
         progress=progress,
         sleep=sleep,
+        reason=reason,
     )
     if error is not None:
         raise error
@@ -188,6 +201,8 @@ async def clear_server_messages(
     progress: Callable[[str], None] | None = None,
     sleep=asyncio.sleep,
     now: datetime | None = None,
+    before_write=None,
+    reason: str | None = None,
 ) -> dict:
     progress = progress or (lambda _message: None)
 
@@ -277,6 +292,8 @@ async def clear_server_messages(
             progress("Clear server messages cancelled")
             cancelled = True
         else:
+            if before_write is not None:
+                await before_write()
             for location, ids, bulk, single in plans:
                 progress(f"Clearing {location.name} ({location.id})")
                 location_deleted, error = await _delete_messages(
@@ -287,6 +304,7 @@ async def clear_server_messages(
                     single,
                     progress=progress,
                     sleep=sleep,
+                    reason=reason,
                 )
                 deleted += location_deleted
                 if error is not None:
@@ -430,8 +448,14 @@ async def delete_container(
     execute: bool = False,
     confirm: Callable[[str, str], str] = confirm_delete,
     progress: Callable[[str], None] | None = None,
+    before_write=None,
+    reason: str | None = None,
 ) -> ContainerDeleteResult:
-    """Delete one channel, category, or thread after a dry-run and a typed name."""
+    """Delete one channel, category, or thread after a dry-run and a typed name.
+
+    `before_write` runs after the name matches and before the deletion; raising
+    from it stops it. `reason` reaches Discord's own audit log.
+    """
     progress = progress or (lambda _message: None)
 
     target = await client.get_channel(target_id)
@@ -454,7 +478,10 @@ async def delete_container(
         progress(f"Delete {kind} cancelled - the typed name did not match.")
         return ContainerDeleteResult(kind=kind, id=target.id, name=target.name, dry_run=False, cancelled=True)
 
-    await client.delete_channel(target.id)
+    if before_write is not None:
+        await before_write()
+
+    await client.delete_channel(target.id, reason=reason)
     progress(f"Deleted {kind} {target.name} ({target.id})")
     return ContainerDeleteResult(kind=kind, id=target.id, name=target.name, dry_run=False, deleted=True)
 
@@ -473,7 +500,13 @@ async def leave_server(
     execute: bool = False,
     confirm: Callable[[str], str] = confirm_leave_server,
     progress: Callable[[str], None] | None = None,
+    before_write=None,
 ) -> ContainerDeleteResult:
+    """Leave a server after a dry-run and its typed name.
+
+    No audit reason: Discord's leave endpoint accepts none, and there is no
+    server-side record left to attach one to.
+    """
     progress = progress or (lambda _message: None)
 
     server = next((entry for entry in await client.list_servers() if entry.id == server_id), None)
@@ -488,6 +521,9 @@ async def leave_server(
     if not _names_match(confirm(server.name), server.name):
         progress("Leave server cancelled - the typed name did not match.")
         return ContainerDeleteResult(kind="server", id=server.id, name=server.name, dry_run=False, cancelled=True)
+
+    if before_write is not None:
+        await before_write()
 
     await client.leave_server(server.id)
     progress(f"Left {server.name} ({server.id})")

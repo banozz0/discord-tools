@@ -7,10 +7,10 @@ can act on in the server settings.
 
 A guild target is probed against the bot's server-wide permissions; a channel,
 category or thread against its effective permissions there, overwrites
-included. Discord's own rule is that Administrator holds everything, and
-discord.py already resolves that — the explicit check below is belt and
-braces, so a seam that ever returned the raw bits could not read as a
-permission denied.
+included. What comes back is what Discord granted and nothing more: Discord's
+rule that Administrator holds everything is applied where the requirement is
+known, in `plans.build`, because "holds everything" cannot be written down as
+a set of names without inventing the list.
 """
 
 from __future__ import annotations
@@ -36,6 +36,4 @@ class DiscordPermissionProbe:
             # makes preflight name every required right as missing, which is
             # the refusal that fails closed.
             return frozenset()
-        if held.get("administrator"):
-            return frozenset(held)
         return frozenset(name for name, granted in held.items() if granted)

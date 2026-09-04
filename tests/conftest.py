@@ -8,8 +8,31 @@ internals.
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def home_is_a_tmp_dir(tmp_path, monkeypatch):
+    """No test ever writes into the real home directory.
+
+    The tool keeps its token, its exports and now its audit log under
+    `~/.discord-tools/`. A test that forgets to pass `home=` would otherwise
+    reach the actual one, which is the kind of thing nobody notices until it
+    has already happened.
+    """
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
+    return fake_home
 
 from discord_tools.models import BotIdentity, ChannelInfo, MemberInfo, ServerInfo, ThreadInfo
+
+# Discord resolves Administrator as holding every permission, and so does the
+# probe above the seam; one key is the whole grant.
+ADMINISTRATOR = {"administrator": True}
 
 DEFAULT_IDENTITY = BotIdentity(
     id=42,
@@ -34,6 +57,7 @@ class FakeClient:
         history: dict[int, list] | None = None,
         permissions: dict[int, dict[str, bool]] | None = None,
         guild_permissions: dict[int, dict[str, bool]] | None = None,
+        default_permissions: dict[str, bool] | None = None,
         members: dict[int, list[MemberInfo]] | None = None,
     ) -> None:
         self.identity = identity
@@ -45,6 +69,12 @@ class FakeClient:
         self.history = history or {}
         self.permissions = permissions or {}
         self.guild_perms = guild_permissions or {}
+        # A bot that can do its job, unless a test says otherwise for a
+        # particular place. Preflight refuses a write whose permission it
+        # cannot see held, so without this every test about what a command
+        # *does* would first have to say that the bot is allowed to do it.
+        # Tests about a refusal pass `default_permissions={}` and mean it.
+        self.default_permissions = ADMINISTRATOR if default_permissions is None else default_permissions
         self.members = members or {}
 
         self.sent: list[dict] = []
@@ -102,6 +132,12 @@ class FakeClient:
     async def send_message(self, channel_id, text, *, files=()):
         self.next_id += 1
         self.sent.append({"channel_id": channel_id, "text": text, "files": list(files), "id": self.next_id})
+        # History is newest-first, and a message that was just sent is in the
+        # channel: without this the fake could not answer a readback, and the
+        # readback path would only ever be exercised as a failure.
+        self.history.setdefault(channel_id, []).insert(
+            0, SimpleNamespace(id=self.next_id, content=text or "", author=None, attachments=[])
+        )
         return self.next_id
 
     async def delete_message(self, channel_id, message_id, *, reason=None):
@@ -140,10 +176,10 @@ class FakeClient:
         self.left_servers.append(server_id)
 
     async def permissions_in(self, channel_id):
-        return dict(self.permissions.get(channel_id, {}))
+        return dict(self.permissions.get(channel_id, self.default_permissions))
 
     async def guild_permissions(self, server_id):
-        return dict(self.guild_perms.get(server_id, {}))
+        return dict(self.guild_perms.get(server_id, self.default_permissions))
 
     async def edit_bot_user(self, *, username=None, avatar_path=None):
         self.user_edits.append({"username": username, "avatar_path": avatar_path})

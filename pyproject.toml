@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 # PyPI name: `discord-tools` is squatted by an archived self-bot package, so
 # the distribution is discord-tools-cli; the console script stays discord-tools.
 name = "discord-tools-cli"
-version = "0.6.2"
+dynamic = ["version"]
 description = "Local CLI for your own Discord servers, driven by a bot you own: server/channel/thread ID discovery, message search/export, sending, channel creation, message clearing, and bot settings — with a guided Developer Portal setup."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -43,6 +43,10 @@ Homepage = "https://cli-tools-site.vercel.app/"
 Repository = "https://github.com/banozz0/discord-tools"
 Issues = "https://github.com/banozz0/discord-tools/issues"
 Changelog = "https://github.com/banozz0/discord-tools/blob/main/CHANGELOG.md"
+
+# One source for the version: the envelope reports what the package says it is.
+[tool.hatch.version]
+path = "src/discord_tools/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/discord_tools"]

@@ -81,11 +81,20 @@ def confirm_bot_edits(diff: str, *, read: Callable[[str], str] = input, write: C
     return answer == "y"
 
 
-async def apply_bot_edits(client, plan: list[BotChange]) -> list[str]:
+async def apply_bot_edits(client, plan: list[BotChange], *, before_write=None) -> list[str]:
+    """Apply the diff the user confirmed.
+
+    `before_write` runs after the confirmation and before the first edit;
+    raising from it stops the apply. These are application settings rather
+    than server objects, so Discord records no audit reason for them.
+    """
     applied: list[str] = []
     username = next((change.new for change in plan if change.field == "username"), None)
     avatar = next((change.new for change in plan if change.field == "avatar"), None)
     description = next((change.new for change in plan if change.field == "description"), None)
+
+    if before_write is not None:
+        await before_write()
 
     if username is not None or avatar is not None:
         await client.edit_bot_user(username=username, avatar_path=avatar)

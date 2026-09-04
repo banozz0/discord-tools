@@ -102,6 +102,9 @@ def test_members_csv_without_output_errors():
 
 
 def test_send_yes_without_allowlist_refuses(capsys):
+    # `run` raises for a caller that presents refusals itself; the menu is one
+    # and prints through its own writer. What the CLI does with it is
+    # tests/test_envelope.py's business.
     client = FakeClient()
     with pytest.raises(PermissionError):
         run_cli(["send", "--channel", "55", "--text", "hi", "--yes"], client)
@@ -142,8 +145,10 @@ def test_create_without_kind_errors():
 
 
 def test_create_channel_in_unknown_server_errors():
-    with pytest.raises(ValueError):
-        run_cli(["create", "channel", "--server", "9", "--name", "x", "--yes"], FakeClient())
+    client = FakeClient()
+    with pytest.raises(ValueError, match="not in a server with ID 9"):
+        run_cli(["create", "channel", "--server", "9", "--name", "x", "--yes"], client)
+    assert client.created == []
 
 
 def test_clear_messages_defaults_to_dry_run(capsys):
@@ -272,7 +277,7 @@ def test_clear_server_confirms_once_and_continues_after_a_delete_failure(capsys,
     now = (int(datetime.now(UTC).timestamp() * 1000) - DISCORD_EPOCH_MS) << 22
 
     class PartiallyBlockedClient(FakeClient):
-        async def bulk_delete(self, channel_id, message_ids):
+        async def bulk_delete(self, channel_id, message_ids, *, reason=None):
             if channel_id == 11:
                 raise PermissionError("missing Manage Messages")
             await super().bulk_delete(channel_id, message_ids)
@@ -353,13 +358,15 @@ def test_skip_threads_reaches_the_warning(monkeypatch):
     monkeypatch.setattr("discord_tools.cli.confirm_clear_server_messages", confirm)
     client = FakeClient(servers=[ServerInfo(id=1, name="Ops")])
     run_cli(["clear-messages", "--server", "1", "--execute", "--skip-threads"], client)
-    assert kwargs_seen == [{"include_threads": False}]
+    # `write` also reaches the confirm now, so that a preview can go to stderr
+    # while stdout carries the envelope; what this test is about is the scope.
+    assert [seen["include_threads"] for seen in kwargs_seen] == [False]
 
 
 def test_clear_messages_execute_still_needs_typed_delete(capsys, monkeypatch):
     from types import SimpleNamespace
 
-    monkeypatch.setattr("discord_tools.cli.confirm_clear_messages", lambda: "nope")
+    monkeypatch.setattr("discord_tools.cli.confirm_clear_messages", lambda **_: "nope")
     client = FakeClient(history={55: [SimpleNamespace(id=123456789012345678)]})
     assert run_cli(["clear-messages", "--channel", "55", "--execute"], client) == 1
     assert client.deleted_bulk == []
@@ -384,7 +391,7 @@ def test_bot_edit_with_yes_applies(capsys):
 
 
 def test_bot_declined_edit_touches_nothing(capsys, monkeypatch):
-    monkeypatch.setattr("discord_tools.cli.confirm_bot_edits", lambda _diff: False)
+    monkeypatch.setattr("discord_tools.cli.confirm_bot_edits", lambda _diff, **_: False)
     client = FakeClient()
     assert run_cli(["bot", "--name", "newbot"], client) == 1
     assert client.user_edits == []
@@ -467,26 +474,28 @@ def test_delete_is_a_dry_run_by_default(capsys):
 
 def test_delete_execute_needs_the_exact_name(monkeypatch):
     client = delete_client()
-    monkeypatch.setattr("discord_tools.cli.confirm_delete", lambda _preview, _name: "nope")
+    monkeypatch.setattr("discord_tools.cli.confirm_delete", lambda _preview, _name, **_: "nope")
     assert run_cli(["delete", "channel", "--channel", "10", "--execute"], client) == 1
     assert client.deleted_channels == []
 
-    monkeypatch.setattr("discord_tools.cli.confirm_delete", lambda _preview, name: name)
+    monkeypatch.setattr("discord_tools.cli.confirm_delete", lambda _preview, name, **_: name)
     assert run_cli(["delete", "channel", "--channel", "10", "--execute"], client) == 0
     assert client.deleted_channels == [10]
 
 
 def test_delete_category_reaches_the_category(monkeypatch):
     client = delete_client()
-    monkeypatch.setattr("discord_tools.cli.confirm_delete", lambda _preview, name: name)
+    monkeypatch.setattr("discord_tools.cli.confirm_delete", lambda _preview, name, **_: name)
     assert run_cli(["delete", "category", "--category", "5", "--execute"], client) == 0
     assert client.deleted_channels == [5]
 
 
 def test_delete_thread_refuses_a_category_id(monkeypatch):
     client = delete_client()
-    monkeypatch.setattr("discord_tools.cli.confirm_delete", lambda _preview, name: name)
-    with pytest.raises(ValueError):
+    monkeypatch.setattr("discord_tools.cli.confirm_delete", lambda _preview, name, **_: name)
+    # Refused on what it is, before the gate is even reached: naming the kind
+    # is the second lock, and a category is not a thread.
+    with pytest.raises(ValueError, match="not a thread"):
         run_cli(["delete", "thread", "--thread", "5", "--execute"], client)
     assert client.deleted_channels == []
 
@@ -496,7 +505,7 @@ def test_leave_server_dry_run_then_execute(monkeypatch):
     assert run_cli(["leave-server", "--server", "1"], client) == 0
     assert client.left_servers == []
 
-    monkeypatch.setattr("discord_tools.cli.confirm_leave_server", lambda name: name)
+    monkeypatch.setattr("discord_tools.cli.confirm_leave_server", lambda name, **_: name)
     assert run_cli(["leave-server", "--server", "1", "--execute"], client) == 0
     assert client.left_servers == [1]
 

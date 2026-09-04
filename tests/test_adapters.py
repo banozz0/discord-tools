@@ -163,10 +163,12 @@ def test_rights_are_the_permissions_actually_granted():
     assert held == frozenset({"send_messages"})
 
 
-def test_administrator_holds_everything():
+def test_the_probe_reports_administrator_and_leaves_the_rule_to_the_plan():
     client = FakeClient(permissions={701: {"administrator": True, "manage_messages": False}})
     held = run(DiscordPermissionProbe(client).rights(probe_target()))
-    assert "manage_messages" in held and "administrator" in held
+    # What Discord granted, nothing invented: "Administrator holds everything"
+    # is applied in plans.build, where the required rights are known.
+    assert held == frozenset({"administrator"})
 
 
 def test_a_guild_target_is_probed_against_server_wide_rights():

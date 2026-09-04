@@ -77,10 +77,20 @@ async def send_to_channel(
     *,
     files: Sequence[str] | None = None,
     confirm: Callable[[], bool] | None = None,
+    before_write=None,
 ) -> SendResult:
+    """Post `text` to `channel` once the gate is answered.
+
+    `before_write` runs after the answer and before anything reaches Discord.
+    It is where the caller re-checks that the channel it previewed is still
+    the channel it is about to write to; raising from it stops the send.
+    """
     files = list(files or [])
     if confirm is not None and not confirm():
         return SendResult(channel_id=channel.id, message_id=None, cancelled=True, files=len(files))
+
+    if before_write is not None:
+        await before_write()
 
     message_id = await client.send_message(channel.id, text, files=files)
     return SendResult(channel_id=channel.id, message_id=message_id, cancelled=False, files=len(files))

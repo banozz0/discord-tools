@@ -29,7 +29,15 @@ SURFACE = json.loads((FIXTURES / "surface-0.6.2.json").read_text(encoding="utf-8
 # The only differences a later change is allowed to make to a 0.6.2 flag, each
 # with the reason it is allowed. An entry here still requires the flag to exist
 # and to have actually changed, so a stale entry fails too.
-ALLOWED_CHANGES: dict[tuple[str, str], str] = {}
+#
+# `--json PATH` keeps writing exactly the payload file it always wrote. The
+# path merely became optional, so that bare `--json` means what the global
+# flag means: print the envelope. Nothing that had a path before behaves
+# differently.
+ALLOWED_CHANGES: dict[tuple[str, str], str] = {
+    ("discover", "--json"): "the path became optional; with none, the envelope goes to stdout",
+    ("bot", "--json"): "the path became optional; with none, the envelope goes to stdout",
+}
 
 FIELDS = ("option_strings", "help", "required", "choices", "nargs")
 

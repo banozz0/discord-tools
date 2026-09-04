@@ -1,7 +1,7 @@
 ========================================================================
 discord-tools --help
 ========================================================================
-usage: discord-tools [-h] [--profile PROFILE]
+usage: discord-tools [-h] [--profile PROFILE] [--json] [--jsonl]
                      {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,bot} ...
 
 positional arguments:
@@ -22,6 +22,10 @@ positional arguments:
 options:
   -h, --help            show this help message and exit
   --profile PROFILE     Named bot profile from ~/.discord-tools/ (default: default)
+  --json                Print one machine-readable envelope on stdout; previews, prompts and
+                        progress go to stderr
+  --jsonl               Stream one JSON record per line on stdout, then the envelope as the last
+                        line
 
 ========================================================================
 discord-tools auth --help
@@ -44,12 +48,12 @@ options:
 ========================================================================
 discord-tools discover --help
 ========================================================================
-usage: discord-tools discover [-h] [--server SERVER] [--json JSON_OUTPUT]
+usage: discord-tools discover [-h] [--server SERVER] [--json [PATH]]
 
 options:
-  -h, --help          show this help message and exit
-  --server SERVER     Limit to one server ID
-  --json JSON_OUTPUT  Write the tree to this JSON file instead of printing
+  -h, --help       show this help message and exit
+  --server SERVER  Limit to one server ID
+  --json [PATH]    Write the tree to this JSON file; with no path, print the envelope to stdout
 
 ========================================================================
 discord-tools search --help
@@ -219,13 +223,14 @@ options:
 ========================================================================
 discord-tools bot --help
 ========================================================================
-usage: discord-tools bot [-h] [--invite] [--json JSON_OUTPUT] [--name NAME]
-                         [--description DESCRIPTION] [--avatar AVATAR] [--yes]
+usage: discord-tools bot [-h] [--invite] [--json [PATH]] [--name NAME] [--description DESCRIPTION]
+                         [--avatar AVATAR] [--yes]
 
 options:
   -h, --help            show this help message and exit
   --invite              Print only the invite URL
-  --json JSON_OUTPUT    Write the bot profile to this JSON file
+  --json [PATH]         Write the bot profile to this JSON file; with no path, print the envelope
+                        to stdout
   --name NAME           Set the bot's username
   --description DESCRIPTION
                         Set the application description shown on the bot's profile

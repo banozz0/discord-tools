@@ -372,6 +372,32 @@ def test_a_clear_carries_the_reason_on_every_delete_call(monkeypatch):
     )
 
 
+def test_the_seam_methods_that_take_a_reason_are_the_ones_that_get_one():
+    """A new reason-capable call cannot be added without deciding about it.
+
+    Discord accepts an audit reason on some endpoints and not others. The list
+    below is the set this tool passes one to, each covered by a test above; a
+    seam method that grows a `reason` parameter and is not here fails, so the
+    question gets asked rather than skipped.
+    """
+    import inspect
+
+    from discord_tools.client import DiscordClient
+
+    passed = {"create_channel", "create_category", "create_thread", "delete_channel",
+              "delete_message", "bulk_delete"}
+    accepts = {
+        name
+        for name, member in inspect.getmembers(DiscordClient, inspect.isfunction)
+        if not name.startswith("_") and "reason" in inspect.signature(member).parameters
+    }
+    assert accepts == passed
+
+    # And the ones Discord gives no field for stay honest about it.
+    for name in ("send_message", "leave_server", "edit_bot_user", "edit_application"):
+        assert "reason" not in inspect.signature(getattr(DiscordClient, name)).parameters
+
+
 def test_the_envelope_of_an_executed_write_is_still_sound(monkeypatch):
     client = a_server()
     monkeypatch.setattr("discord_tools.cli.confirm_delete", lambda _preview, name, **_: name)

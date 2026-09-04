@@ -71,5 +71,41 @@ The terms this codebase uses, and the boundaries they imply.
   owned by the caller and never closed by `run`. Its exit code is what titles
   the after-run screen: 0 is Done, 1 (a declined confirm) is Not done, and a
   caught error is Failed.
+- **Envelope** — the one object a command emits under `--json` / `--jsonl`
+  (`envelope.py`, built by `_core.contract`). Fourteen keys in a fixed order,
+  the command's own payload under `result`, and the same shape whatever ran.
+  Under `--jsonl` the streaming commands write a record per line first and the
+  envelope last, marked `"kind": "envelope"`.
+- **Presenter** — whoever turns a refusal into something a reader sees. The CLI
+  presents (`Run(presents=True)`): a refusal becomes an envelope and an exit
+  code. The menu does not: it wants the exception, because it reads a failed
+  dry-run as *stop*, and an exit code there would let `delete` walk on to the
+  confirm.
+- **Plan** — what a write builds before it touches Discord (`plans.py`): the
+  resolved target, the exact mutations, the gate it requires, the preflight
+  result, and a `plan_id` hash of all of it. Printed by a dry-run, re-derived
+  before executing.
+- **Preflight** — the permission check a plan carries: rights required against
+  rights held, missing ones named. Discord's Administrator holds everything,
+  which is resolved against the rights a write asks for rather than expanded
+  into a list of every permission Discord has.
+- **Drift** — the target changing between the preview and the answer to it. The
+  plan is re-derived after the gate and compared; a difference refuses with
+  `PLAN_DRIFT` rather than acting on what the preview promised.
+- **Readback** — the state fetched *after* a write and reported as `evidence`.
+  One that cannot be fetched says `unverified: <reason>`; it is never reported
+  as verified.
+- **Audit line** — one JSON line per executed write in `~/.discord-tools/`
+  `audit.jsonl` (0600, redacted): identity, command, target rids, plan id,
+  gate, status, evidence. Dry-runs and writes stopped at a gate are not
+  logged — a log of things that did not happen is a log nobody trusts.
+- **Audit reason** — `cli-tools <command> plan <id8>`, passed to every
+  discord.py call that accepts one, so a change this tool made is identifiable
+  in the server's own audit log. `leave-server` carries none: the endpoint has
+  no such field.
+- **Vendored core** — `src/discord_tools/_core/`, a byte-identical copy of the
+  shared contract tree at the tag in `_core/VERSION`. Never edited here: a fix
+  goes to the workshop and is re-synced with `scripts/sync-core.sh`, and
+  `tests/test_core_copy.py` fails on any local edit.
 
 Architecture decisions with more context than fits here go to `docs/adr/`.

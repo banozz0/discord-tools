@@ -121,6 +121,32 @@ walks you through enabling it.
 
 ## For agents
 
+Put `--json` before the subcommand and every command answers with one object
+on stdout, with previews, prompts and progress on stderr:
+
+```bash
+discord-tools --json discover
+discord-tools --json send --channel 1542... --text "shipped" --yes
+```
+
+The keys are the same whatever the command ran — `status`, `result`, `error`,
+`plan`, `evidence`, `meta` and the rest — so there is one parser to write, not
+one per command. `--jsonl` streams a record per line for `search`, `members`
+and `discover` and closes with the same object.
+
+Exit codes say the same thing without parsing anything: **0** done, **1** not
+done (stopped at a gate, or a server clear that could not reach everything),
+**2** refused, **3** an answer was needed and there was no terminal to ask on,
+**130** interrupted. Exit 3 is the one to know: rather than hanging on a
+prompt nobody can answer, the command refuses and its `error.hint` names the
+command a person would run.
+
+Every write reports what permission it needed and held, which gate it passed,
+and what was read back afterwards — and a readback that begins `unverified:`
+means it happened but could not be confirmed. Executed writes append one line
+to `~/.discord-tools/audit.jsonl` (mode 0600, no secrets), and Discord's own
+audit log records the change against `cli-tools <command> plan <id>`.
+
 `skill/SKILL.md` is a bundled agent skill describing the CLI surface and the
 rules an agent must follow (never `clear-messages`, allowlist-gated sends,
 never print tokens). It updates in the same commit as any CLI-surface change.

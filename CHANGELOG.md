@@ -1,5 +1,78 @@
 # Changelog
 
+## 0.7.0 — 2026-09-04
+
+Machine-readable output, and a plan behind every write. Nothing a person sees
+changed: the menu, the previews, the printed results and every gate are what
+they were, and no command, flag or exit code was removed.
+
+### One object instead of prose
+
+- **`--json` before the subcommand** prints exactly one envelope on stdout and
+  moves previews, prompts and progress to stderr. The keys are the same
+  whatever the command did — `schema`, `tool`, `version`, `command`, `args`,
+  `identity`, `target`, `status`, `result`, `plan`, `evidence`, `warnings`,
+  `error`, `meta` — with the command's own payload under `result`, keeping the
+  keys it already emitted. One parser, not one per command.
+- **`--jsonl`** streams one record per line for `search`, `members` and
+  `discover`, then the same envelope as the last line, marked
+  `"kind": "envelope"`.
+- **`discover --json PATH` and `bot --json PATH` are unchanged** — they write
+  exactly the file they always wrote. The path merely became optional, so bare
+  `--json` there means the envelope.
+- **Stable statuses and error codes** to read instead of message text: `ok`,
+  `empty`, `partial`, `dry_run`, `cancelled`, `refused`, `failed`, and codes
+  like `NOT_ALLOWLISTED`, `TARGET_NOT_FOUND`, `TARGET_KIND_MISMATCH`,
+  `PERMISSION_DENIED`, `PLAN_DRIFT`, `APPROVAL_REQUIRED`.
+- **Exit codes keep their meanings**: 0 done, 1 not done, 2 refused, 130
+  interrupted. **3 is new** and only reachable under `--json`: a command that
+  would ask something, with no terminal to ask on, now refuses and names the
+  command a person would run instead of hanging on a prompt nobody can answer.
+  A partial server clear still exits 1, on a dry-run as much as on a real one,
+  and `doctor` still exits 1 on a failed check.
+
+### A plan behind every write
+
+- **Preflight names the permission**, before anything is touched. "Missing
+  manage_messages" is a sentence you can act on in the server settings; "403
+  Forbidden" halfway through a clear is not. A dry-run prints it first.
+- **The target is resolved and previewed as what it is** — kind, Discord's own
+  type, title, and the trail it sits in — so a bare ID is never the only thing
+  a gate is answered about.
+- **Drift refuses.** Between the preview and your answer, someone else can
+  rename, replace or delete the target. The plan is re-derived and compared,
+  and a difference refuses with `PLAN_DRIFT` rather than acting on what the
+  preview promised.
+- **Readback after every write**, reported as `evidence`. One that cannot be
+  fetched says `unverified: <reason>` and is never reported as verified.
+- **A local audit log**: one redacted line per executed write in
+  `~/.discord-tools/audit.jsonl` (created 0600) — identity, command, targets,
+  plan id, gate, status, evidence. Dry-runs and writes stopped at a gate are
+  not logged.
+- **Discord's own audit log** now records `cli-tools <command> plan <id>`
+  against every change made through an endpoint that accepts a reason, so a
+  change this tool made can be told apart from one made in the app.
+  `leave-server` carries none: Discord's endpoint has no such field.
+
+### Safety is unchanged
+
+`delete`, `leave-server` and `clear-messages` still dry-run by default, still
+need `--execute` plus a typed answer, and still have no `--yes` anywhere. An
+agent can create, send and clear unattended; it can never destroy unattended,
+and neither output format changes that. `send --yes` still refuses any channel
+outside `DISCORD_SEND_ALLOWLIST`.
+
+### Smaller things
+
+- A target problem now prints just the reason rather than the reason plus the
+  whole usage block. Same exit code 2; "701 is a category, not a thread" never
+  needed a usage screen under it.
+- `__version__` had drifted to 0.5.1 while the package said 0.6.2. There is
+  now one source: the package reads its version from `__init__.py`, which is
+  also what the envelope reports.
+- The shared column-measuring code moved into the vendored contract tree; the
+  fourteen measured shapes still run against the copy that ships.
+
 ## 0.6.2 — 2026-09-01
 
 - JSON output prints the emoji instead of escaping it. `json.dumps` escapes

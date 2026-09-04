@@ -1,7 +1,7 @@
 ---
 name: discord-tools
 description: "Use when you need the real numeric ID of a Discord server, channel, or thread — 'what's the ID of that channel?', 'where do I send this?' — when the user wants a channel's messages searched or exported to JSON/CSV, or when a message must be posted to a channel the user has allowlisted. Bot-token only; the bot sees only servers it was invited to."
-version: 1.2.0
+version: 1.3.0
 author: banozz0
 license: MIT
 platforms: [macos]
@@ -25,6 +25,35 @@ Bot tokens live in `~/.discord-tools/` as named profiles (`--profile <name>`
 selects one; a bot per agent is the intended use) and never leave the machine.
 The installed build can lag the repo — its own `--help` is the only reliable
 statement of what it can do today.
+
+## Read the output, do not parse the prose
+
+`--json` before the subcommand prints **one object** on stdout and moves every
+preview, prompt and progress line to stderr:
+
+```
+discord-tools --json discover
+discord-tools --json search --channel <id> --keyword "X"
+```
+
+Same keys every time, whatever the command: `schema`, `tool`, `version`,
+`command`, `args`, `identity`, `target`, `status`, `result`, `plan`,
+`evidence`, `warnings`, `error`, `meta`. The command's own payload is under
+`result`. `--jsonl` instead streams one record per line for `search`,
+`members` and `discover`, then the same object as the last line, marked
+`"kind": "envelope"`.
+
+Read `status` and `error.code` rather than the text: `ok`, `empty`, `partial`,
+`dry_run`, `cancelled`, `refused`, `failed`, and stable codes like
+`NOT_ALLOWLISTED`, `TARGET_NOT_FOUND`, `PERMISSION_DENIED`, `PLAN_DRIFT`,
+`APPROVAL_REQUIRED`. Exit codes: **0** done, **1** not done (cancelled at a
+gate, or a partial server clear), **2** refused, **3** a prompt was needed and
+there is no terminal, **130** interrupted.
+
+Every write also reports `plan` (what it needed, what it held, which gate) and
+`evidence` (what was read back afterwards). An `evidence.readback` beginning
+`unverified:` means the write happened but could not be confirmed — report
+that as written, never as done.
 
 ## This machine
 
@@ -79,6 +108,11 @@ that reaching the screen.
 rate limit — that *is* the answer. Never guess a channel ID: a made-up ID
 sends the user's next message into the void or errors on delivery.
 
+**8. Exit 3 means a human is required, not that you should try harder.** Under
+`--json` with no terminal, any command that would ask something refuses with
+`APPROVAL_REQUIRED` and says which command a person would run. That is the
+answer to relay. Do not retry it through a pty, the menu, or a piped answer.
+
 ## Commands
 
 | The ask | Run |
@@ -100,6 +134,7 @@ sends the user's next message into the void or errors on delivery.
 | "the invite URL for the bot" | `discord-tools bot --invite` |
 | "set up a new bot" | `discord-tools auth` (interactive — the human runs it) |
 | run as a different bot | any command with `--profile <name>` before the subcommand |
+| any of the above, machine-readable | put `--json` before the subcommand |
 
 - **`search` is a local filter over fetched history** — Discord gives bots no
   search API. A big channel means a long fetch; narrow with `--since`,
@@ -126,6 +161,14 @@ sends the user's next message into the void or errors on delivery.
 - **A thread ID is a channel ID.** `--channel` accepts either; `discover`
   lists active threads under their parent channel. Archived threads are not
   listed but still work by ID.
+- **`--json` after a subcommand still means a file.** `discover --json out.json`
+  and `bot --json out.json` write that file, as they always have. Bare
+  `discover --json` prints the envelope instead. The global flag goes *before*
+  the subcommand, beside `--profile`.
+- **Every executed write is logged locally** to `~/.discord-tools/audit.jsonl`
+  (mode 0600, secret-free): who acted, what was targeted, which gate, and what
+  was read back. Discord's own audit log also records `cli-tools <command>
+  plan <id>` against the change. Neither is something to read out unasked.
 - **Check the tool's own help before using a flag** that is not in this table.
   The CLI's `--help` is current; this file is a snapshot.
 - **The menu is for the human at the keyboard.** `discord-tools` with no

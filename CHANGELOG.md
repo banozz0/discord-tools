@@ -64,6 +64,11 @@ outside `DISCORD_SEND_ALLOWLIST`.
 
 ### Smaller things
 
+- `discover` now carries a `rid` beside every numeric `id` — `dc:guild:…`,
+  `dc:category:…`, `dc:channel:…`, `dc:thread:…`. The numeric id stays exactly
+  where it was, so anything reading today's tree keeps reading it; the rid is
+  the one stable key for a thing, and later features will use it as such.
+
 - A target problem now prints just the reason rather than the reason plus the
   whole usage block. Same exit code 2; "701 is a category, not a thread" never
   needed a usage screen under it.

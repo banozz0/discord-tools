@@ -29,7 +29,19 @@ def test_tree_nests_categories_channels_and_threads():
     assert [category["id"] for category in entry["categories"]] == [20]
     work = entry["categories"][0]
     assert [channel["id"] for channel in work["channels"]] == [21, 22]
-    assert work["channels"][0]["threads"] == [{"id": 211, "name": "release-v1", "parent_id": 21, "archived": False}]
+    assert work["channels"][0]["threads"] == [
+        {"id": 211, "name": "release-v1", "parent_id": 21, "archived": False, "rid": "dc:thread:211"}
+    ]
+
+
+def test_every_entry_carries_the_stable_key_beside_its_id():
+    entry = build_server_entry(SERVER, CHANNELS, THREADS)
+    # The numeric id stays where it was, so a reader of today's tree keeps
+    # reading it; the rid is what the archive, blueprints and rules key on.
+    assert entry["rid"] == "dc:guild:1"
+    assert entry["channels"][0]["rid"] == "dc:channel:10"
+    assert entry["categories"][0]["rid"] == "dc:category:20"
+    assert entry["categories"][0]["channels"][0]["threads"][0]["rid"] == "dc:thread:211"
 
 
 def test_discover_all_servers():

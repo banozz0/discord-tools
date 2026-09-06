@@ -1353,8 +1353,11 @@ def _later(what: str):
     """
 
     async def flow(*, session, runner, read, write) -> bool:
+        # Straight back to the root, with no prompt in between: there is nothing
+        # on this screen to read carefully and nothing to decide, and an
+        # Enter-to-continue here eats the number of wherever you meant to go.
         write(f"Not built yet - {what} arrive in a later version.")
-        return after_action(read=read, write=write)
+        return True
 
     return flow
 

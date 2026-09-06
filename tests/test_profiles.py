@@ -215,6 +215,22 @@ def test_the_listing_joins_both_halves_of_the_store(home_is_a_tmp_dir):
     assert by_name["ghost"]["has_token"] is False
 
 
+def test_a_profile_with_no_record_is_not_named_twice(home_is_a_tmp_dir):
+    """Its label *is* its name until auth records one, and printing both reads
+    as a rendering fault rather than as an absence."""
+    text = profiles.format_listing(profiles.listing(("dobby", "harry"), current="harry"))
+    assert text.split("\n") == [
+        "dobby           (no record - run auth to add one)",
+        "harry           (current, no record - run auth to add one)",
+    ]
+
+
+def test_a_recorded_profile_shows_its_label_and_bot_id(home_is_a_tmp_dir):
+    profiles.remember("harry", label="harrybot (profile harry)", bot_id=42)
+    text = profiles.format_listing(profiles.listing(("harry",), current="harry"))
+    assert text == "harry        harrybot (profile harry)  bot 42   (current)"
+
+
 def test_the_listing_prints_no_token(home_is_a_tmp_dir):
     profiles.remember("harry", label="harrybot", bot_id=42)
     text = profiles.format_listing(profiles.listing(("harry",), current="harry"))

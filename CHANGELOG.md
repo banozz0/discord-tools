@@ -62,6 +62,12 @@ regrouped once, into nine rows.
   group reached the group's screen rather than the root, and `0` on
   *Leave a server*'s screen looped back onto itself when the bot was in one
   server, with no way out but Ctrl-C.
+- Rows 6 and 7 go **straight back to the root** after their one line, with no
+  Enter-to-continue: there is nothing there to read carefully, and the prompt
+  ate the number of wherever you meant to go next.
+- **`profiles` no longer prints a profile's name twice.** Until `auth` records
+  one, a profile's label *is* its name, and `dobby   dobby   (no record)` read
+  as a rendering fault rather than as an absence.
 
 ## 0.7.0 — 2026-09-04
 

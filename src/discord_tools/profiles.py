@@ -188,9 +188,13 @@ def format_listing(rows: Sequence[Mapping[str, Any]]) -> str:
             marks.append("no token stored")
         if row["bot_id"] is None:
             marks.append("no record - run auth to add one")
-        suffix = f"   ({', '.join(marks)})" if marks else ""
-        bot = f"  bot {row['bot_id']}" if row["bot_id"] else ""
-        lines.append(f"{row['name']:<12} {row['label']}{bot}{suffix}")
+        suffix = f"({', '.join(marks)})" if marks else ""
+        # A profile with no record has its own name as its label, and printing
+        # that twice reads as a rendering fault rather than as an absence.
+        described = "" if row["label"] == row["name"] else row["label"]
+        if row["bot_id"]:
+            described += f"  bot {row['bot_id']}"
+        lines.append(f"{row['name']:<12} {described}   {suffix}".rstrip())
     return "\n".join(lines)
 
 

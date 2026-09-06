@@ -1,5 +1,65 @@
 # Changelog
 
+## 0.12.0 — 2026-09-06
+
+Structure blueprints. A server's roles, categories, channels, permission
+overwrites, forum tags, AutoMod rules and settings can be exported to one
+deterministic file, diffed against another server, and applied there with new
+IDs — behind the server's exact name typed at a prompt, never deleting
+anything, and never pretending that members, messages, webhooks, bans or
+history move.
+
+### The structure group
+
+- **`structure export --target <server id> --output <file>`** writes the
+  blueprint (`cli-tools/blueprint/discord/1`): server settings (name,
+  description, verification level, default notifications, explicit content
+  filter, AFK and system channel, locale), roles (name, colour, hoist,
+  mentionable, permissions), categories and channels (type, topic, nsfw,
+  slowmode, bitrate, user limit, parent, permission overwrites by role and the
+  bot's own, forum tags, default reaction) and AutoMod rules. Every ID is
+  replaced by a handle like `role:moderators`, keys are sorted and timestamps
+  absent, so two exports of the same shape are the same bytes. A bare file
+  name lands in `~/.discord-tools/exports/`, mode 0600.
+- **It prints what does not transfer, every time,** and the file carries the
+  same list under `never_transferred`: members, messages, authors, audit
+  history, secrets, integrations, webhooks, invites, bans, emoji, stickers and
+  managed roles. What was on the server but is not carried — a bot's own role,
+  another member's overwrite, a custom emoji on a forum tag, a channel type
+  this tool cannot create — is named as a manual step.
+- **`structure diff --blueprint <file> --target <server id>`** prints what the
+  server would need to become the blueprint, object by object and field by
+  field, and what it has that the blueprint does not.
+- **`structure apply --blueprint <file> --target <server id>`** dry-runs by
+  default: the permissions it needs and holds, every step in order, and every
+  object only on the server, left alone. `--execute` asks for the server's
+  exact name at a prompt — there is no `--yes`, and with no terminal it exits
+  3 with `APPROVAL_REQUIRED` — then creates and edits one step at a time:
+  roles, then categories, then channels, then the server's own settings and
+  AutoMod rules, each handle resolved to the ID just minted. Nothing is ever
+  deleted: an extra role, channel or rule on the target is reported, not
+  removed. The server's own name and settings become the blueprint's, and the
+  warning says so before the name is asked.
+- **A failed step stops the apply and keeps what was made.** The report names
+  the step and the reason, the exit is 1 with `PARTIAL_FAILURE`, the remap
+  table holds every ID minted so far, and `structure diff` then shows exactly
+  the remainder; running `apply` again finishes it without making anything
+  twice. After the last step the server is read back and diffed against the
+  blueprint; anything still different is `PARTIAL_FAILURE` too.
+- **`structure remap --apply-id <id>`** prints the source ID → target ID table
+  one apply recorded, from the archive, with no login.
+- `export` and `diff` need Manage Server (Discord gates AutoMod reads on it);
+  `apply` names every missing one of Manage Server, Manage Roles and Manage
+  Channels before the first step. Every write carries the audit reason.
+
+### Elsewhere
+
+- **The menu's Build row** gains four Structure rows — export, diff, apply (a
+  dry-run first, then the name asked inside the command) and the remap table —
+  and reads `Build (create, delete, structure, leave a server)`.
+- The role, channel, server-settings and AutoMod primitives an apply needs
+  live on the seam now; the coming admin commands wrap the same calls.
+
 ## 0.11.0 — 2026-09-06
 
 The review queue. Until now the tool never downloaded anything; now every

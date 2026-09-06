@@ -1,13 +1,13 @@
 ---
 name: discord-tools
-description: "Use when you need the real numeric ID of a Discord server, channel, or thread — 'what's the ID of that channel?', 'where do I send this?' — when the user wants a channel's messages searched or exported (JSON, CSV, JSONL, Markdown, HTML), when a history question can be answered from the local archive instead of a fresh fetch, when a message must be posted to a channel the user has allowlisted, or when a message the user named should get a reply, a reaction, a pin, or be forwarded, copied or bookmarked. Bot-token only; the bot sees only servers it was invited to."
-version: 1.6.0
+description: "Use when you need the real numeric ID of a Discord server, channel, or thread — 'what's the ID of that channel?', 'where do I send this?' — when the user wants a channel's messages searched or exported (JSON, CSV, JSONL, Markdown, HTML), when a history question can be answered from the local archive instead of a fresh fetch, when a message must be posted to a channel the user has allowlisted, when a message the user named should get a reply, a reaction, a pin, or be forwarded, copied or bookmarked, or when a server's structure should be exported as a blueprint or compared with another server. Bot-token only; the bot sees only servers it was invited to."
+version: 1.7.0
 author: banozz0
 license: MIT
 platforms: [macos]
 metadata:
   hermes:
-    tags: [discord, channel-ids, thread-ids, search, archive, export, send, message, reply, react, pin, review, cli, bot]
+    tags: [discord, channel-ids, thread-ids, search, archive, export, send, message, reply, react, pin, review, structure, blueprint, cli, bot]
 ---
 
 # discord-tools
@@ -159,6 +159,17 @@ nothing, which is the design, not a failure to retry. `review list` and
 found, and contact no host. `review reject` only deletes quarantined bytes and
 is fine when the user asked for that candidate gone.
 
+**15. Never run `structure apply`.** It creates and edits real roles,
+categories, channels, AutoMod rules and the server's own settings — including
+its name — on the server it is pointed at. It dry-runs by default and executes
+only with `--execute` plus the server's exact name typed at a prompt no agent
+can answer; there is no `--yes`, and under `--json` with no terminal it exits 3
+with `APPROVAL_REQUIRED`. Hand the user the dry-run command (it lists every
+step and everything it would leave alone) and let them run the execute.
+`structure export`, `structure diff` and `structure remap` are reads and fine
+when the user asked: export writes a file on this machine, diff compares, remap
+reads the archive.
+
 ## Commands
 
 | The ask | Run |
@@ -186,6 +197,10 @@ is fine when the user asked for that candidate gone.
 | "what did that download find?" | `discord-tools review status --ids <manifest id>` — redirects, refreshes, sha256, verdict |
 | "download / accept that file" | hand them `discord-tools review approve --ids <manifest id>` then `review accept --ids ...` — rule 14, they run it |
 | "throw that candidate away" | `discord-tools review reject --ids <manifest id>` |
+| "back up / export this server's structure" | `discord-tools structure export --target <server id> --output name.json` — roles, channels, overwrites, AutoMod and settings; never members, messages or webhooks |
+| "how does this server differ from the blueprint?" | `discord-tools structure diff --blueprint name.json --target <server id>` |
+| "copy this server's structure to that one" | hand them `discord-tools structure apply --blueprint name.json --target <server id>` (the dry-run), then `--execute` — rule 15, they run it |
+| "what did that apply create?" | `discord-tools structure remap --apply-id <id>` — from the archive, no login |
 | a long or multi-line message | pipe it: `... \| discord-tools send --channel <id> --text - --yes` |
 | "send them that file" (allowlisted) | `discord-tools send --channel <id> --file /path --text "caption" --yes` |
 | "make a channel/thread" (they asked) | `discord-tools create channel --server <id> --name "..." --yes` |
@@ -263,6 +278,14 @@ is fine when the user asked for that candidate gone.
   `BLOCKED` names the check that refused the file; `INFECTED` names the
   signature. Relay the verdict verbatim; the decision to accept is the user's
   (rule 14).
+- **A blueprint is structure, never a clone.** `structure export` prints what
+  never transfers — members, messages, authors, audit history, secrets,
+  integrations, webhooks, invites, bans, emoji, stickers, managed roles — and
+  lists what it had to leave out as manual steps; the envelope carries both
+  under `result.never_transferred` and `result.manual`. Relay them when you
+  report an export: "the structure is in the file" is not "the server is
+  backed up". `export` and `diff` need Manage Server on the bot;
+  `PERMISSION_DENIED` names it.
 - **`bookmark` is local.** Discord gives a bot no bookmark API, so it is a row
   in the user's archive file on this machine, and the envelope says `local`.
   Say so when you report it; nothing in Discord shows it.
@@ -302,6 +325,10 @@ is fine when the user asked for that candidate gone.
   local archive. The other `archive` commands are reads.
 - **`message delete`** — rule 13. Irreversible, and gated on a typed word no
   agent can supply. Hand the user the dry-run command instead.
+- **`structure apply`** — rule 15. It changes a real server's roles, channels
+  and settings and is gated on the server's exact name, which no agent can
+  supply. Hand the user the dry-run command instead. `export`, `diff` and
+  `remap` are reads and fine.
 - **`--mention everyone`** on any posting verb — it always prompts, and the
   ping is the user's decision.
 - **`review approve` and `review accept`** — rule 14. A download onto the

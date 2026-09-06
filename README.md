@@ -5,7 +5,8 @@
 A local CLI for your own Discord servers, driven by a bot you own: discover
 server, channel and thread IDs, list server members, search and export
 messages, keep a local archive of history and search it offline, send messages,
-create and delete channels and threads, clear messages, and manage the bot's
+create and delete channels and threads, export a server's structure as a
+blueprint and apply it elsewhere, clear messages, and manage the bot's
 settings — with a guided setup that walks you through the Discord Developer
 Portal.
 
@@ -43,6 +44,7 @@ scripts pass a subcommand.
 | `send` | Posts as the bot after a full-message preview + y/N; `--yes` skips the prompt only for channels in `DISCORD_SEND_ALLOWLIST`. `--reply-to <message id>` answers a message; `--mention users/roles/everyone` lets it ping (nobody by default, and `everyone` always asks) |
 | `message` | What you do to a message once it exists: `reply`, `edit` (the bot's own only), `delete` (dry-run, then `--execute` + typed `DELETE`, bounded by `--limit`), `forward`, `copy`, `react`/`unreact`, `pin`/`unpin`, `poll`, `typing`, `bookmark` (local). Each shows the channel and the message first. `read`, `unread` and `draft` say a bot cannot. See [Message operations](#message-operations) |
 | `create` | `channel` (`--type text/news/voice/stage_voice/forum/media`) / `category` / `thread` (`--private`), each behind a confirmation. Every type `delete` can remove, `create` can make again |
+| `structure` | Structure blueprints: `export --target <server id> --output <file>` writes a server's roles, categories, channels, overwrites, forum tags, AutoMod rules and settings as one deterministic file (never members, messages, webhooks, invites, bans or emoji); `diff` compares it with a server; `apply` dry-runs, and for real takes `--execute` **and** the server's exact name typed back, creates and edits with new IDs and never deletes; `remap --apply-id` prints the ID table. See [Structure blueprints](#structure-blueprints) |
 | `delete` | `channel` / `category` / `thread`. Dry-run by default; deleting for real takes `--execute` **and** typing the target's exact name. Deleting a category leaves its channels alive, just uncategorised. There is no `--yes` — deletion always needs a human |
 | `leave-server` | Makes the bot leave `--server <id>`; nothing in the server is deleted. Same gate as `delete`. Discord gives a bot no way to delete a server (that needs ownership, which a bot never has) |
 | `clear-messages` | Clears either `--channel <id>` or every accessible message location under `--server <id>`. Dry-run by default; deleting for real takes `--execute` **and** typing `DELETE`. Server clears include active/archived threads and forum/media posts (`--skip-threads` leaves them untouched and clears channels only), report skipped locations, and continue past per-location failures |
@@ -58,7 +60,7 @@ discord-tools
 1. Find IDs (servers, channels, threads)
 2. Read (search live, archive, export, members)
 3. Write (send, reply, edit, delete, forward, react, pin, poll)
-4. Build (create, delete, leave a server)
+4. Build (create, delete, structure, leave a server)
 5. Clear messages
 6. Manage (roles, members, invites, webhooks)
 7. Watch (rules, runner, review queue)
@@ -96,12 +98,13 @@ manual category ID for `create channel`, the four archive rows under *Read* (syn
 search and export, status, prune), the message verbs under *Write* (send with a
 mentions row, reply, edit, delete, forward, copy, react, pin, poll, typing, bookmark),
 the review queue under *Watch* (what is waiting, approve and fetch, accept, reject,
-status, retry), and, under *Identity*, listing the stored profiles, switching the one
+status, retry), the four structure rows under *Build* (export a blueprint, diff it
+against a server, apply it, the remap table), and, under *Identity*, listing the stored profiles, switching the one
 the rest of the session acts as, and removing one. The exceptions are deliberate —
 `send`, `create`, `bot` and the message verbs never get `--yes` from the menu,
 `clear-messages` and *Delete messages* always dry-run first and still ask you to type
-`DELETE`, `delete`, *Leave a server* and an archive prune dry-run first and still ask
-you to type the target's own name, and a review approve or accept asks its `y/N`
+`DELETE`, `delete`, *Leave a server*, a structure apply and an archive prune dry-run
+first and still ask you to type the target's own name, and a review approve or accept asks its `y/N`
 inside the command. The menu is never a shorter path past a gate.
 
 *Delete* lists categories, channels and threads nested the way Discord shows them and
@@ -328,6 +331,68 @@ of everything the fetch learned; both directories are `0700`, the budgets are
 and `retry` act as the bot, because refreshing an attachment URL means reading
 its message. The bot token appears in no request and no manifest.
 
+## Structure blueprints
+
+A blueprint is a server's structure as one file: roles, categories, channels,
+permission overwrites, forum tags, AutoMod rules and the server's settings,
+with every ID replaced by a handle like `role:moderators` so the same shape
+exported from two servers is the same bytes. Export one, diff it against
+another server, apply it there:
+
+```bash
+discord-tools structure export --target 1394... --output agency.json   # lands in ~/.discord-tools/exports/
+discord-tools structure diff --blueprint agency.json --target 1401...
+discord-tools structure apply --blueprint agency.json --target 1401...          # dry-run: every step, nothing touched
+discord-tools structure apply --blueprint agency.json --target 1401... --execute # asks for the server's exact name
+discord-tools structure remap --apply-id 423427ea0c234c7f                       # source ID -> target ID, no login
+```
+
+**It is not a clone, and it says so.** Every export prints this, and the file
+carries the same list under `never_transferred`:
+
+```
+This is a structure blueprint, not a copy of the server. It never carries:
+  - audit history
+  - authors (nothing is attributed to anyone)
+  - bans
+  - emoji binaries (names are listed as manual steps)
+  - integrations (bots and apps are invited by a person)
+  - invites
+  - managed roles (a bot's or integration's own role, the booster role)
+  - members (nobody joins a copy)
+  - messages (history stays where it was written)
+  - secrets (no token of any kind)
+  - sticker binaries (names are listed as manual steps)
+  - webhooks and their URLs
+```
+
+Anything the server has that the blueprint cannot carry — a bot's own role, an
+overwrite for a particular member, a custom emoji on a forum tag, a channel
+type this tool cannot create — is listed as a manual step rather than dropped
+in silence.
+
+**`apply` never deletes.** It dry-runs by default, printing the permissions it
+needs and holds, every create and update in order (roles, then categories,
+then channels, then the server's settings and AutoMod rules, so each handle
+resolves to an ID already minted) and every object only on the target, which
+it leaves alone. `--execute` asks for the target server's exact name — there is
+no `--yes`; with no terminal it exits 3 with `APPROVAL_REQUIRED` — and then
+applies one step at a time. The server's own name and settings become the
+blueprint's; the warning says so before the name is asked.
+
+**A failed step stops it and keeps what was made.** The report names the step
+and the reason and exits 1 with `PARTIAL_FAILURE`; every ID minted so far is
+in the remap table, `structure diff` shows exactly the remainder, and running
+`apply` again finishes it without making anything twice. After the last step
+the target is read back and diffed against the blueprint, and anything still
+different is `PARTIAL_FAILURE` as well. Every step carries an audit reason,
+and the local audit line names the plan.
+
+`export` and `diff` need *Manage Server* (Discord gates reading AutoMod rules
+on it); `apply` needs *Manage Server*, *Manage Roles* and *Manage Channels*
+and names every missing one before the first step. `remap` reads the archive
+and never logs in.
+
 ## Exports stay out of your repos
 
 Relative `--output` names land in `~/.discord-tools/exports/`, never the
@@ -370,8 +435,8 @@ to `~/.discord-tools/audit.jsonl` (mode 0600, no secrets), and Discord's own
 audit log records the change against `cli-tools <command> plan <id>`.
 
 `skill/SKILL.md` is a bundled agent skill describing the CLI surface and the
-rules an agent must follow (never `clear-messages` or `message delete`,
-allowlist-gated sends, never print tokens). It updates in the same commit as any CLI-surface change.
+rules an agent must follow (never `clear-messages`, `message delete` or
+`structure apply`, allowlist-gated sends, never print tokens). It updates in the same commit as any CLI-surface change.
 
 ## Development
 

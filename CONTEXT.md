@@ -45,7 +45,8 @@ The terms this codebase uses, and the boundaries they imply.
   shorter path past a gate.
 - **Allowlist** — `DISCORD_SEND_ALLOWLIST`: channel/thread IDs an unattended
   (`--yes`) send may target. Unset refuses everything; only the unattended
-  path consults it.
+  path consults it. (The blueprint's *field allowlist* is a different thing;
+  see below.)
 - **Bulk window** — Discord's hard 14-day limit on the bulk-delete endpoint.
   `split_bulk_window` (`delete.py`) partitions message IDs by snowflake
   timestamp (pure math, no API calls); older messages delete one-by-one,
@@ -250,3 +251,47 @@ The terms this codebase uses, and the boundaries they imply.
   so those two act as the bot.
 
 Architecture decisions with more context than fits here go to `docs/adr/`.
+
+- **Blueprint** — one server's structure as a secret-free JSON file
+  (`cli-tools/blueprint/discord/1`, the shared core's `_core.blueprint`):
+  settings, roles, categories, channels, overwrites, forum tags and AutoMod
+  rules, keys sorted, timestamps absent, every ID replaced by a handle. The
+  same shape exported from two servers is the same bytes after normalisation.
+- **Handle** — a blueprint-local name for an object, `<kind>:<slug>`
+  (`role:moderators`, `category:ops`), minted from the object's name with a
+  numeric suffix on a clash. The source ID is recorded beside it; `normalise`
+  strips those, which is what the round-trip fixture compares.
+- **Field allowlist** — `adapters/blueprint.py::ALLOWLIST`, the registered
+  set of container settings and per-section fields a Discord blueprint may
+  carry. The exporter can emit nothing outside it and `never_transferred` is
+  generated from its complement, so a new field cannot leak in unnamed. Roles
+  come before categories before channels because that is the apply order.
+- **Never transferred** — the core's six (members, messages, authors, audit
+  history, secrets, integrations) plus this platform's own (webhooks,
+  invites, bans, emoji, stickers, managed roles). Printed as the export banner
+  and carried in the file, from one list.
+- **Manual step** — something the source server had that the blueprint does
+  not carry, named on the export screen and in `result.manual`: a managed
+  role and every overwrite or AutoMod exemption that referenced it, another
+  member's overwrite, a custom emoji on a tag, a channel type `create` cannot
+  make. Dropped is never silent.
+- **Blueprint port** — `adapters/blueprint.py::DiscordBlueprintPort`, the
+  core's `BlueprintPort`: `read()` walks the seam's four structure reads and
+  answers the raw shape the engine filters; `apply()` makes one step through
+  the same seam calls `create` uses plus the role, channel-edit, server-edit
+  and AutoMod primitives, every write carrying the plan's audit reason. The
+  bot's own overwrite is keyed `@me`, never a member rid. AutoMod rules ride as
+  a container setting because the rid grammar has no kind for them.
+- **Structure apply** — `structure apply`: diff the target, plan create and
+  update steps in blueprint order, gate on the target's typed name inside the
+  command (no `--yes`), run one step at a time resolving handles through the
+  remap, stop on the first failure keeping what was made, read back and diff.
+  It never deletes: extras on the target are printed, not removed.
+- **Remap table** — the archive's `remaps` rows, one per object an apply made
+  or matched, keyed by `apply_id`: source rid → target rid, identity, blueprint
+  hash. `structure remap --apply-id` prints it offline; a rerun apply re-uses
+  the matches rather than making anything twice.
+- **Readback diff** — the target exported again after the last step and diffed
+  against the blueprint. Empty means `ok`; anything still to add or change is
+  `PARTIAL_FAILURE` (exit 1) with the diff and remap commands as the hint, as
+  is a step that failed.

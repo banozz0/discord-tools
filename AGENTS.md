@@ -24,7 +24,11 @@ only after a y/N nobody can flag past, checked, then accepted or rejected with
 the verdict shown; list/status/accept/reject never log in) · send (`--reply-to`, `--mention`) · message (reply, edit own, delete
 behind typed DELETE and a bulk bound, forward, copy, react, pin, poll, typing,
 local bookmark; read/unread/draft are PLATFORM_UNSUPPORTED) · create (channel/thread/category, every type delete accepts) ·
-delete (channel/category/thread) · leave-server · clear-messages · bot
+delete (channel/category/thread) · structure (export a server's roles,
+categories, channels, overwrites, forum tags, AutoMod rules and settings as
+one deterministic blueprint that never carries members, messages, webhooks,
+invites, bans or emoji; diff it against a server; apply it with new ids behind
+the typed server name, never deleting; remap table offline) · leave-server · clear-messages · bot
 (settings + invite URL for the active profile) · doctor (token,
 message-content intent, servers, per-channel perms). v1 (all but members)
 shipped 2026-08-27 after the joint testing session.
@@ -74,7 +78,10 @@ name** typed back — the wrong-target mistake is the one worth catching, and
 neither has a `--yes`, so deletion is never unattended. `send` previews the
 full message + y/N; `--yes` requires the destination in
 `DISCORD_SEND_ALLOWLIST` (unset = refuse). `create` and `bot` settings confirm
-before touching anything real. The menu is never a shorter path past a gate.
+before touching anything real. `structure apply` dry-runs by default and
+executes only with `--execute` + the target server's exact name, no `--yes`,
+and never deletes anything on the target. The menu is never a shorter path
+past a gate.
 
 Parity rule: anything `delete` removes, `create` can make again — the channel
 vocabulary lives once in `models.py` and both sides key off it.

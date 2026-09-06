@@ -97,6 +97,7 @@ class FakeClient:
         roles: dict[int, list[dict]] | None = None,
         structure: dict[int, list[dict]] | None = None,
         automod: dict[int, list[dict]] | None = None,
+        bot_roles: dict[int, list[int]] | None = None,
     ) -> None:
         self.identity = identity
         self.servers = servers or []
@@ -141,6 +142,10 @@ class FakeClient:
         self.roles: dict[int, list[dict]] = {k: [dict(r) for r in v] for k, v in (roles or {}).items()}
         self.structure: dict[int, list[dict]] = {k: [dict(r) for r in v] for k, v in (structure or {}).items()}
         self.automod: dict[int, list[dict]] = {k: [dict(r) for r in v] for k, v in (automod or {}).items()}
+        # The role ids the bot itself holds per server. A server not named here
+        # has the bot on @everyone only, which is the bottom of the hierarchy.
+        self.bot_roles: dict[int, list[int]] = {k: list(v) for k, v in (bot_roles or {}).items()}
+        self.deleted_roles: list[int] = []
         # Every structure write in call order: (method, id or name, fields).
         self.structure_writes: list[tuple] = []
         # A test's hook to make one write fail: called with (method, name_or_id),
@@ -438,6 +443,29 @@ class FakeClient:
         stored.update(fields)
         self.structure_writes.append(("edit_role", role["name"], dict(fields)))
         self.reasons.append(reason)
+
+    async def delete_role(self, server_id, role_id, *, reason=None):
+        self._maybe_fail("delete_role", role_id)
+        role = next(r for r in await self.list_roles(server_id) if r["id"] == role_id)
+        self.roles[server_id] = [r for r in self.roles[server_id] if r["id"] != role_id]
+        for rows in self.structure.values():
+            for row in rows:
+                row["overwrites"] = [o for o in row["overwrites"] if not (o["target_type"] == "role" and o["target_id"] == role_id)]
+        self.deleted_roles.append(role_id)
+        self.structure_writes.append(("delete_role", role["name"], {}))
+        self.reasons.append(reason)
+
+    async def bot_role_ids(self, server_id):
+        return [server_id, *self.bot_roles.get(server_id, [])]
+
+    async def channel_overwrites(self, channel_id):
+        for server_id in {*self.channels, *self.structure}:
+            for row in self._structure_rows(server_id):
+                if row["id"] == channel_id:
+                    return {"id": row["id"], "name": row["name"], "type": row["type"], "guild_id": server_id, "overwrites": [dict(o) for o in row["overwrites"]]}
+        from discord_tools.client import ClientError
+
+        raise ClientError(f"No channel or thread with ID {channel_id} — check it with `discover`.")
 
     async def edit_channel(self, channel_id, *, reason=None, **fields):
         self._maybe_fail("edit_channel", channel_id)

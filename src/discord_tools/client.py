@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, AsyncIterator, Sequence
+from typing import Any, AsyncIterator, Iterable, Sequence
 
 import discord
 
@@ -76,6 +76,24 @@ def allowed_mentions(mentions: Sequence[str] = ()) -> discord.AllowedMentions:
         roles="roles" in mentions,
         replied_user=False,
     )
+
+
+# Discord's own permission names, the vocabulary every screen and flag uses.
+# discord.py carries the bit for each; nothing above the seam knows a bit.
+PERMISSION_NAMES: tuple[str, ...] = tuple(sorted(discord.Permissions.VALID_FLAGS))
+
+
+def permission_bits(names: Iterable[str]) -> str:
+    """The bitfield, as the decimal string the seam speaks, for a set of names."""
+    unknown = sorted(set(names) - set(PERMISSION_NAMES))
+    if unknown:
+        raise ValueError(f"Unknown permission name(s): {', '.join(unknown)}.")
+    return str(discord.Permissions(**{name: True for name in names}).value)
+
+
+def permission_names(bits: str | int) -> tuple[str, ...]:
+    """Every name a bitfield holds, in Discord's own order."""
+    return tuple(name for name, granted in discord.Permissions(int(bits)) if granted)
 
 
 def _message_info(message: Any, channel_id: int) -> MessageInfo:
@@ -669,6 +687,48 @@ class DiscordClient:
                 kwargs[key] = value
         if kwargs:
             await role.edit(reason=reason, **kwargs)
+
+    async def delete_role(self, server_id: int, role_id: int, *, reason: str | None = None) -> None:
+        guild = await self._fetch_guild(server_id)
+        role = next((entry for entry in await guild.fetch_roles() if entry.id == role_id), None)
+        if role is None:
+            raise ClientError(f"No role with ID {role_id} in server {server_id}.")
+        await role.delete(reason=reason)
+
+    async def bot_role_ids(self, server_id: int) -> list[int]:
+        """The roles the bot itself holds there, @everyone included. Its top one is
+        what Discord's hierarchy measures every role write against."""
+        guild = await self._fetch_guild(server_id)
+        member = await guild.fetch_member(self._client.user.id)
+        return [int(role.id) for role in member.roles]
+
+    async def channel_overwrites(self, channel_id: int) -> dict[str, Any]:
+        """One channel's or category's permission overwrites, with the server they
+        belong to, in the same row shape `list_channel_structure` uses."""
+        channel = await self._fetch_channel(channel_id)
+        if isinstance(channel, discord.Thread) or not hasattr(channel, "overwrites"):
+            raise ClientError(
+                f"Channel {channel_id} ({_channel_type_name(channel)}) has no overwrites of its own."
+            )
+        rows = []
+        for target, overwrite in channel.overwrites.items():
+            allow, deny = overwrite.pair()
+            is_role = isinstance(target, discord.Role) or getattr(target, "type", None) is discord.Role
+            rows.append(
+                {
+                    "target_id": int(target.id),
+                    "target_type": "role" if is_role else "member",
+                    "allow": str(allow.value),
+                    "deny": str(deny.value),
+                }
+            )
+        return {
+            "id": int(channel.id),
+            "name": channel.name,
+            "type": _channel_type_name(channel),
+            "guild_id": int(channel.guild.id),
+            "overwrites": rows,
+        }
 
     async def edit_channel(self, channel_id: int, *, reason: str | None = None, **fields: Any) -> None:
         """Edit a channel or category: name, topic, nsfw, slowmode, bitrate, user_limit,

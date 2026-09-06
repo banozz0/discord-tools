@@ -243,7 +243,7 @@ def command_name(args) -> str:
     what the plan hashes, and it is what Discord's audit log will show.
     """
     parts = [args.command or ""]
-    for attribute in ("create_kind", "delete_kind", "profiles_kind", "archive_kind", "message_kind", "review_kind", "structure_kind"):
+    for attribute in ("create_kind", "delete_kind", "profiles_kind", "archive_kind", "message_kind", "review_kind", "structure_kind", "role_kind", "permission_kind"):
         kind = getattr(args, attribute, None)
         if kind:
             parts.append(kind)

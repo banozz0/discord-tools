@@ -67,6 +67,16 @@ REQUIRED_RIGHTS = {
     "message-poll": ("send_messages", "send_polls"),
     "message-typing": ("send_messages",),
     "message-bookmark": (),
+    # Roles and overwrites. Listing roles and reading overwrites need no right:
+    # Discord shows both to every member. The writes need Manage Roles, and
+    # then pass two checks a held right does not settle (roles.hierarchy,
+    # roles.ungrantable).
+    "role-list": (),
+    "role-create": ("manage_roles",),
+    "role-edit": ("manage_roles",),
+    "role-delete": ("manage_roles",),
+    "permission-show": (),
+    "permission-set": ("manage_roles",),
 }
 
 

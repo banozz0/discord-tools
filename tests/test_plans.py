@@ -388,7 +388,9 @@ def test_the_seam_methods_that_take_a_reason_are_the_ones_that_get_one():
               "delete_message", "bulk_delete", "pin_message", "unpin_message",
               # The structure primitives: every step of a blueprint apply carries
               # the plan's reason (tests/test_blueprint_adapter.py).
-              "create_role", "edit_role", "edit_channel", "edit_guild", "create_automod_rule", "edit_automod_rule"}
+              "create_role", "edit_role", "edit_channel", "edit_guild", "create_automod_rule", "edit_automod_rule",
+              # Role delete: the one role primitive the admin commands added (tests/test_role_cli.py).
+              "delete_role"}
     accepts = {
         name
         for name, member in inspect.getmembers(DiscordClient, inspect.isfunction)

@@ -9,7 +9,7 @@ from discord_tools import archive as archive_store
 from discord_tools import cli, ui
 from discord_tools._core import rid as _rid
 from discord_tools._core.contract import CodedError
-from discord_tools.client import API_ERRORS, ClientError, start_client
+from discord_tools.client import API_ERRORS, ClientError, permission_names, start_client
 from discord_tools.plans import PlanDriftError
 from discord_tools._core.columns import cell
 from discord_tools._core.identity import Target
@@ -41,9 +41,10 @@ MENU_ERRORS = (ConfigError, ClientError, PlanDriftError, CodedError, ValueError,
 
 ROOT_TITLE = "discord-tools"
 MAIN = "Main"
-# Section 14's nine rows, landed once. Rows 6 and 7 have nothing under them
-# until the packs that fill them arrive; they are printed anyway, because the
-# whole point of regrouping now is that these numbers are learned once.
+# Section 14's nine rows, landed once. Row 7's rules and the rest of row 6
+# have nothing under them until the packs that fill them arrive; they are
+# printed anyway, because the whole point of regrouping now is that these
+# numbers are learned once.
 ROOT_ITEMS = (
     "Find IDs (servers, channels, threads)",
     "Read (search live, archive, export, members)",
@@ -1456,6 +1457,222 @@ async def _flow_structure_remap(*, session, runner, read, write) -> bool:
         return result is not EXIT
 
 
+# -- roles and permission overwrites -------------------------------------------
+#
+# Six rows under Manage. Listing and showing read; create, edit and set ask
+# their y/N inside the command (the menu never passes --yes); delete dry-runs
+# first and asks for the role's exact name inside the command.
+
+_ROLE_LABEL = 28
+
+
+def _role_line(role) -> str:
+    flags = "administrator" if "administrator" in permission_names(role.get("permissions", "0")) else ""
+    return f"{int(role.get('position', 0)):3}  {cell(str(role['name']), _ROLE_LABEL)}  {role['id']}  {flags}".rstrip()
+
+
+async def _pick_role(*, session, server, read, write, trail: str) -> Any:
+    """A role of `server`, highest first, or BACK."""
+    client = await session.client()
+    roles = sorted(await client.list_roles(server.id), key=lambda role: -int(role.get("position", 0)))
+    chosen = pick(roles, title=crumb(trail, f"Pick a role in {server.name}"), label=_role_line, read=read, write=write)
+    if chosen is BACK:
+        return BACK
+    session.target = Target(
+        rid=str(_rid.make("dc", "role", chosen["id"])),
+        kind="role",
+        title=str(chosen["name"]),
+        path=(server.name, str(chosen["name"])),
+        platform="discord",
+        ids={"guild": str(server.id), "role": str(chosen["id"])},
+    )
+    return chosen
+
+
+async def _flow_role_list(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Roles: list")
+    server = await _pick_server(session=session, read=read, write=write, trail=trail)
+    if server is BACK:
+        return True
+    args = _namespace(command="role", role_kind="list", server=server.id)
+    result = await _act(args, session=session, runner=runner, read=read, write=write, trail=crumb(trail, server.name), rows=(RUN_AGAIN,))
+    return result is not EXIT
+
+
+_PERMISSION_NAMES_HINT = "Permission names, comma-separated (send_messages, manage_channels, ...)"
+
+
+async def _flow_role_create(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Roles: create")
+    while True:
+        server = await _pick_server(session=session, read=read, write=write, trail=trail)
+        if server is BACK:
+            return True
+        where = crumb(trail, server.name)
+        name = ask_text("Role name", read=read, write=write)
+        if name is BACK:
+            if await _single_server(session):
+                return True
+            continue
+        colour = choose(["No colour", "Type a hex colour (#FF8800)"], title=crumb(where, "Colour"), read=read, write=write)
+        if colour is BACK:
+            continue
+        colour_text = None
+        if colour == 1:
+            colour_text = ask_text("Colour (six hex digits)", read=read, write=write)
+            if colour_text is BACK:
+                continue
+        hoist = choose(["Not shown separately", "Show its members separately (hoist)"], title=crumb(where, "Member list"), read=read, write=write)
+        if hoist is BACK:
+            continue
+        mentionable = choose(["Not mentionable", "Anyone can @mention it"], title=crumb(where, "Mentions"), read=read, write=write)
+        if mentionable is BACK:
+            continue
+        perms = choose(["No permissions (a plain label)", "Type permission names"], title=crumb(where, "Permissions"), read=read, write=write)
+        if perms is BACK:
+            continue
+        permissions = None
+        if perms == 1:
+            permissions = ask_text(_PERMISSION_NAMES_HINT, read=read, write=write)
+            if permissions is BACK:
+                continue
+        args = _namespace(
+            command="role", role_kind="create", server=server.id, name=name, colour=colour_text,
+            hoist=hoist == 1, mentionable=mentionable == 1, permissions=permissions, yes=False,
+        )
+        result = await _act(args, session=session, runner=runner, read=read, write=write, trail=where, rows=((STAY, "Create another"),))
+        if result is not STAY:
+            return result is not EXIT
+
+
+_EDIT_FIELDS = ("Name", "Colour", "Hoist (show members separately) on/off", "Mentionable on/off", "Permissions (the whole set, as names)")
+
+
+async def _flow_role_edit(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Roles: edit")
+    while True:
+        server = await _pick_server(session=session, read=read, write=write, trail=trail)
+        if server is BACK:
+            return True
+        role = await _pick_role(session=session, server=server, read=read, write=write, trail=trail)
+        if role is BACK:
+            if await _single_server(session):
+                return True
+            continue
+        where = crumb(trail, role["name"])
+        while True:
+            field = choose(list(_EDIT_FIELDS), title=crumb(where, "What changes?"), read=read, write=write)
+            if field is BACK:
+                break
+            args = _namespace(command="role", role_kind="edit", server=server.id, role=str(role["id"]), name=None, colour=None, hoist=None, mentionable=None, permissions=None, yes=False)
+            if field == 0:
+                value = ask_text("New name", read=read, write=write, current=str(role["name"]))
+                if value is BACK:
+                    continue
+                args.name = value
+            elif field == 1:
+                value = ask_text("Colour (six hex digits, or none)", read=read, write=write)
+                if value is BACK:
+                    continue
+                args.colour = value
+            elif field in (2, 3):
+                key = "hoist" if field == 2 else "mentionable"
+                on = choose(["Off", "On"], title=crumb(where, key), read=read, write=write)
+                if on is BACK:
+                    continue
+                setattr(args, key, on == 1)
+            else:
+                value = ask_text(_PERMISSION_NAMES_HINT + ", or none", read=read, write=write)
+                if value is BACK:
+                    continue
+                args.permissions = value
+            result = await _act(args, session=session, runner=runner, read=read, write=write, trail=where, rows=((STAY, "Edit more"),))
+            if result is not STAY:
+                return result is not EXIT
+
+
+async def _flow_role_delete(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Roles: delete")
+    while True:
+        server = await _pick_server(session=session, read=read, write=write, trail=trail)
+        if server is BACK:
+            return True
+        role = await _pick_role(session=session, server=server, read=read, write=write, trail=trail)
+        if role is BACK:
+            if await _single_server(session):
+                return True
+            continue
+        where = crumb(trail, role["name"])
+        dry_run = _namespace(command="role", role_kind="delete", server=server.id, role=str(role["id"]), execute=False)
+
+        # The dry-run always runs first: the menu is never a shorter path to a
+        # deletion than the flags are.
+        if await _call(dry_run, session=session, runner=runner, write=write) is None:
+            return after_action(read=read, write=write)
+
+        choice = choose(
+            ["Delete it for real - the next screen asks for its exact name"],
+            title=crumb(where, "Dry-run done"),
+            read=read,
+            write=write,
+            back_label="Back to the role list",
+        )
+        if choice is BACK:
+            continue
+
+        for_real = _namespace(**{**vars(dry_run), "execute": True})
+        result = await _act(for_real, session=session, runner=runner, read=read, write=write, trail=where, rows=((STAY, "Delete another"),))
+        if result is not STAY:
+            return result is not EXIT
+
+
+async def _flow_permission_show(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Permissions: show")
+    picked = await _pick_channel(session=session, read=read, write=write, messageable_only=False, trail=trail)
+    if picked is BACK:
+        return True
+    args = _namespace(command="permission", permission_kind="show", target=picked.id, role=None, names=False)
+    result = await _act(args, session=session, runner=runner, read=read, write=write, trail=crumb(trail, picked.title), rows=(RUN_AGAIN,))
+    return result is not EXIT
+
+
+_OVERWRITE_MODES = ("Allow some permissions", "Deny some permissions", "Allow some and deny others", "Clear this role's overwrite")
+
+
+async def _flow_permission_set(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Permissions: set")
+    while True:
+        server = await _pick_server(session=session, read=read, write=write, trail=trail)
+        if server is BACK:
+            return True
+        picked = await _pick_channel(session=session, read=read, write=write, messageable_only=False, trail=trail)
+        if picked is BACK:
+            return True
+        role = await _pick_role(session=session, server=server, read=read, write=write, trail=trail)
+        if role is BACK:
+            continue
+        where = crumb(trail, f"{role['name']} on {picked.title}")
+        mode = choose(list(_OVERWRITE_MODES), title=where, read=read, write=write)
+        if mode is BACK:
+            continue
+        allow = deny = None
+        if mode in (0, 2):
+            allow = ask_text("Allow: " + _PERMISSION_NAMES_HINT, read=read, write=write)
+            if allow is BACK:
+                continue
+        if mode in (1, 2):
+            deny = ask_text("Deny: " + _PERMISSION_NAMES_HINT, read=read, write=write)
+            if deny is BACK:
+                continue
+        args = _namespace(
+            command="permission", permission_kind="set", target=picked.id, role=str(role["id"]),
+            allow=allow, deny=deny, clear=mode == 3, yes=False,
+        )
+        result = await _act(args, session=session, runner=runner, read=read, write=write, trail=where, rows=((STAY, "Set another"),))
+        if result is not STAY:
+            return result is not EXIT
+
+
 async def _flow_clear(*, session, runner, read, write) -> bool:
     # What the last dry-run scanned, so backing out of its screen and choosing
     # the same target again does not walk the whole history a second time.
@@ -2358,7 +2575,21 @@ async def run_menu(*, read=None, write=None, session=None, runner=None, profile:
             True,
         ),
         (_flow_clear, True),
-        (_later("roles, members, invites and webhooks"), False),
+        (
+            _group(
+                "Manage",
+                (
+                    ("Roles: list a server's roles", _flow_role_list),
+                    ("Roles: create a role", _flow_role_create),
+                    ("Roles: edit a role (name, colour, hoist, mentionable, permissions)", _flow_role_edit),
+                    ("Roles: delete a role (dry-run, then typed name)", _flow_role_delete),
+                    ("Permissions: show a channel's role overwrites", _flow_permission_show),
+                    ("Permissions: set a role's overwrite on a channel", _flow_permission_set),
+                    ("Members, invites and webhooks", _later("members, invites and webhooks")),
+                ),
+            ),
+            True,
+        ),
         (
             _group(
                 "Watch",

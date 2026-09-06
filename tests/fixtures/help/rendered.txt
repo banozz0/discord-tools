@@ -2,10 +2,10 @@
 discord-tools --help
 ========================================================================
 usage: discord-tools [-h] [--profile PROFILE] [--json] [--jsonl]
-                     {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,review,structure,message,bot} ...
+                     {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,review,structure,role,permission,message,bot} ...
 
 positional arguments:
-  {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,review,structure,message,bot}
+  {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,review,structure,role,permission,message,bot}
     auth                Guided bot setup: Developer Portal walkthrough, token check, invite URL
     doctor              Check token, message-content intent, servers, and channel permissions
     discover            List the server -> channel -> thread tree with IDs
@@ -24,6 +24,9 @@ positional arguments:
     structure           Structure blueprints: export a server's roles, categories, channels,
                         overwrites, forum tags, AutoMod and settings; diff and apply them
                         elsewhere with new IDs
+    role                A server's roles: list, create, edit (name, colour, hoist, mentionable,
+                        permissions), delete (typed name)
+    permission          Permission overwrites on a channel or category: show them, set one role's
     message             Act on messages a channel holds: reply, edit, delete, forward, copy,
                         react, pin, poll, typing, bookmark
     bot                 Show or edit the active profile's bot settings and invite URL
@@ -678,3 +681,120 @@ usage: discord-tools structure remap [-h] --apply-id APPLY_ID
 options:
   -h, --help           show this help message and exit
   --apply-id APPLY_ID  The apply id `structure apply` printed
+
+========================================================================
+discord-tools role --help
+========================================================================
+usage: discord-tools role [-h] {list,create,edit,delete} ...
+
+positional arguments:
+  {list,create,edit,delete}
+    list                Every role with its position, ID, colour, flags and permissions; the bot's
+                        own marked
+    create              Create a role (preview + y/N; typed server name when it grants
+                        Administrator)
+    edit                Change a role's name, colour, hoist, mentionable or permissions (preview +
+                        y/N)
+    delete              Delete a role (dry-run by default; --execute asks for its exact name)
+
+options:
+  -h, --help            show this help message and exit
+
+========================================================================
+discord-tools role list --help
+========================================================================
+usage: discord-tools role list [-h] --server SERVER
+
+options:
+  -h, --help       show this help message and exit
+  --server SERVER  Server ID
+
+========================================================================
+discord-tools role create --help
+========================================================================
+usage: discord-tools role create [-h] --server SERVER --name NAME [--colour COLOUR] [--hoist]
+                                 [--mentionable] [--permissions PERMISSIONS] [--yes]
+
+options:
+  -h, --help            show this help message and exit
+  --server SERVER       Server ID
+  --name NAME           Role name
+  --colour COLOUR       Six hex digits like #FF8800 (default: none)
+  --hoist               Show its members separately in the member list
+  --mentionable         Let anyone @mention it
+  --permissions PERMISSIONS
+                        Discord's own permission names, comma-separated
+                        (send_messages,manage_channels); default none
+  --yes                 Skip the y/N prompt (never answers the Administrator gate)
+
+========================================================================
+discord-tools role edit --help
+========================================================================
+usage: discord-tools role edit [-h] --server SERVER --role ROLE [--name NAME] [--colour COLOUR]
+                               [--hoist | --no-hoist] [--mentionable | --no-mentionable]
+                               [--permissions PERMISSIONS] [--yes]
+
+options:
+  -h, --help            show this help message and exit
+  --server SERVER       Server ID
+  --role ROLE           Role ID, or `everyone` for the server's default role
+  --name NAME           New name
+  --colour COLOUR       Six hex digits like #FF8800, or `none`
+  --hoist, --no-hoist   Show members separately, or not
+  --mentionable, --no-mentionable
+                        Mentionable by anyone, or not
+  --permissions PERMISSIONS
+                        The role's whole permission set as names, comma-separated; `none` clears
+                        it. Replaces, never adds
+  --yes                 Skip the y/N prompt (never answers the Administrator gate)
+
+========================================================================
+discord-tools role delete --help
+========================================================================
+usage: discord-tools role delete [-h] --server SERVER --role ROLE [--execute]
+
+options:
+  -h, --help       show this help message and exit
+  --server SERVER  Server ID
+  --role ROLE      Role ID
+  --execute        Delete for real after typing the role's exact name (no --yes exists)
+
+========================================================================
+discord-tools permission --help
+========================================================================
+usage: discord-tools permission [-h] {show,set} ...
+
+positional arguments:
+  {show,set}
+    show      Every role overwrite on a channel or category, by name
+    set       Set one role's overwrite on a channel or category (preview + y/N); allow and deny
+              merge into what it has
+
+options:
+  -h, --help  show this help message and exit
+
+========================================================================
+discord-tools permission show --help
+========================================================================
+usage: discord-tools permission show [-h] [--target TARGET] [--role ROLE] [--names]
+
+options:
+  -h, --help       show this help message and exit
+  --target TARGET  Channel or category ID
+  --role ROLE      Only this role's overwrite (ID, or `everyone`)
+  --names          Print every permission name this tool accepts and exit (no login)
+
+========================================================================
+discord-tools permission set --help
+========================================================================
+usage: discord-tools permission set [-h] --target TARGET --role ROLE [--allow ALLOW] [--deny DENY]
+                                    [--clear] [--yes]
+
+options:
+  -h, --help       show this help message and exit
+  --target TARGET  Channel or category ID
+  --role ROLE      Role ID, or `everyone`
+  --allow ALLOW    Permission names to allow, comma-separated
+  --deny DENY      Permission names to deny, comma-separated
+  --clear          Remove the role's overwrite entirely instead
+  --yes            Skip the y/N prompt

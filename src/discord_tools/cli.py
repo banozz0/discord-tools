@@ -10,6 +10,7 @@ from typing import Sequence
 from discord_tools import archive as archive_store
 from discord_tools import plans
 from discord_tools import review as review_store
+from discord_tools import roles as roles_rim
 from discord_tools import structure as structure_store
 from discord_tools._core import blueprint as blueprint_engine
 from discord_tools._core.blueprint import BlueprintError
@@ -30,7 +31,7 @@ from discord_tools.adapters import (
 )
 from discord_tools.adapters.blueprint import ALLOWLIST as BLUEPRINT_ALLOWLIST, APPLY_RIGHTS, EXPORT_RIGHTS
 from discord_tools.adapters.targets import TargetError
-from discord_tools.client import MENTION_KINDS, ClientError
+from discord_tools.client import MENTION_KINDS, ClientError, permission_bits
 from discord_tools import __version__
 from discord_tools import messages as message_ops
 from discord_tools.models import MessageInfo
@@ -373,6 +374,57 @@ def build_parser() -> argparse.ArgumentParser:
     structure_remap = structure_kinds.add_parser("remap", help="The source ID -> target ID table one apply recorded (reads the archive; no login)")
     structure_remap.add_argument("--apply-id", required=True, dest="apply_id", help="The apply id `structure apply` printed")
 
+    role_parser = subparsers.add_parser(
+        "role",
+        help="A server's roles: list, create, edit (name, colour, hoist, mentionable, permissions), delete (typed name)",
+    )
+    role_kinds = role_parser.add_subparsers(dest="role_kind")
+    role_list = role_kinds.add_parser("list", help="Every role with its position, ID, colour, flags and permissions; the bot's own marked")
+    role_list.add_argument("--server", required=True, type=snowflake, help="Server ID")
+    role_create = role_kinds.add_parser("create", help="Create a role (preview + y/N; typed server name when it grants Administrator)")
+    role_create.add_argument("--server", required=True, type=snowflake, help="Server ID")
+    role_create.add_argument("--name", required=True, help="Role name")
+    role_create.add_argument("--colour", help="Six hex digits like #FF8800 (default: none)")
+    role_create.add_argument("--hoist", action="store_true", help="Show its members separately in the member list")
+    role_create.add_argument("--mentionable", action="store_true", help="Let anyone @mention it")
+    role_create.add_argument(
+        "--permissions", help="Discord's own permission names, comma-separated (send_messages,manage_channels); default none"
+    )
+    role_create.add_argument("--yes", action="store_true", help="Skip the y/N prompt (never answers the Administrator gate)")
+    role_edit = role_kinds.add_parser("edit", help="Change a role's name, colour, hoist, mentionable or permissions (preview + y/N)")
+    role_edit.add_argument("--server", required=True, type=snowflake, help="Server ID")
+    role_edit.add_argument("--role", required=True, help="Role ID, or `everyone` for the server's default role")
+    role_edit.add_argument("--name", help="New name")
+    role_edit.add_argument("--colour", help="Six hex digits like #FF8800, or `none`")
+    role_edit.add_argument("--hoist", action=argparse.BooleanOptionalAction, default=None, help="Show members separately, or not")
+    role_edit.add_argument("--mentionable", action=argparse.BooleanOptionalAction, default=None, help="Mentionable by anyone, or not")
+    role_edit.add_argument(
+        "--permissions", help="The role's whole permission set as names, comma-separated; `none` clears it. Replaces, never adds"
+    )
+    role_edit.add_argument("--yes", action="store_true", help="Skip the y/N prompt (never answers the Administrator gate)")
+    role_delete = role_kinds.add_parser("delete", help="Delete a role (dry-run by default; --execute asks for its exact name)")
+    role_delete.add_argument("--server", required=True, type=snowflake, help="Server ID")
+    role_delete.add_argument("--role", required=True, help="Role ID")
+    role_delete.add_argument("--execute", action="store_true", help="Delete for real after typing the role's exact name (no --yes exists)")
+
+    permission_parser = subparsers.add_parser(
+        "permission", help="Permission overwrites on a channel or category: show them, set one role's"
+    )
+    permission_kinds = permission_parser.add_subparsers(dest="permission_kind")
+    permission_show = permission_kinds.add_parser("show", help="Every role overwrite on a channel or category, by name")
+    permission_show.add_argument("--target", type=snowflake, help="Channel or category ID")
+    permission_show.add_argument("--role", help="Only this role's overwrite (ID, or `everyone`)")
+    permission_show.add_argument("--names", action="store_true", help="Print every permission name this tool accepts and exit (no login)")
+    permission_set = permission_kinds.add_parser(
+        "set", help="Set one role's overwrite on a channel or category (preview + y/N); allow and deny merge into what it has"
+    )
+    permission_set.add_argument("--target", required=True, type=snowflake, help="Channel or category ID")
+    permission_set.add_argument("--role", required=True, help="Role ID, or `everyone`")
+    permission_set.add_argument("--allow", help="Permission names to allow, comma-separated")
+    permission_set.add_argument("--deny", help="Permission names to deny, comma-separated")
+    permission_set.add_argument("--clear", action="store_true", help="Remove the role's overwrite entirely instead")
+    permission_set.add_argument("--yes", action="store_true", help="Skip the y/N prompt")
+
     message_parser = subparsers.add_parser(
         "message",
         help="Act on messages a channel holds: reply, edit, delete, forward, copy, react, pin, poll, typing, bookmark",
@@ -581,6 +633,11 @@ async def run(args, *, client=None, config=None, out=None) -> int:
         # Local records and one line of a local file: no login, and no working
         # token needed. Listing has to work after the last one was removed.
         return await _run_profiles(args, out)
+
+    if args.command == "permission" and args.permission_kind == "show" and args.names:
+        # A list this tool carries: no config, no login.
+        out.say(roles_rim.format_names())
+        return out.finish(Outcome(status="ok", result={"names": list(roles_rim.PERMISSION_NAMES)}))
 
     if args.command == "message" and args.message_kind in message_ops.UNSUPPORTED:
         # Refused before any config or login: there is nothing Discord could answer.
@@ -1922,6 +1979,372 @@ async def _run_structure_remap(args, out) -> Outcome:
     return Outcome(status="ok" if rows else "empty", result={"apply_id": args.apply_id, "rows": rows})
 
 
+# -- roles and permission overwrites ------------------------------------------
+#
+# Two command groups over the role primitives structure blueprints landed on
+# the seam. Every write: resolve, preflight (Manage Roles), then the two checks
+# a held right does not settle - Discord's hierarchy and what the bot can
+# grant - then the gate, the drift check, the write with the plan's reason,
+# and a readback of the role or the overwrite as it now is. The rules and the
+# screens live in roles.py.
+
+
+def _role_fields(args, *, current: dict | None = None) -> tuple[dict, tuple[str, ...]]:
+    """The fields a create or edit sets, from its flags, and the permission names
+    among them. For an edit, a field already at the asked value is not a change."""
+    fields: dict = {}
+    if getattr(args, "name", None) is not None:
+        fields["name"] = args.name
+    colour = roles_rim.parse_colour(getattr(args, "colour", None))
+    if colour is not None:
+        fields["colour"] = colour
+    for flag in ("hoist", "mentionable"):
+        value = getattr(args, flag, None)
+        if value is not None:
+            fields[flag] = bool(value)
+    names: tuple[str, ...] = ()
+    if getattr(args, "permissions", None) is not None:
+        names = roles_rim.parse_permissions(args.permissions)
+        fields["permissions"] = permission_bits(names)
+    if current is not None:
+        fields = {key: value for key, value in fields.items() if value != current.get(key)}
+        if "permissions" not in fields:
+            names = ()
+    return fields, names
+
+
+def _role_mutation_params(fields: dict) -> dict:
+    shown = dict(fields)
+    if "permissions" in shown:
+        shown["permissions"] = list(roles_rim.permission_names(shown["permissions"]))
+    if "colour" in shown:
+        shown["colour"] = roles_rim.colour_hex(shown["colour"])
+    return shown
+
+
+async def _role_readback(client, server_id: int, role_id: int) -> str:
+    role = next((entry for entry in await client.list_roles(server_id) if int(entry["id"]) == role_id), None)
+    if role is None:
+        raise ClientError(f"role {role_id} is not listed in server {server_id}")
+    names = roles_rim.permission_names(role.get("permissions", "0"))
+    return (
+        f"role {role['name']} ({role_id}) at position {int(role.get('position', 0))}, colour {roles_rim.colour_hex(role.get('colour'))}, "
+        f"hoist {'yes' if role.get('hoist') else 'no'}, mentionable {'yes' if role.get('mentionable') else 'no'}, "
+        f"permissions {', '.join(names) if names else 'none'}"
+    )
+
+
+async def _role_gone(client, server_id: int, role_id: int, name: str) -> str:
+    if any(int(entry["id"]) == role_id for entry in await client.list_roles(server_id)):
+        raise ClientError(f"role {name} ({role_id}) is still listed")
+    return f"role {name} ({role_id}) is no longer listed in server {server_id}"
+
+
+async def _gate_role_write(out, write, *, approval: str, yes: bool, preview: str, question: str, typed: str, what: str, target) -> Outcome | None:
+    """The refusal or cancellation that stops a role write, or None to go ahead."""
+    if approval == "typed_name":
+        if yes:
+            return Outcome(
+                status="refused",
+                target=target,
+                plan=write.plan,
+                error=Error(
+                    code="APPROVAL_REQUIRED",
+                    message=f"`{out.command}` touches Administrator, which is confirmed by typing the {what}'s exact name; --yes does not answer that.",
+                    hint=f"Run it without --yes in a terminal and type the {what}'s name at the prompt.",
+                ),
+            )
+        refusal = out.approval_unavailable(
+            f"Run `discord-tools {out.command}` in a terminal: it asks for the {what}'s exact name, and there is deliberately no flag that answers for you."
+        )
+        if refusal is not None:
+            return Outcome(status="refused", target=target, plan=write.plan, error=refusal)
+        out.say(plans.format_preflight(write.plan))
+        out.say(roles_rim.ADMIN_WARNING)
+        if not roles_rim.confirm_typed(preview, typed, what=what, write=out.say):
+            out.say("Cancelled: the name did not match.")
+            return Outcome(status="cancelled", target=target, plan=write.plan, result={"cancelled": True})
+        return None
+    if yes:
+        return None
+    refusal = out.approval_unavailable(f"Add --yes, or answer `{out.command}` in a terminal.")
+    if refusal is not None:
+        return Outcome(status="refused", target=target, plan=write.plan, error=refusal)
+    out.say(plans.format_preflight(write.plan))
+    if not roles_rim.confirm_role(preview, question, write=out.say):
+        return Outcome(status="cancelled", target=target, plan=write.plan, result={"cancelled": True})
+    return None
+
+
+async def _run_role(client, args, config, out) -> Outcome:
+    if args.role_kind is None:
+        raise ValueError("role needs one of: list, create, edit, delete.")
+    identity = await _identity(out, client, config)
+    resolver = DiscordTargetResolver(client)
+    server = await resolver.resolve(args.server, kind="guild")
+    server_id = int(server.ids["guild"])
+    roles = await client.list_roles(server_id)
+    mine = await client.bot_role_ids(server_id)
+
+    if args.role_kind == "list":
+        out.say(roles_rim.format_roles(roles, mine, server=server.title))
+        rows = [roles_rim.role_row(role, mine=int(role["id"]) in set(mine)) for role in roles]
+        return Outcome(status="ok", target=server, result={"roles": rows, "bot_top_role": roles_rim.top_role(roles, mine)["name"]})
+    if args.role_kind == "create":
+        return await _run_role_create(client, args, out, identity=identity, server=server, resolver=resolver)
+
+    role = roles_rim.find_role(roles, args.role, server_id=server_id)
+    target = roles_rim.role_target(server, role)
+    verb = "delete" if args.role_kind == "delete" else "edit"
+    if args.role_kind == "delete" and int(role["id"]) == server_id:
+        return _refused("PLATFORM_UNSUPPORTED", "@everyone is the server's default role; Discord has no way to delete it.", platform="discord")
+    if args.role_kind == "edit":
+        return await _run_role_edit(client, args, out, identity=identity, server=server, resolver=resolver, role=role, target=target)
+    return await _run_role_delete(client, args, out, identity=identity, server=server, resolver=resolver, role=role, target=target)
+
+
+async def _role_plan(client, out, *, identity, resolver, server_id, command_key, approval, mutation, extra_target=None, grants=(), where=""):
+    """Preflight against the server, then the grant check on what preflight found held."""
+    live = await resolver.resolve(server_id, kind="guild")
+    targets = (live,) if extra_target is None else (live, extra_target)
+    write = await _plan(
+        client,
+        command=out.command,
+        identity=identity,
+        targets=targets,
+        mutations=(mutation,),
+        approval=approval,
+        rights=plans.REQUIRED_RIGHTS[command_key],
+    )
+    if write.refusal is None and grants:
+        refusal = roles_rim.ungrantable(grants, write.plan.preflight.held, where=where)
+        if refusal is not None:
+            write = plans.Write(plan=write.plan, refusal=refusal)
+    return write
+
+
+async def _run_role_create(client, args, out, *, identity, server, resolver) -> Outcome:
+    server_id = int(server.ids["guild"])
+    fields, names = _role_fields(args)
+    fields.setdefault("colour", 0)
+    fields.setdefault("permissions", "0")
+    approval = roles_rim.approval_for(names)
+
+    async def build():
+        return await _role_plan(
+            client, out, identity=identity, resolver=resolver, server_id=server_id, command_key="role-create", approval=approval,
+            mutation=Mutation(op="create_role", rid=server.rid, params=_role_mutation_params(fields)),
+            grants=names, where=f"in {server.title}",
+        )
+
+    write = await build()
+    if write.refusal is not None:
+        out.say(plans.format_preflight(write.plan))
+        return Outcome(status="refused", target=server, plan=write.plan, error=write.refusal)
+    preview = roles_rim.format_role({**fields, "name": args.name}, heading=f"Create role in {server.title} ({server_id})")
+    stopped = await _gate_role_write(
+        out, write, approval=approval, yes=args.yes, preview=preview, question="Create it?", typed=server.title, what="server", target=server
+    )
+    if stopped is not None:
+        return stopped
+    await _drift_guard(out, write, build)()
+    made = await client.create_role(
+        server_id,
+        args.name,
+        colour=int(fields.get("colour", 0)),
+        hoist=bool(fields.get("hoist", False)),
+        mentionable=bool(fields.get("mentionable", False)),
+        permissions=str(fields.get("permissions", "0")),
+        reason=write.reason,
+    )
+    role_id = int(made["id"])
+    out.say(f"Created role {args.name} ({role_id}).")
+    evidence = await plans.read_back("the role could not be read back", lambda: _role_readback(client, server_id, role_id))
+    return Outcome(
+        status="ok",
+        target=roles_rim.role_target(server, {"id": role_id, "name": args.name}),
+        plan=write.plan,
+        result={"role": {"id": role_id, "name": args.name, "position": made.get("position")}},
+        evidence=evidence,
+    )
+
+
+async def _run_role_edit(client, args, out, *, identity, server, resolver, role, target) -> Outcome:
+    server_id = int(server.ids["guild"])
+    fields, names = _role_fields(args, current=role)
+    if not fields:
+        raise ValueError("Nothing to change: pass at least one of --name, --colour, --hoist/--no-hoist, --mentionable/--no-mentionable, --permissions.")
+    touches_admin = "permissions" in fields and (
+        roles_rim.ADMINISTRATOR in names or roles_rim.ADMINISTRATOR in roles_rim.permission_names(role.get("permissions", "0"))
+    )
+    approval = "typed_name" if touches_admin else "prompt_y"
+    roles = await client.list_roles(server_id)
+    mine = await client.bot_role_ids(server_id)
+
+    async def build():
+        live_roles = await client.list_roles(server_id)
+        live = roles_rim.find_role(live_roles, role["id"], server_id=server_id)
+        return await _role_plan(
+            client, out, identity=identity, resolver=resolver, server_id=server_id, command_key="role-edit", approval=approval,
+            mutation=Mutation(op="edit_role", rid=target.rid, params=_role_mutation_params(fields)),
+            extra_target=roles_rim.role_target(server, live), grants=names, where=f"to {role['name']}",
+        )
+
+    write = await build()
+    refusal = write.refusal or roles_rim.hierarchy(roles, mine, role, verb="edit")
+    if refusal is not None:
+        out.say(plans.format_preflight(write.plan))
+        return Outcome(status="refused", target=target, plan=write.plan, error=refusal)
+    preview = roles_rim.format_changes(role, fields)
+    stopped = await _gate_role_write(
+        out, write, approval=approval, yes=args.yes, preview=preview, question="Apply it?", typed=role["name"], what="role", target=target
+    )
+    if stopped is not None:
+        return stopped
+    await _drift_guard(out, write, build)()
+    await client.edit_role(server_id, int(role["id"]), reason=write.reason, **fields)
+    out.say(f"Edited role {role['name']} ({role['id']}).")
+    evidence = await plans.read_back("the role could not be read back", lambda: _role_readback(client, server_id, int(role["id"])))
+    return Outcome(status="ok", target=target, plan=write.plan, result={"role_id": int(role["id"]), "changed": _role_mutation_params(fields)}, evidence=evidence)
+
+
+async def _run_role_delete(client, args, out, *, identity, server, resolver, role, target) -> Outcome:
+    server_id = int(server.ids["guild"])
+    roles = await client.list_roles(server_id)
+    mine = await client.bot_role_ids(server_id)
+
+    async def build():
+        live = roles_rim.find_role(await client.list_roles(server_id), role["id"], server_id=server_id)
+        return await _role_plan(
+            client, out, identity=identity, resolver=resolver, server_id=server_id, command_key="role-delete", approval="typed_name",
+            mutation=Mutation(op="delete_role", rid=target.rid), extra_target=roles_rim.role_target(server, live),
+        )
+
+    write = await build()
+    refusal = write.refusal or roles_rim.hierarchy(roles, mine, role, verb="delete")
+    if refusal is not None:
+        out.say(plans.format_preflight(write.plan))
+        return Outcome(status="refused", target=target, plan=write.plan, error=refusal)
+    preview = roles_rim.format_role(role, heading=f"Delete role from {server.title} ({server_id})")
+    out.say(plans.format_preflight(write.plan))
+    result = {"role": roles_rim.role_row(role), "dry_run": not args.execute}
+    if not args.execute:
+        out.say(preview)
+        out.say("Dry-run. Add --execute to delete; it will ask for the role's exact name.")
+        return Outcome(status="dry_run", target=target, plan=write.plan, result=result)
+    refusal = out.approval_unavailable(
+        "Run `discord-tools role delete --execute` in a terminal: it asks for the role's exact name, and there is deliberately no flag that answers for you."
+    )
+    if refusal is not None:
+        return Outcome(status="refused", target=target, plan=write.plan, error=refusal)
+    out.say(roles_rim.DELETE_WARNING)
+    if not roles_rim.confirm_typed(preview, role["name"], what="role", write=out.say):
+        out.say("Cancelled: the name did not match.")
+        return Outcome(status="cancelled", target=target, plan=write.plan, result={**result, "cancelled": True})
+    await _drift_guard(out, write, build)()
+    await client.delete_role(server_id, int(role["id"]), reason=write.reason)
+    out.say(f"Deleted role {role['name']} ({role['id']}).")
+    evidence = await plans.read_back("the role list could not be read back", lambda: _role_gone(client, server_id, int(role["id"]), role["name"]))
+    return Outcome(status="ok", target=target, plan=write.plan, result=result, evidence=evidence)
+
+
+async def _run_permission(client, args, config, out) -> Outcome:
+    if args.permission_kind is None:
+        raise ValueError("permission needs one of: show, set.")
+    if args.permission_kind == "show" and args.target is None:
+        raise ValueError("permission show needs --target <channel or category id> (or --names).")
+    identity = await _identity(out, client, config)
+    resolver = DiscordTargetResolver(client)
+    target = await resolver.resolve(args.target)
+    if target.kind == "thread":
+        return _refused(
+            "PLATFORM_UNSUPPORTED",
+            f"{target.title} is a thread; a thread has no overwrites of its own, its parent channel's govern it.",
+            hint=f"Use --target {target.ids.get('parent', '<parent channel id>')}.",
+            platform="discord",
+        )
+    channel = await client.channel_overwrites(int(target.ids[target.kind]))
+    server_id = int(channel["guild_id"])
+    roles = await client.list_roles(server_id)
+
+    if args.permission_kind == "show":
+        only = roles_rim.find_role(roles, args.role, server_id=server_id)["id"] if args.role else None
+        out.say(roles_rim.format_overwrites(channel, roles, only=only))
+        names = {int(role["id"]): role["name"] for role in roles}
+        rows = [
+            {"role_id": int(row["target_id"]), "role": names.get(int(row["target_id"])), "allow": list(roles_rim.permission_names(row["allow"])), "deny": list(roles_rim.permission_names(row["deny"]))}
+            for row in channel["overwrites"]
+            if row["target_type"] == "role" and (only is None or int(row["target_id"]) == only)
+        ]
+        return Outcome(status="ok" if rows else "empty", target=target, result={"overwrites": rows})
+
+    role = roles_rim.find_role(roles, args.role, server_id=server_id)
+    allow, deny = roles_rim.parse_permissions(args.allow), roles_rim.parse_permissions(args.deny)
+    if not args.clear and not allow and not deny:
+        raise ValueError("Nothing to set: pass --allow and/or --deny with permission names, or --clear.")
+    if args.clear and (allow or deny):
+        raise ValueError("--clear removes the whole overwrite; it takes no --allow or --deny.")
+    rows, new_allow, new_deny = roles_rim.merged_overwrite(channel["overwrites"], int(role["id"]), allow=allow, deny=deny, clear=args.clear)
+    channel_id = int(channel["id"])
+
+    async def build():
+        live = await resolver.resolve(args.target)
+        current = await client.channel_overwrites(channel_id)
+        live_rows, _a, _d = roles_rim.merged_overwrite(current["overwrites"], int(role["id"]), allow=allow, deny=deny, clear=args.clear)
+        write = await _plan(
+            client,
+            command=out.command,
+            identity=identity,
+            targets=(live,),
+            mutations=(
+                Mutation(
+                    op="set_overwrite",
+                    rid=live.rid,
+                    params={"role": str(_rid.make("dc", "role", role["id"])), "allow": sorted(new_allow), "deny": sorted(new_deny), "clear": bool(args.clear), "rows": live_rows},
+                ),
+            ),
+            approval="prompt_y",
+            rights=plans.REQUIRED_RIGHTS["permission-set"],
+        )
+        if write.refusal is None:
+            refusal = roles_rim.ungrantable(set(allow) | set(deny), write.plan.preflight.held, where=f"in #{live.title}")
+            if refusal is not None:
+                write = plans.Write(plan=write.plan, refusal=refusal)
+        return write
+
+    write = await build()
+    if write.refusal is not None:
+        out.say(plans.format_preflight(write.plan))
+        return Outcome(status="refused", target=target, plan=write.plan, error=write.refusal)
+    preview = roles_rim.format_overwrite_plan(channel, role, new_allow, new_deny, clear=args.clear)
+    stopped = await _gate_role_write(
+        out, write, approval="prompt_y", yes=args.yes, preview=preview, question="Set it?", typed="", what="channel", target=target
+    )
+    if stopped is not None:
+        return stopped
+    await _drift_guard(out, write, build)()
+    await client.edit_channel(channel_id, reason=write.reason, overwrites=rows)
+    out.say(f"Set {role['name']}'s overwrite on {channel['name']} ({channel_id}).")
+
+    async def readback():
+        now = await client.channel_overwrites(channel_id)
+        got_allow, got_deny = roles_rim.overwrite_of(now["overwrites"], int(role["id"]))
+        if (got_allow, got_deny) != (new_allow, new_deny):
+            raise ClientError(f"the overwrite reads back as allow {sorted(got_allow)}, deny {sorted(got_deny)}")
+        if args.clear:
+            return f"{role['name']} has no overwrite on {now['name']} ({channel_id})"
+        return f"{role['name']} on {now['name']} ({channel_id}): allow {', '.join(sorted(got_allow)) or '-'}; deny {', '.join(sorted(got_deny)) or '-'}"
+
+    evidence = await plans.read_back("the overwrite could not be read back", readback)
+    return Outcome(
+        status="ok",
+        target=target,
+        plan=write.plan,
+        result={"role_id": int(role["id"]), "role": role["name"], "allow": sorted(new_allow), "deny": sorted(new_deny), "cleared": bool(args.clear)},
+        evidence=evidence,
+    )
+
+
 # -- message operations ----------------------------------------------------
 #
 # One command group over messages a channel already holds. Every verb is a
@@ -2672,6 +3095,8 @@ WRITING = {
     "bot": _run_bot,
     "message": lambda client, args, config, out: _run_message(client, args, config, out),
     "structure": lambda client, args, config, out: _run_structure(client, args, config, out),
+    "role": _run_role,
+    "permission": _run_permission,
 }
 
 

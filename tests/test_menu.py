@@ -25,6 +25,12 @@ STRUCTURE_REMAP = ("4", "6")
 LEAVE = ("4", "7")
 CLEAR = ("5",)
 MANAGE = ("6",)
+ROLE_LIST = ("6", "1")
+ROLE_CREATE = ("6", "2")
+ROLE_EDIT = ("6", "3")
+ROLE_DELETE = ("6", "4")
+PERMISSION_SHOW = ("6", "5")
+PERMISSION_SET = ("6", "6")
 WATCH = ("7",)
 PROFILES = ("8", "1")
 SWITCH_PROFILE = ("8", "1", "2")
@@ -584,3 +590,37 @@ def test_search_flow_asks_a_date_again_until_it_is_one_the_tool_reads():
 def test_archive_search_flow_asks_a_date_again_too():
     code, calls, output = drive([("2", "4"), "1", "security", "5", "06/09/2026", "2026-09-06", "10", "0"])
     assert calls[0].archive_kind == "search" and calls[0].since == "2026-09-06"
+
+
+def test_role_create_flow_never_passes_yes_and_backs_out_of_a_single_server():
+    # Manage -> create -> (single server auto-picked) -> name -> no colour -> not hoisted -> not mentionable -> no permissions -> exit
+    code, calls, _output = drive([ROLE_CREATE, "Helpers", "1", "1", "1", "1", "0"])
+    assert code == 0
+    assert [(args.command, args.role_kind, args.name, args.yes) for args in calls] == [("role", "create", "Helpers", False)]
+    # A blank name backs out of the flow rather than looping on a picker that answers itself.
+    code, calls, _output = drive([ROLE_CREATE, "", "0", "0"])
+    assert code == 0 and calls == []
+
+
+def test_role_delete_flow_dry_runs_before_offering_execute_and_backing_out_never_executes():
+    session = make_session()
+    session._client.roles[1] = [
+        {"id": 1, "name": "@everyone", "colour": 0, "hoist": False, "mentionable": False, "permissions": "0", "position": 0, "managed": False},
+        {"id": 5, "name": "Crew", "colour": 0, "hoist": False, "mentionable": False, "permissions": "0", "position": 1, "managed": False},
+    ]
+    # Roles are listed highest first: row 1 is Crew, row 2 @everyone.
+    code, calls, _output = drive([ROLE_DELETE, "1", "1", "0"], session=session)
+    assert code == 0
+    assert [(args.role_kind, args.role, args.execute) for args in calls] == [("delete", "5", False), ("delete", "5", True)]
+    # Backing out of the dry-run screen returns to the role list, never to the execute.
+    code, calls, _output = drive([ROLE_DELETE, "1", "0", "0", "0", "0"])
+    assert code == 0 and [args.execute for args in calls] == [False]
+
+
+def test_permission_show_flow_lists_channels_that_are_not_messageable_too():
+    session = make_session(make_client(channels={1: [ChannelInfo(id=10, name="general", type="text"), ChannelInfo(id=11, name="Ops", type="category"), ChannelInfo(id=12, name="stage", type="stage_voice")]}))
+    # Row 1 is #general, row 2 its thread, row 3 the stage channel.
+    code, calls, output = drive([PERMISSION_SHOW, "3", "0"], session=session)
+    assert code == 0
+    assert [(args.command, args.permission_kind, args.target) for args in calls] == [("permission", "show", 12)]
+    assert not any("Ops" in line and "  11" in line for line in output), "a category is not in the channel listing; type its ID"

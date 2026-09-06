@@ -188,12 +188,15 @@ def test_the_root_is_section_14s_nine_rows():
 
 
 def test_a_row_whose_pack_has_not_landed_says_so_and_steps_back():
-    printed = walk(["6", "0"])
+    # Roles and permissions landed under Manage; members, invites and webhooks
+    # have not, and their row says so inside the group rather than hiding the
+    # role rows behind it.
+    printed = walk(["6", "7", "0", "0"])
     notice = next(index for index, text in enumerate(printed) if "Not built yet" in text)
-    assert "roles" in printed[notice]
-    # Straight back to the root, with no prompt in between: an Enter-to-continue
+    assert "members, invites and webhooks" in printed[notice]
+    # Straight back to the group, with no prompt in between: an Enter-to-continue
     # on a screen with nothing to decide eats the number you meant to press next.
-    assert printed[notice + 1].split("\n")[0] == "discord-tools"
+    assert printed[notice + 1].split("\n")[0].endswith("Manage")
 
 
 def test_the_watch_row_is_a_group_whose_rules_row_says_so_and_steps_back_to_it():

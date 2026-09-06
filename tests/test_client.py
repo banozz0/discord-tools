@@ -467,3 +467,67 @@ def test_edit_guild_and_role_and_automod_translate_into_discord_pys_own(monkeypa
     assert kwargs["trigger"].type is discord.AutoModRuleTriggerType.mention_spam and kwargs["trigger"].mention_limit == 5
     assert kwargs["actions"][0].type is discord.AutoModRuleActionType.timeout and kwargs["actions"][0].duration.total_seconds() == 60
     assert [role.id for role in kwargs["exempt_roles"]] == [11] and kwargs["enabled"] is True
+
+
+# -- roles: the three seam reads and writes the admin commands added ---------------
+
+
+def test_delete_role_deletes_the_named_role_with_the_reason_and_refuses_an_unknown_id(monkeypatch):
+    import pytest
+
+    from discord_tools.client import ClientError
+
+    deleted = []
+
+    async def delete(*, reason=None):
+        deleted.append(reason)
+
+    members_role = SimpleNamespace(id=12, name="Members", delete=delete)
+
+    async def fetch_roles():
+        return [members_role]
+
+    client, _guild = _structure_client(monkeypatch, SimpleNamespace(id=10, fetch_roles=fetch_roles))
+    asyncio.run(client.delete_role(10, 12, reason="cli-tools role delete plan abcd1234"))
+    assert deleted == ["cli-tools role delete plan abcd1234"]
+    with pytest.raises(ClientError, match="No role with ID 99"):
+        asyncio.run(client.delete_role(10, 99))
+
+
+def test_bot_role_ids_are_the_bot_members_roles_everyone_included(monkeypatch):
+    async def fetch_member(user_id):
+        assert user_id == 42
+        return SimpleNamespace(roles=[SimpleNamespace(id=10), SimpleNamespace(id=14)])
+
+    client, _guild = _structure_client(monkeypatch, SimpleNamespace(id=10, fetch_member=fetch_member))
+    client._client = SimpleNamespace(user=SimpleNamespace(id=42))
+    assert asyncio.run(client.bot_role_ids(10)) == [10, 14]
+
+
+def test_channel_overwrites_answer_the_rows_with_the_server_and_refuse_a_thread(monkeypatch):
+    import pytest
+
+    from discord_tools.client import ClientError
+
+    role = discord.Object(id=12, type=discord.Role)
+    member = discord.Object(id=42, type=discord.Member)
+    overwrite = discord.PermissionOverwrite.from_pair(discord.Permissions(2048), discord.Permissions(1024))
+    channel = SimpleNamespace(id=101, name="deploys", type=SimpleNamespace(name="text"), guild=SimpleNamespace(id=10), overwrites={role: overwrite, member: overwrite})
+    thread = discord.Thread.__new__(discord.Thread)
+    client = DiscordClient(SimpleNamespace())
+    current = {"channel": channel}
+
+    async def fetch_channel(_channel_id):
+        return current["channel"]
+
+    monkeypatch.setattr(client, "_fetch_channel", fetch_channel)
+    assert asyncio.run(client.channel_overwrites(101)) == {
+        "id": 101, "name": "deploys", "type": "text", "guild_id": 10,
+        "overwrites": [
+            {"target_id": 12, "target_type": "role", "allow": "2048", "deny": "1024"},
+            {"target_id": 42, "target_type": "member", "allow": "2048", "deny": "1024"},
+        ],
+    }
+    current["channel"] = thread
+    with pytest.raises(ClientError, match="has no overwrites of its own"):
+        asyncio.run(client.channel_overwrites(105))

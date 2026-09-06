@@ -40,6 +40,8 @@ COMMANDS = [
     ("message", "pin"), ("message", "unpin"), ("message", "poll"), ("message", "typing"),
     ("message", "bookmark"), ("message", "read"), ("message", "unread"), ("message", "draft"),
     ("structure",), ("structure", "export"), ("structure", "diff"), ("structure", "apply"), ("structure", "remap"),
+    ("role",), ("role", "list"), ("role", "create"), ("role", "edit"), ("role", "delete"),
+    ("permission",), ("permission", "show"), ("permission", "set"),
 ]
 
 BANNER = "=" * 72

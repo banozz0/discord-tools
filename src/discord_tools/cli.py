@@ -10,7 +10,7 @@ from typing import Sequence
 from discord_tools import plans
 from discord_tools._core import rid as _rid
 from discord_tools._core.contract import Error
-from discord_tools._core.identity import Identity
+from discord_tools._core.identity import Identity, banner
 from discord_tools._core.plan import Evidence, Mutation
 from discord_tools.adapters import (
     DiscordIdentityProvider,
@@ -22,7 +22,7 @@ from discord_tools.client import ClientError
 from discord_tools.envelope import CountingClient, Outcome, Run, command_name, echoed_args
 from discord_tools.portal import invite_url, run_auth
 from discord_tools import profiles as profile_store
-from discord_tools.config import FROM_PROFILE, ConfigError, load_config
+from discord_tools.config import FROM_PROFILE, ConfigError, load_config, require_private_store
 from discord_tools.discovery import discover_servers, format_tree
 from discord_tools.delete import (
     clear_messages,
@@ -309,7 +309,10 @@ async def run(args, *, client=None, config=None, out=None) -> int:
 
 
 async def _run_doctor(args, out) -> int:
-    checks = await collect_checks(profile=args.profile, channel_id=args.channel)
+    def name_the_run(identity):
+        out.identity = identity
+
+    checks = await collect_checks(profile=args.profile, channel_id=args.channel, identity_seen=name_the_run)
     for check in checks:
         out.say(check.format())
     failed = [check for check in checks if check.failed]
@@ -947,7 +950,16 @@ async def _dispatch(client, args, config, out) -> int:
         raise ValueError(f"Unknown command: {args.command}")
 
     try:
+        if writer is not None:
+            # Before any write, and before the identity call it would follow:
+            # a token store other users can read is not one to act from.
+            require_private_store()
         await _identity(out, client, config)
+        if out.presents:
+            # The line section 5.1 puts under the trail. The menu draws its own
+            # on every screen, so this is only the one-shot path saying, once,
+            # which bot is about to act.
+            out.frame(banner(out.identity))
         if reader is not None:
             outcome = await reader(client, args, out)
         else:

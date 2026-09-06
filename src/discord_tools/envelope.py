@@ -107,6 +107,16 @@ class Run:
         """A line for a person: stdout normally, stderr when stdout is data."""
         print(text, file=self.stderr if self.machine else self.stdout)
 
+    def frame(self, text: str) -> None:
+        """A line *about* the run rather than from it. Always stderr.
+
+        The identity banner is the one of these. stdout is the data channel
+        even without `--json` — `bot --invite` prints a URL and nothing else,
+        `discover --json PATH` prints nothing at all — so a line naming the
+        bot goes beside that output, never into it.
+        """
+        print(text, file=self.stderr)
+
     def payload(self, obj: Any) -> None:
         """The command's own data, printed only when nothing else will carry it.
 

@@ -32,6 +32,22 @@ def label_for(username: str, *, profile: str, source: str = FROM_PROFILE) -> str
     return f"{username} ({where})"
 
 
+def identity_of(bot, *, profile: str, source: str = FROM_PROFILE) -> Identity:
+    """The Identity for a bot record already fetched from the seam.
+
+    Split out so a caller that has just read the bot for its own reasons -
+    `doctor`, mid-check - can name the run without asking Discord twice.
+    """
+    return Identity(
+        platform=PLATFORM,
+        mode=MODE,
+        label=label_for(bot.username, profile=profile, source=source),
+        id=str(_rid.make("dc", "bot", bot.id)),
+        profile=profile,
+        via=None,
+    )
+
+
 class DiscordIdentityProvider:
     """The active bot identity, and the names of the profiles stored beside it.
 
@@ -58,14 +74,7 @@ class DiscordIdentityProvider:
 
     async def identity(self) -> Identity:
         bot = await self._client.get_identity()
-        return Identity(
-            platform=PLATFORM,
-            mode=MODE,
-            label=label_for(bot.username, profile=self._profile, source=self._source),
-            id=str(_rid.make("dc", "bot", bot.id)),
-            profile=self._profile,
-            via=None,
-        )
+        return identity_of(bot, profile=self._profile, source=self._source)
 
     def profiles(self) -> Sequence[tuple[str, str]]:
         """Every stored profile as (name, label).

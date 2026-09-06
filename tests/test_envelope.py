@@ -102,15 +102,31 @@ def test_every_command_emits_one_sound_envelope(argv):
     assert envelope["version"] == __version__
 
 
-def test_doctor_reports_its_checks_and_names_no_identity():
+def test_doctor_reports_its_checks_whether_or_not_it_could_log_in():
     code, stdout, _stderr = emit(["--json", "doctor"], config=CONFIG)
     envelope = envelope_of(stdout)
     assert_sound(envelope, stdout)
     assert list(envelope) == TOP_LEVEL
-    # `doctor` reports on a setup rather than acting as one, so it runs before
-    # any identity is claimed and says so.
+    # Nothing is configured here, so there was no login and nobody to name.
     assert envelope["identity"] is None
     assert envelope["result"]["checks"]
+    assert code in (0, 1)
+
+
+def test_doctor_names_the_bot_its_login_reached(monkeypatch):
+    from conftest import fake_open_client
+    from discord_tools.config import save_token
+
+    save_token("default", "NDI.fake.sig")
+    monkeypatch.setattr("discord_tools.client.open_client", fake_open_client(a_server()))
+
+    code, stdout, _stderr = emit(["--json", "doctor"])
+    envelope = envelope_of(stdout)
+    assert_sound(envelope, stdout)
+    # `doctor` reports on a setup rather than acting as one, but a login that
+    # worked has proved who it was: section 5.1 puts that in every envelope.
+    assert envelope["identity"]["mode"] == "bot"
+    assert envelope["identity"]["label"] == "testbot#0 (profile default)"
     assert code in (0, 1)
 
 
@@ -276,3 +292,56 @@ def test_a_secret_passed_as_a_flag_never_rides_out_in_the_echo():
     )
     assert find(stdout) == []
     assert "<redacted token>" in stdout
+
+
+# -- the identity banner and the store the run acts from ------------------
+
+
+def test_the_one_shot_run_names_the_bot_beside_its_output():
+    _code, stdout, stderr = emit(["discover"])
+    assert stderr.startswith("Acting as: testbot#0 (profile default) · bot")
+    # Beside, never inside: stdout is the tree a script pipes.
+    assert "Acting as" not in stdout
+
+
+def test_the_banner_names_the_target_when_the_command_has_one():
+    _code, _stdout, stderr = emit(["send", "--channel", "701", "--text", "hi", "--yes"], client=a_server())
+    assert stderr.startswith("Acting as: testbot#0 (profile default) · bot")
+
+
+def test_a_json_run_keeps_the_banner_off_the_envelope_stream():
+    _code, stdout, stderr = emit(["--json", "discover"])
+    assert "Acting as" in stderr
+    json.loads(stdout)  # one object, nothing before it
+
+
+def test_a_write_refuses_when_the_token_store_is_readable_by_others(home_is_a_tmp_dir):
+    from discord_tools.config import save_token
+
+    save_token("default", "NDI.fake.sig").chmod(0o644)
+    code, stdout, _stderr = emit(
+        ["--json", "send", "--channel", "701", "--text", "hi", "--yes"], client=a_server()
+    )
+    envelope = envelope_of(stdout)
+    assert envelope["status"] == "refused"
+    assert envelope["error"]["code"] == "CONFIG_INVALID"
+    assert "chmod -R go-rwx" in envelope["error"]["message"]
+    assert code == 2
+
+
+def test_a_read_still_runs_so_the_problem_can_be_diagnosed(home_is_a_tmp_dir):
+    from discord_tools.config import save_token
+
+    save_token("default", "NDI.fake.sig").chmod(0o644)
+    code, stdout, _stderr = emit(["--json", "discover"], client=a_server())
+    assert envelope_of(stdout)["status"] == "ok"
+    assert code == 0
+
+
+def test_nothing_reached_discord_before_the_refusal(home_is_a_tmp_dir):
+    from discord_tools.config import save_token
+
+    save_token("default", "NDI.fake.sig").chmod(0o644)
+    client = a_server()
+    emit(["--json", "send", "--channel", "701", "--text", "hi", "--yes"], client=client)
+    assert client.sent == []

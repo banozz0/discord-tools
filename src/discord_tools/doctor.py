@@ -5,7 +5,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from discord_tools.config import ConfigError, bot_id_from_token, load_config
+from discord_tools import profiles
+from discord_tools.adapters.identity import identity_of
+from discord_tools.config import (
+    FROM_ENVIRONMENT,
+    ConfigError,
+    bot_id_from_token,
+    config_dir,
+    load_config,
+    loose_entries,
+)
 
 MIN_PYTHON = (3, 11)
 
@@ -58,6 +67,53 @@ def check_token_shape(token: str) -> DoctorCheck:
         return DoctorCheck("OK", f"Token is bot-token shaped (bot ID {bot_id})")
     # Shape only, never content: a wrong-looking token is described, not shown.
     return DoctorCheck("WARN", "Token does not look like a bot token (expected three dot-separated segments)")
+
+
+def check_profile_record(config, *, home: Path | None = None) -> DoctorCheck:
+    """What the profile was set up as, and whether its token still agrees.
+
+    A disagreement never reaches here - `load_config` refuses first - so the
+    only two answers are a matching record and no record at all.
+    """
+    if config.source == FROM_ENVIRONMENT:
+        return DoctorCheck("OK", "Token came from DISCORD_TOKEN, so no profile record applies")
+    record = profiles.read(config.profile, home=home)
+    if record is None:
+        return DoctorCheck(
+            "WARN",
+            f"Profile {config.profile!r} has no profile.json - re-run `discord-tools auth --profile "
+            f"{config.profile}` to record which bot it is, so a swapped token is caught",
+        )
+    return DoctorCheck(
+        "OK",
+        f"Profile {config.profile!r} is recorded as {record.label} (bot ID {record.bot_id}), "
+        f"last login {record.last_login}",
+    )
+
+
+def check_file_modes(loose: list[tuple[Path, int]], directory: Path) -> DoctorCheck:
+    """Whether anything beside the token can be read by anyone else.
+
+    A FAIL here is not advisory: every write refuses until it is fixed, because
+    the file next to the complaint holds the bot token.
+    """
+    if not loose:
+        return DoctorCheck("OK", f"{directory} and everything under it are private (0700/0600)")
+    listed = ", ".join(f"{path.name} {mode:04o}" for path, mode in loose[:3])
+    more = f", and {len(loose) - 3} more" if len(loose) > 3 else ""
+    return DoctorCheck(
+        "FAIL",
+        f"Readable by group or others: {listed}{more}. Writes are refused until this is fixed - "
+        f"run `chmod -R go-rwx {directory}`",
+    )
+
+
+def check_proxy(config) -> DoctorCheck:
+    """The proxy in use, named by host. Its credentials are never printed."""
+    if config.proxy_url is None:
+        return DoctorCheck("OK", "No proxy configured (DISCORD_PROXY unset)")
+    credentials = " with credentials" if config.proxy_auth is not None else ""
+    return DoctorCheck("OK", f"Proxy {config.proxy_url}{credentials}")
 
 
 def check_send_allowlist(allowlist: tuple[int, ...]) -> DoctorCheck:
@@ -157,13 +213,16 @@ async def collect_checks(
     profile: str | None = None,
     channel_id: int | None = None,
     open_client: Callable[..., Any] | None = None,
+    identity_seen: Callable[[Any], None] | None = None,
 ) -> list[DoctorCheck]:
     """Every check, run in order, as objects rather than as printed lines.
 
     `open_client` is the async context manager factory used for the live
     checks; None (with a loadable config) means use the real one. Live checks
     are skipped, not failed, when there is no working config to run them with.
-    """
+    `identity_seen` is handed the acting identity once the login proves there
+    is one, so a caller building an envelope can name the bot doctor reached
+    without asking Discord for it a second time."""
     checks = [check_python_version(version_info)]
 
     config = None
@@ -174,8 +233,12 @@ async def collect_checks(
         config_error = exc
     checks.append(check_config(config, config_error))
 
+    checks.append(check_file_modes(loose_entries(home=home), config_dir(home)))
+
     if config is not None:
         checks.append(check_token_shape(config.token))
+        checks.append(check_profile_record(config, home=home))
+        checks.append(check_proxy(config))
         checks.append(check_send_allowlist(config.send_allowlist))
 
         if open_client is None:
@@ -185,6 +248,8 @@ async def collect_checks(
         try:
             async with open_client(config.token, proxy=config.proxy_url, proxy_auth=config.proxy_auth) as client:
                 identity = await client.get_identity()
+                if identity_seen is not None:
+                    identity_seen(identity_of(identity, profile=config.profile, source=config.source))
                 checks.append(check_identity(identity))
                 checks.append(check_message_content_intent(identity))
                 checks.append(check_servers(await client.list_servers()))

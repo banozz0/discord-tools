@@ -116,6 +116,31 @@ def parse_send_allowlist(raw: str | None) -> tuple[int, ...]:
     return tuple(entries)
 
 
+def loose_entries(*, home: Path | None = None) -> list[tuple[Path, int]]:
+    """Everything under ~/.discord-tools readable by group or others, with its mode."""
+    from discord_tools._core.paths import ToolPaths
+
+    return ToolPaths.for_tool("discord-tools", home=home).loose_modes()
+
+
+def require_private_store(*, home: Path | None = None) -> None:
+    """Refuse before a write when the token store is readable by anyone else.
+
+    A `.env` at 0644 means the bot token is readable by every process on the
+    machine. Reads still run - `doctor` has to be able to say what is wrong -
+    but nothing writes to Discord as a bot whose credentials are lying open,
+    and the message says the exact chmod that fixes it.
+    """
+    loose = loose_entries(home=home)
+    if not loose:
+        return
+    path, mode = loose[0]
+    raise ConfigError(
+        f"{path} is mode {mode:04o} - readable by group or others, and it sits beside the bot token. "
+        f"Run `chmod -R go-rwx {config_dir(home)}` and try again."
+    )
+
+
 def proxy_parts(raw: str | None) -> tuple[str | None, tuple[str, str] | None]:
     """A proxy URL split into the part that may be printed and the part that may not.
 

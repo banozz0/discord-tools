@@ -12,6 +12,27 @@ The terms this codebase uses, and the boundaries they imply.
   `--profile` / `DISCORD_TOOLS_PROFILE` select one; `DISCORD_TOKEN` overrides.
   The menu can switch mid-session, which closes the old login and drops every
   cache — both belonged to the old token.
+- **Profile record** — `profiles/<name>/profile.json` (`profiles.py`): the
+  non-secret half of a profile, written by `auth` — label, the bot id it
+  verified, created, last login. The token does not move; this sits beside it.
+  A profile from before this file existed has none, and that is not an error.
+- **Identity** — who a run acts as (`_core.identity.Identity`): platform, mode
+  (always `bot` here), label, a `dc:bot:` rid, the profile it came from. The
+  label is what screens print — `harrybot (profile harry)`, or
+  `harrybot (token from environment)` when `DISCORD_TOKEN` overrode the store.
+- **Banner** — the line under a screen's trail: `Acting as: <label> · bot`
+  plus `· Target: <trail> (<ids>)` when the flow has one. Inserted by
+  `prompts.with_banner` at the one place every screen is written through, so
+  no screen can go out without it. The root menu and the two screens reachable
+  with no working bot — Identity, Check setup — deliberately carry none.
+- **Identity mismatch** — a stored token whose own decoded bot id disagrees
+  with the profile record. `load_config` refuses with `IDENTITY_MISMATCH`
+  before anything opens a connection, so a token pasted into the wrong profile
+  never acts as the wrong bot.
+- **Root group** — a root row holding several flows (`menu._group`): Read,
+  Build, Identity. Rows keep their own numbers inside it and `0` steps back to
+  the root. Two rows hold nothing yet (`menu._later`) and say so, so section
+  14's nine numbers are learned once.
 - **Gate** — the confirmation pattern on every destructive path, fixed by
   the suite specification: send = preview + y/N (`--yes` needs the
   allowlist), create = preview + y/N, clear = dry-run default + `--execute` +
@@ -107,5 +128,11 @@ The terms this codebase uses, and the boundaries they imply.
   shared contract tree at the tag in `_core/VERSION`. Never edited here: a fix
   goes to the workshop and is re-synced with `scripts/sync-core.sh`, and
   `tests/test_core_copy.py` fails on any local edit.
+
+- **Transcript** — `docs/transcripts/discord-tools-<version>-menu.ansi` and
+  its stripped siblings: a real session through the real menu against the
+  canned client, recorded by `scripts/record_menu.py --write` and replayed by
+  the site. `tests/test_transcripts.py` fails when it no longer matches the
+  menu it claims to show.
 
 Architecture decisions with more context than fits here go to `docs/adr/`.

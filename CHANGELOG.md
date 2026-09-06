@@ -1,5 +1,67 @@
 # Changelog
 
+## 0.8.0 — 2026-09-06
+
+Every screen says which bot is about to act, and a token in the wrong profile
+stops the run instead of acting as someone else's bot. The root menu is
+regrouped once, into nine rows.
+
+### Which bot, and on what
+
+- **Every screen below the root opens with it**, under its trail:
+  `Acting as: harrybot (profile harry) · bot · Target: Agency › 🚨alerts
+  (1394827364512)`. A one-shot command prints the same line beside its output —
+  never into it, so `bot --invite` still prints a URL and nothing else. Every
+  envelope carries the same thing under `identity` and `target`.
+- **`DISCORD_TOKEN` says so**: a token handed over in the environment has no
+  profile to name, so the line reads `(token from environment)`.
+
+### A profile knows which bot it is
+
+- **`auth` records `~/.discord-tools/profiles/<name>/profile.json`** — the
+  bot's label, the bot ID it verified, when the profile was made and when it
+  last logged in. No token, nothing secret.
+- **A swapped token fails closed.** A bot token carries its own bot ID; if it
+  disagrees with the recorded one the run refuses with `IDENTITY_MISMATCH` and
+  exit 2 **before any call**, rather than quietly acting as the wrong bot. A
+  profile written before this version has no record and is left alone; `doctor`
+  says how to add one.
+- **`profiles`** lists every stored bot, marking the current one, a token with
+  no record and a record with no token. **`profiles remove --name <name>`**
+  takes it off the `DISCORD_BOT_TOKENS` line and deletes its record directory,
+  after you type the profile's name back — the same gate `delete` uses, with no
+  `--yes`. Neither needs a working token: listing has to work when the reason
+  you are looking is that one stopped working.
+
+### The folder is yours alone
+
+- **`doctor` reports the modes** of `~/.discord-tools` and everything under it,
+  and **every command that writes to Discord refuses** with `CONFIG_INVALID`
+  while anything there is readable by group or others, naming the exact
+  `chmod`. The file beside everything else holds a bot token. Reads still run,
+  so you can find out what is wrong.
+
+### A proxy
+
+- **`DISCORD_PROXY=http://host:3128`** (also `socks5://`, with an optional
+  `user:password@`) sends every request through a proxy. `doctor` prints the
+  host and never the credentials, which travel to aiohttp beside the URL rather
+  than inside it.
+
+### The menu, regrouped once
+
+- **Nine rows**: Find IDs, Read, Write, Build, Clear messages, Manage, Watch,
+  Identity, Check setup. `members` moved under Read, `leave-server` under Build
+  beside `delete`, and profiles under Identity with `bot` and `auth`. **Menu
+  numbers shift once**; every command, flag and exit code is where it was.
+- **Rows 6 and 7 are printed with nothing under them yet** — they say the
+  commands arrive in a later version and step back. They are there so these
+  numbers are learned once rather than shifted again when those commands land.
+- Two fixes found while recording the new transcript: *Main menu* inside a
+  group reached the group's screen rather than the root, and `0` on
+  *Leave a server*'s screen looped back onto itself when the bot was in one
+  server, with no way out but Ctrl-C.
+
 ## 0.7.0 — 2026-09-04
 
 Machine-readable output, and a plan behind every write. Nothing a person sees

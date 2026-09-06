@@ -55,6 +55,9 @@ Every write also reports `plan` (what it needed, what it held, which gate) and
 `unverified:` means the write happened but could not be confirmed — report
 that as written, never as done.
 
+`identity` says which bot the run acted as and `target` says what it acted on;
+both are in every envelope, and both belong in what you report back.
+
 ## This machine
 
 Install path, profile names and where automated output is delivered differ per
@@ -113,6 +116,22 @@ sends the user's next message into the void or errors on delivery.
 `APPROVAL_REQUIRED` and says which command a person would run. That is the
 answer to relay. Do not retry it through a pty, the menu, or a piped answer.
 
+**9. Say which bot you acted as.** Every envelope carries `identity.label` —
+`harrybot (profile harry)`, or `(token from environment)` when `DISCORD_TOKEN`
+overrode the store — and `target` for the thing it acted on. With several bots
+on one machine, "posted it" is not an answer; "posted it as harrybot in
+Agency › 🚨alerts" is.
+
+**10. Never run `profiles remove`.** It takes a bot's token off the store and
+the token is not recoverable — setting that bot up again means resetting it in
+the Developer Portal. It asks for the profile's name at a prompt and has no
+`--yes`. `discord-tools profiles` (listing) is read-only and fine.
+
+**11. `IDENTITY_MISMATCH` is a stop, not a retry.** It means that profile's
+stored token belongs to a different bot than `auth` recorded, so the run
+refused before making any call. Relay it and name the profile; do not try
+another profile, and never edit the user's `.env` to make it go away.
+
 ## Commands
 
 | The ask | Run |
@@ -131,6 +150,8 @@ answer to relay. Do not retry it through a pty, the menu, or a piped answer.
 | "make a voice/forum channel" (they asked) | `discord-tools create channel --server <id> --name "..." --type voice --yes` |
 | "delete that channel" | hand them `discord-tools delete channel --channel <id> --execute` — rule 4, they run it |
 | "which bot am I, can it see X?" | `discord-tools doctor` / `doctor --channel <id>` |
+| "which bots does this machine have?" | `discord-tools profiles` |
+| "act as the other bot" | put `--profile <name>` before the subcommand |
 | "the invite URL for the bot" | `discord-tools bot --invite` |
 | "set up a new bot" | `discord-tools auth` (interactive — the human runs it) |
 | run as a different bot | any command with `--profile <name>` before the subcommand |
@@ -188,6 +209,8 @@ answer to relay. Do not retry it through a pty, the menu, or a piped answer.
   `bot --invite` are fine.
 - **`auth`** — it is an interactive portal walkthrough that asks for a token
   paste only the user can do. Tell them to run it; do not drive it.
+- **`profiles remove`** — rule 10. It drops a bot's token from the store and
+  the token cannot be recovered. Plain `profiles` is a read and is fine.
 - **A bare `discord-tools`** — no subcommand opens the interactive menu, which
   waits for a human. With no terminal attached it prints help instead, so it
   will not hang in a pipe, but it answers nothing either.

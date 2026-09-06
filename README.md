@@ -32,7 +32,8 @@ scripts pass a subcommand.
 | Command | What it does |
 |---|---|
 | `auth` | Guided Developer Portal setup; verifies the token and the message-content intent, stores the token as a named profile, prints the invite URL |
-| `doctor` | Checks Python, config, token, intent, joined servers; `--channel <id>` adds per-channel permission checks and a message-visibility probe |
+| `doctor` | Checks Python, config, token, which bot the profile was set up as, the proxy, the file modes, the intent, joined servers; `--channel <id>` adds per-channel permission checks and a message-visibility probe |
+| `profiles` | Lists every stored bot by name and by the label `auth` recorded; `profiles remove --name <name>` drops one after you type its name back. Neither needs a working token |
 | `discover` | Prints the server → channel → thread tree with every ID; `--server <id>` narrows, `--json <path>` writes a file |
 | `members` | Lists a server's members (ID, username, display name, bot flag); `--output <name>` exports JSON/CSV. Needs the privileged **Server Members** intent enabled in the portal |
 | `search` | Searches a channel/thread's history locally (Discord gives bots no search API): `--keyword`, `--from-user`, `--since`, `--until`, `--limit`; `--output <name>` exports JSON/CSV. The printed table previews long bodies at 70 characters — exports carry them whole |
@@ -50,23 +51,31 @@ scripts pass a subcommand.
 ```
 discord-tools
 --------------------------------------------
-1. Servers & channels (find IDs)
-2. Server members (names and IDs)
-3. Search / export messages
-4. Send a message
-5. Create a channel, category, or thread
-6. Clear messages
-7. My bot
-8. Set up a bot (guided)
+1. Find IDs (servers, channels, threads)
+2. Read (search, export, members)
+3. Write (send)
+4. Build (create, delete, leave a server)
+5. Clear messages
+6. Manage (roles, members, invites, webhooks)
+7. Watch (rules, runner, review queue)
+8. Identity (profiles, my bot, set up a bot)
 9. Check setup
-10. Switch profile
 0. Exit
 ```
 
+Rows 6 and 7 are the two whose commands have not shipped yet; they say so and step
+back. They are printed anyway so that these numbers are learned once rather than
+shifted again when those commands arrive.
+
 `0` always steps back one screen — inside a picker or on a flow's own screen alike —
 and exits once you're back at the root; on a text prompt a blank line does the same.
-Every screen below the root carries its trail (`Main › Clear › Ops › Dry-run done`),
-so you always know where you are. Servers, channels, threads and categories come from
+Every screen below the root carries its trail (`Main › Clear › Ops › Dry-run done`)
+and, under it, which bot is acting and on what:
+
+```
+Main › Search › 🚨alerts
+Acting as: harrybot (profile harry) · bot · Target: Agency › 🚨alerts (1394827364512)
+``` Servers, channels, threads and categories come from
 live pick-lists rather than prompts asking you to type an ID, and every picker still
 takes a typed ID for the thing a list cannot carry: an archived thread, an exotic
 channel type, a category the bot cannot see. Long lists page on `n` and `p`, and an
@@ -79,8 +88,8 @@ search or send form, *Create another*, *Clear somewhere else*, *Edit more* — p
 with something typed in it — a message, search filters, bot edits — asks first.
 
 Every flag has a row: `members`, `doctor --channel`, `bot --invite`, `bot --json`, a
-manual category ID for `create channel`, and *Switch profile* for the bot the rest of
-the session acts as. The exceptions are deliberate — `send`, `create` and `bot` never
+manual category ID for `create channel`, and, under *Identity*, listing the stored
+profiles, switching the one the rest of the session acts as, and removing one. The exceptions are deliberate — `send`, `create` and `bot` never
 get `--yes` from the menu, `clear-messages` always dry-runs first and still asks you to
 type `DELETE`, and `delete` and *Leave a server* dry-run first and still ask you to type
 the target's own name. The menu is never a shorter path past a gate.
@@ -107,6 +116,31 @@ DISCORD_BOT_TOKENS=default:token-a,dobby:token-b
 `--profile dobby` (before the subcommand) selects one; `DISCORD_TOOLS_PROFILE`
 sets the default; `DISCORD_TOKEN` overrides everything. `auth` writes this
 file for you — run it once per bot.
+
+Beside the token, `auth` records `~/.discord-tools/profiles/<name>/profile.json`:
+the bot's label and the bot ID it verified, and nothing secret. A Discord bot token
+carries its own bot ID, so a token pasted into the wrong profile is caught — the run
+refuses with `IDENTITY_MISMATCH` before making a single call, instead of quietly
+acting as the wrong bot.
+
+```bash
+discord-tools profiles                     # what this machine has
+discord-tools profiles remove --name dobby # after typing the name back
+```
+
+Neither needs a working token: listing has to work when the reason you are looking
+is that one stopped working. Removing a profile takes it off the `DISCORD_BOT_TOKENS`
+line and deletes its record directory, and says first that the token is not
+recoverable from here.
+
+`DISCORD_PROXY=http://host:3128` sends every request through a proxy (`socks5://`
+too, with an optional `user:password@`). `doctor` prints the host and never the
+credentials.
+
+`~/.discord-tools/` and everything under it is written 0700/0600, because the file
+next to everything else holds a bot token. If that stops being true, `doctor` names
+the file and its mode, and every command that writes to Discord refuses until it is
+fixed; reads still run, so you can find out what is wrong.
 
 `DISCORD_SEND_ALLOWLIST` is a comma-separated list of channel/thread IDs that
 `send --yes` may post to. Unset means every unattended send is refused — each
@@ -140,6 +174,12 @@ done (stopped at a gate, or a server clear that could not reach everything),
 **130** interrupted. Exit 3 is the one to know: rather than hanging on a
 prompt nobody can answer, the command refuses and its `error.hint` names the
 command a person would run.
+
+Every envelope names the bot it acted as under `identity`, and the thing it acted
+on under `target`. A profile whose stored token decodes to a different bot ID than
+`auth` recorded refuses with `IDENTITY_MISMATCH` and exit 2 before any call, and a
+token store readable by group or others refuses every write with `CONFIG_INVALID`
+naming the exact `chmod`.
 
 Every write reports what permission it needed and held, which gate it passed,
 and what was read back afterwards — and a readback that begins `unverified:`

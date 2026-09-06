@@ -45,7 +45,7 @@ MAIN = "Main"
 ROOT_ITEMS = (
     "Find IDs (servers, channels, threads)",
     "Read (search, export, members)",
-    "Write (send a message)",
+    "Write (send)",
     "Build (create, delete, leave a server)",
     "Clear messages",
     "Manage (roles, members, invites, webhooks)",

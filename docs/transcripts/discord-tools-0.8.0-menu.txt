@@ -1,6 +1,6 @@
 discord-tools 0.8.0 — the menu, recorded in a real terminal (pty, TERM=xterm-256color)
 =====================================================================================
-Recorded by scripts/record_menu.py on 76d8332. The menu code, the colour and the
+Recorded by scripts/record_menu.py on 0d02889. The menu code, the colour and the
 prompt rendering are the real ones; the Discord side is a canned session (no network, no
 token), so the server, channels, threads and messages below are invented. Keystrokes
 appear after each prompt. The .ansi sibling of this file is the same run with the colour
@@ -10,7 +10,7 @@ discord-tools
 --------------------------------------------
 1. Find IDs (servers, channels, threads)
 2. Read (search, export, members)
-3. Write (send a message)
+3. Write (send)
 4. Build (create, delete, leave a server)
 5. Clear messages
 6. Manage (roles, members, invites, webhooks)
@@ -76,7 +76,7 @@ discord-tools
 --------------------------------------------
 1. Find IDs (servers, channels, threads)
 2. Read (search, export, members)
-3. Write (send a message)
+3. Write (send)
 4. Build (create, delete, leave a server)
 5. Clear messages
 6. Manage (roles, members, invites, webhooks)
@@ -108,7 +108,7 @@ discord-tools
 --------------------------------------------
 1. Find IDs (servers, channels, threads)
 2. Read (search, export, members)
-3. Write (send a message)
+3. Write (send)
 4. Build (create, delete, leave a server)
 5. Clear messages
 6. Manage (roles, members, invites, webhooks)
@@ -180,7 +180,7 @@ discord-tools
 --------------------------------------------
 1. Find IDs (servers, channels, threads)
 2. Read (search, export, members)
-3. Write (send a message)
+3. Write (send)
 4. Build (create, delete, leave a server)
 5. Clear messages
 6. Manage (roles, members, invites, webhooks)
@@ -233,7 +233,7 @@ discord-tools
 --------------------------------------------
 1. Find IDs (servers, channels, threads)
 2. Read (search, export, members)
-3. Write (send a message)
+3. Write (send)
 4. Build (create, delete, leave a server)
 5. Clear messages
 6. Manage (roles, members, invites, webhooks)

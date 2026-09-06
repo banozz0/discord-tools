@@ -3,7 +3,7 @@ discord-tools
 --------------------------------------------
 1. Find IDs (servers, channels, threads)
 2. Read (search, export, members)
-3. Write (send a message)
+3. Write (send)
 4. Build (create, delete, leave a server)
 5. Clear messages
 6. Manage (roles, members, invites, webhooks)

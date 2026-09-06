@@ -1,5 +1,74 @@
 # Changelog
 
+## 0.10.0 — 2026-09-06
+
+The message commands. Until now the tool stopped at `send`; now there is one
+group, `message <verb>`, for what you do to a message once it exists, and
+every verb shows you the channel and the message it is about to act on before
+it asks.
+
+### The message group
+
+- **`message reply --channel <id> --to <message id> --text …`** answers a
+  message as the bot; **`send`** gains the same `--reply-to`.
+- **`message edit --id … --text …`** changes one of the bot's own messages.
+  Discord lets a bot edit no other, so anyone else's is refused with
+  `PLATFORM_UNSUPPORTED` naming the author, not a permission it could be given.
+- **`message delete --channel <id> --ids …`** or **`--from-search "<query>"`**
+  (the channel's rows in the local archive) removes chosen messages. It is
+  `clear-messages`' gate on a selection: a dry-run that lists what it would
+  remove, then `--execute` **and** typing `DELETE`, with no `--yes`. One run
+  never deletes more than `--limit` (200): a selection above it is refused
+  with `BULK_LIMIT` rather than trimmed, a limit above 1000 needs `--i-know`
+  and then the exact count typed back after `DELETE`. Messages older than 14
+  days go one by one, as they always have.
+- **`message forward --ids … --to <channel id>`** is Discord's own forward,
+  header and attachments included. **`message copy`** re-posts the text with
+  an attribution line — who, where, when, a link to the original — and links
+  to the attachments; it never downloads them.
+- **`message react --id … --emoji 👍`** and **`unreact`**, **`pin`** and
+  **`unpin`** (Discord's *Pin Messages* right, which it split out of Manage
+  Messages), **`poll --question … --option a --option b [--multiple]
+  [--hours 24]`**, and **`typing --seconds 5`**.
+- **`message bookmark --channel <id> --id …`** keeps a message as a local row
+  in the archive file, with an optional `--label`; `--remove` drops it and
+  `--list` prints them without logging in. Discord gives a bot no bookmark
+  API, so it is named as local everywhere it appears.
+- **`message read`, `unread` and `draft`** exit 2 with `PLATFORM_UNSUPPORTED`
+  and say why: read state belongs to a user account, and drafts live in the
+  client, not the API.
+
+### Who a post may ping
+
+- **Nobody, unless you say so.** `send`, `reply`, `edit` and `copy` hand
+  Discord an empty mention policy, so an `@everyone` or a `<@id>` in the text
+  is drawn but pings no one. `--mention users`, `--mention roles` or
+  `--mention everyone` opts in, and the preview says which.
+- **`--mention everyone` always asks.** Even with `--yes`, and with no
+  terminal to ask on it refuses with `APPROVAL_REQUIRED`. A message to every
+  member of a server is not something a flag answers for.
+
+### Gates
+
+- `reply`, `copy`, `forward` and `poll` post into a channel, so their `--yes`
+  works exactly like `send --yes`: only for a destination in
+  `DISCORD_SEND_ALLOWLIST`. `edit`, `react`, `pin`, `typing` and `bookmark`
+  change something already there, and their `--yes` skips the prompt the way
+  `create --yes` does. `delete` has no `--yes`.
+- Every verb builds a plan, names the permission it needs and holds, re-checks
+  the target after you answer, reads back the result — the new text, the
+  pinned state, the reaction, the message landing — and writes an audit line;
+  `pin` and `unpin` carry the audit-log reason. `typing` reads back
+  `unverified`, because Discord keeps no record of it.
+
+### The menu
+
+- Root row 3 is now the **Write** group: *Send a message*, *Reply*, *Edit my
+  message*, *Delete messages*, *Forward*, *Copy*, *React / unreact*, *Pin /
+  unpin*, *Post a poll*, *Show typing*, *Bookmark a message*, *List my
+  bookmarks*. The send form gains a *Mentions* row. A delete dry-runs first
+  and asks for `DELETE` inside the command; nothing in the group sets `--yes`.
+
 ## 0.9.0 — 2026-09-06
 
 A local archive. Discord gives bots no search API, so until now every history

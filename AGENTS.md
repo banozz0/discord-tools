@@ -19,7 +19,9 @@ members (server member list; needs the privileged Server Members intent) ·
 search/export (history fetch + local filter; Discord gives bots no search
 API) · archive (sync history into a local FTS5 store, resume, coverage; search,
 export in five formats, retention and forget behind a typed name; only sync
-logs in) · send · create (channel/thread/category, every type delete accepts) ·
+logs in) · send (`--reply-to`, `--mention`) · message (reply, edit own, delete
+behind typed DELETE and a bulk bound, forward, copy, react, pin, poll, typing,
+local bookmark; read/unread/draft are PLATFORM_UNSUPPORTED) · create (channel/thread/category, every type delete accepts) ·
 delete (channel/category/thread) · leave-server · clear-messages · bot
 (settings + invite URL for the active profile) · doctor (token,
 message-content intent, servers, per-channel perms). v1 (all but members)

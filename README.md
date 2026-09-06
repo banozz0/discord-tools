@@ -39,7 +39,8 @@ scripts pass a subcommand.
 | `members` | Lists a server's members (ID, username, display name, bot flag); `--output <name>` exports JSON/CSV. Needs the privileged **Server Members** intent enabled in the portal |
 | `search` | Searches a channel/thread's history locally (Discord gives bots no search API): `--keyword`, `--from-user`, `--since`, `--until`, `--limit`; `--output <name>` exports JSON, CSV, JSONL, Markdown or HTML (`--format`). `--archive` searches the local archive instead of fetching. The printed table previews long bodies at 70 characters — exports carry them whole |
 | `archive` | The local archive: `sync` fetches new history from everything the bot can read and resumes where it stopped; `status` shows scopes, rows and coverage; `search --query` is ranked full-text search with `--regex`, `--from`, `--since`, `--until`, `--context`; `export --format json/csv/jsonl/markdown/html --output` writes the same result; `retention --scope --keep 90d` and `forget --scope` prune it, dry-run by default and behind the scope's exact name. See [The archive](#the-archive) |
-| `send` | Posts as the bot after a full-message preview + y/N; `--yes` skips the prompt only for channels in `DISCORD_SEND_ALLOWLIST` |
+| `send` | Posts as the bot after a full-message preview + y/N; `--yes` skips the prompt only for channels in `DISCORD_SEND_ALLOWLIST`. `--reply-to <message id>` answers a message; `--mention users/roles/everyone` lets it ping (nobody by default, and `everyone` always asks) |
+| `message` | What you do to a message once it exists: `reply`, `edit` (the bot's own only), `delete` (dry-run, then `--execute` + typed `DELETE`, bounded by `--limit`), `forward`, `copy`, `react`/`unreact`, `pin`/`unpin`, `poll`, `typing`, `bookmark` (local). Each shows the channel and the message first. `read`, `unread` and `draft` say a bot cannot. See [Message operations](#message-operations) |
 | `create` | `channel` (`--type text/news/voice/stage_voice/forum/media`) / `category` / `thread` (`--private`), each behind a confirmation. Every type `delete` can remove, `create` can make again |
 | `delete` | `channel` / `category` / `thread`. Dry-run by default; deleting for real takes `--execute` **and** typing the target's exact name. Deleting a category leaves its channels alive, just uncategorised. There is no `--yes` — deletion always needs a human |
 | `leave-server` | Makes the bot leave `--server <id>`; nothing in the server is deleted. Same gate as `delete`. Discord gives a bot no way to delete a server (that needs ownership, which a bot never has) |
@@ -55,7 +56,7 @@ discord-tools
 --------------------------------------------
 1. Find IDs (servers, channels, threads)
 2. Read (search live, archive, export, members)
-3. Write (send)
+3. Write (send, reply, edit, delete, forward, react, pin, poll)
 4. Build (create, delete, leave a server)
 5. Clear messages
 6. Manage (roles, members, invites, webhooks)
@@ -91,12 +92,14 @@ with something typed in it — a message, search filters, bot edits — asks fir
 
 Every flag has a row: `members`, `doctor --channel`, `bot --invite`, `bot --json`, a
 manual category ID for `create channel`, the four archive rows under *Read* (sync,
-search and export, status, prune), and, under *Identity*, listing the stored
-profiles, switching the one the rest of the session acts as, and removing one. The exceptions are deliberate — `send`, `create` and `bot` never
-get `--yes` from the menu, `clear-messages` always dry-runs first and still asks you to
-type `DELETE`, and `delete`, *Leave a server* and an archive prune dry-run first and
-still ask you to type the target's own name. The menu is never a shorter path past a
-gate.
+search and export, status, prune), the message verbs under *Write* (send with a
+mentions row, reply, edit, delete, forward, copy, react, pin, poll, typing, bookmark),
+and, under *Identity*, listing the stored profiles, switching the one the rest of the
+session acts as, and removing one. The exceptions are deliberate — `send`, `create`,
+`bot` and the message verbs never get `--yes` from the menu, `clear-messages` and
+*Delete messages* always dry-run first and still ask you to type `DELETE`, and
+`delete`, *Leave a server* and an archive prune dry-run first and still ask you to
+type the target's own name. The menu is never a shorter path past a gate.
 
 *Delete* lists categories, channels and threads nested the way Discord shows them and
 works out what kind of thing you picked, so you confirm the thing you saw rather than a
@@ -202,6 +205,66 @@ read the file and name the bot from the profile record `auth` wrote, so a
 search works while a token is being rotated. `doctor` reports whether this
 Python's SQLite has FTS5 (the archive needs it) and what the archive holds.
 
+## Message operations
+
+`send` posts something new. `message <verb>` is what you do to a message once
+it exists, and every verb shows the channel and the message it is about to act
+on — who wrote it, when, the text — before it asks:
+
+```bash
+discord-tools message reply --channel 1394... --to 1394829911100 --text "on it"
+discord-tools message edit --channel 1394... --id 1394829911101 --text "on it (done)"
+discord-tools message react --channel 1394... --id 1394829911100 --emoji 👍
+discord-tools message pin --channel 1394... --id 1394829911100
+discord-tools message forward --channel 1394... --ids 1394829911100 --to 1394827364598
+discord-tools message copy --channel 1394... --ids 1394829911100 --to 1394827364598
+discord-tools message poll --channel 1394... --question "Ship Friday?" --option yes --option no --hours 48
+discord-tools message typing --channel 1394... --seconds 10
+discord-tools message bookmark --channel 1394... --id 1394829911100 --label "follow up"
+discord-tools message bookmark --list
+discord-tools message delete --channel 1394... --ids 1394829911100 1394829911101
+discord-tools message delete --channel 1394... --from-search "spam" --execute
+```
+
+**Nobody is pinged unless you say so.** `send`, `reply`, `edit` and `copy`
+hand Discord an empty mention policy: an `@everyone` or a `<@id>` in the text
+is drawn but pings no one. `--mention users`, `--mention roles` or
+`--mention everyone` opts in and the preview says which; `--mention everyone`
+asks at the prompt even with `--yes`, and with no terminal it refuses.
+
+**`edit` is the bot's own messages only.** That is Discord's rule, not a
+permission, so anyone else's message is refused with `PLATFORM_UNSUPPORTED`
+naming the author.
+
+**`delete` is `clear-messages`' gate on a selection.** By `--ids`, or by
+`--from-search "<query>"` over the channel's rows in the local archive. It
+dry-runs by default, listing what it would remove and how many fall outside
+the 14-day bulk window; deleting for real takes `--execute` **and** typing
+`DELETE`, and there is no `--yes`. One run never deletes more than `--limit`
+(200): a bigger selection is refused with `BULK_LIMIT` rather than trimmed to
+its first rows, and a limit above 1000 needs `--i-know` and then the exact
+count typed back after `DELETE`.
+
+**`forward` is Discord's forward**, header and attachments included. **`copy`**
+re-posts the text with an attribution line — who, in which channel, when, and
+a link to the original — followed by links to the attachments; it never
+downloads them. `pin` and `unpin` need the *Pin Messages* right (Discord split
+it out of Manage Messages in 2025; the preflight names the one it checks).
+
+**`bookmark` is local.** Discord gives a bot no bookmark or draft API, so a
+bookmark is a row in `~/.discord-tools/archive.sqlite`, listed with
+`bookmark --list` without logging in, and named as local wherever it appears.
+`message read`, `unread` and `draft` exit 2 with `PLATFORM_UNSUPPORTED` and
+say why: read state belongs to a user account, and drafts live in the client.
+
+**`--yes` follows what the verb does.** `reply`, `copy`, `forward` and `poll`
+post into a channel, so their `--yes` works like `send --yes`: only for a
+destination in `DISCORD_SEND_ALLOWLIST`. `edit`, `react`, `pin`, `typing` and
+`bookmark` change something already there, and their `--yes` skips the prompt
+the way `create --yes` does. Every verb builds a plan, names the permission it
+needs and holds, re-checks the target after you answer, reads the result back
+and writes an audit line.
+
 ## Exports stay out of your repos
 
 Relative `--output` names land in `~/.discord-tools/exports/`, never the
@@ -244,8 +307,8 @@ to `~/.discord-tools/audit.jsonl` (mode 0600, no secrets), and Discord's own
 audit log records the change against `cli-tools <command> plan <id>`.
 
 `skill/SKILL.md` is a bundled agent skill describing the CLI surface and the
-rules an agent must follow (never `clear-messages`, allowlist-gated sends,
-never print tokens). It updates in the same commit as any CLI-surface change.
+rules an agent must follow (never `clear-messages` or `message delete`,
+allowlist-gated sends, never print tokens). It updates in the same commit as any CLI-surface change.
 
 ## Development
 

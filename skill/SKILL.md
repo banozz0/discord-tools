@@ -1,13 +1,13 @@
 ---
 name: discord-tools
-description: "Use when you need the real numeric ID of a Discord server, channel, or thread — 'what's the ID of that channel?', 'where do I send this?' — when the user wants a channel's messages searched or exported (JSON, CSV, JSONL, Markdown, HTML), when a history question can be answered from the local archive instead of a fresh fetch, or when a message must be posted to a channel the user has allowlisted. Bot-token only; the bot sees only servers it was invited to."
-version: 1.4.0
+description: "Use when you need the real numeric ID of a Discord server, channel, or thread — 'what's the ID of that channel?', 'where do I send this?' — when the user wants a channel's messages searched or exported (JSON, CSV, JSONL, Markdown, HTML), when a history question can be answered from the local archive instead of a fresh fetch, when a message must be posted to a channel the user has allowlisted, or when a message the user named should get a reply, a reaction, a pin, or be forwarded, copied or bookmarked. Bot-token only; the bot sees only servers it was invited to."
+version: 1.5.0
 author: banozz0
 license: MIT
 platforms: [macos]
 metadata:
   hermes:
-    tags: [discord, channel-ids, thread-ids, search, archive, export, send, cli, bot]
+    tags: [discord, channel-ids, thread-ids, search, archive, export, send, message, reply, react, pin, cli, bot]
 ---
 
 # discord-tools
@@ -138,6 +138,17 @@ re-fetches it — if Discord still has it. Both dry-run by default and need
 `--execute` plus the scope's exact name typed at a prompt; hand the user the
 command. `archive sync`, `status`, `search` and `export` are reads and fine.
 
+**13. Never run `message delete`.** It permanently removes the messages it
+selects, and Discord does not undo it. Like `clear-messages` it dry-runs by
+default and executes only with `--execute` plus `DELETE` typed at a prompt no
+agent can answer — and above 1000 messages, the exact count typed too. If the
+user wants messages gone, hand them the dry-run command (it lists what would
+go) and let them run the execute themselves. The other `message` verbs are
+fine when the user asked for that specific thing: `reply`, `react`, `pin`,
+`forward`, `copy`, `poll`, `typing`, `bookmark`, and `edit` of the bot's own
+message. Every one is a visible act in a real server (rule 1), and every one
+shows the message it acts on before it asks.
+
 ## Commands
 
 | The ask | Run |
@@ -154,6 +165,13 @@ command. `archive sync`, `status`, `search` and `export` are reads and fine.
 | "bring the archive up to date" | `discord-tools archive sync` (add `--server <id>` to keep it short) |
 | "save that search as a page" | `discord-tools archive export --query "X" --format html --output name.html` |
 | "post this there" (allowlisted) | `discord-tools send --channel <id> --text "..." --yes` |
+| "reply to that message" (allowlisted) | `discord-tools message reply --channel <id> --to <message id> --text "..." --yes` |
+| "fix the typo in what the bot said" | `discord-tools message edit --channel <id> --id <message id> --text "..." --yes` — the bot's own only |
+| "react with 👍 / pin that" | `discord-tools message react --channel <id> --id <message id> --emoji 👍 --yes` / `message pin ... --yes` |
+| "forward / copy that to #other" (allowlisted) | `discord-tools message forward --channel <id> --ids <message id> --to <channel id> --yes` / `message copy ...` |
+| "run a poll there" (allowlisted) | `discord-tools message poll --channel <id> --question "..." --option a --option b --yes` |
+| "remember that message for me" | `discord-tools message bookmark --channel <id> --id <message id> --label "..." --yes` — local; `--list` reads them back |
+| "delete those messages" | hand them `discord-tools message delete --channel <id> --ids ... ` (the dry-run), then `--execute` — rule 13, they run it |
 | a long or multi-line message | pipe it: `... \| discord-tools send --channel <id> --text - --yes` |
 | "send them that file" (allowlisted) | `discord-tools send --channel <id> --file /path --text "caption" --yes` |
 | "make a channel/thread" (they asked) | `discord-tools create channel --server <id> --name "..." --yes` |
@@ -205,6 +223,27 @@ command. `archive sync`, `status`, `search` and `export` are reads and fine.
   `DISCORD_SEND_ALLOWLIST` and the error names the channel to add — relay that
   to the user verbatim rather than retrying. `doctor` says how many channels
   are listed, never which.
+- **A post pings nobody unless `--mention` says so.** `send`, `reply`, `edit`
+  and `copy` pass Discord an empty mention policy: an `@everyone` or `<@id>`
+  in the text is drawn but silent. `--mention users` or `--mention roles`
+  opts in when the user asked for a ping. **Never pass `--mention everyone`
+  from an agent session**: it prompts even under `--yes`, so with no terminal
+  the command exits 3 with `APPROVAL_REQUIRED`, and a server-wide ping is the
+  user's call to make at that prompt.
+- **`--yes` on a message verb follows what it does.** `reply`, `copy`,
+  `forward` and `poll` post into a channel, so `--yes` needs the destination in
+  `DISCORD_SEND_ALLOWLIST` exactly like `send`; `NOT_ALLOWLISTED` names the
+  channel to add — relay it. `edit`, `react`, `unreact`, `pin`, `unpin`,
+  `typing` and `bookmark` change something already there and `--yes` skips
+  their prompt. `delete` has no `--yes` at all (rule 13).
+- **`PLATFORM_UNSUPPORTED` on a message verb is the answer, not a bug.**
+  `message read`, `unread` and `draft` cannot be done by a Discord bot; the
+  error says why (read state belongs to a user account; drafts live in the
+  client). `edit` of a message the bot did not write is the same code:
+  Discord lets a bot edit only its own. Relay the reason and stop.
+- **`bookmark` is local.** Discord gives a bot no bookmark API, so it is a row
+  in the user's archive file on this machine, and the envelope says `local`.
+  Say so when you report it; nothing in Discord shows it.
 - **A thread ID is a channel ID.** `--channel` accepts either; `discover`
   lists active threads under their parent channel. Archived threads are not
   listed but still work by ID.
@@ -239,6 +278,10 @@ command. `archive sync`, `status`, `search` and `export` are reads and fine.
   the token cannot be recovered. Plain `profiles` is a read and is fine.
 - **`archive retention` and `archive forget`** — rule 12. They prune the user's
   local archive. The other `archive` commands are reads.
+- **`message delete`** — rule 13. Irreversible, and gated on a typed word no
+  agent can supply. Hand the user the dry-run command instead.
+- **`--mention everyone`** on any posting verb — it always prompts, and the
+  ping is the user's decision.
 - **A bare `discord-tools`** — no subcommand opens the interactive menu, which
   waits for a human. With no terminal attached it prints help instead, so it
   will not hang in a pipe, but it answers nothing either.

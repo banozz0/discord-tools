@@ -1,9 +1,9 @@
-discord-tools 0.9.0 with NO_COLOR=1 — same code, same terminal, plain text (root screen, then exit)
+discord-tools 0.10.0 with NO_COLOR=1 — same code, same terminal, plain text (root screen, then exit)
 discord-tools
 --------------------------------------------
 1. Find IDs (servers, channels, threads)
 2. Read (search live, archive, export, members)
-3. Write (send)
+3. Write (send, reply, edit, delete, forward, react, pin, poll)
 4. Build (create, delete, leave a server)
 5. Clear messages
 6. Manage (roles, members, invites, webhooks)

@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Sequence
 
 from discord_tools import archive as archive_store
 from discord_tools import cli, ui
@@ -47,7 +47,7 @@ MAIN = "Main"
 ROOT_ITEMS = (
     "Find IDs (servers, channels, threads)",
     "Read (search live, archive, export, members)",
-    "Write (send)",
+    "Write (send, reply, edit, delete, forward, react, pin, poll)",
     "Build (create, delete, leave a server)",
     "Clear messages",
     "Manage (roles, members, invites, webhooks)",
@@ -602,10 +602,12 @@ async def _flow_send(*, session, runner, read, write) -> bool:
         form = crumb(trail, picked.title)
         text: str | None = None
         files: list[str] = []
+        mentions: list[str] = []
         while True:
             rows = [
                 ("text", f"Message   [{_preview_line(text)}]"),
                 ("files", f"Files     [{_files_label(files)}]"),
+                ("mentions", f"Mentions  [{_mentions_label(mentions)}]"),
                 ("send", "Send it (shows the whole message, then asks y/N)"),
             ]
 
@@ -639,6 +641,12 @@ async def _flow_send(*, session, runner, read, write) -> bool:
                     files = answer
                 continue
 
+            if key == "mentions":
+                answer = _ask_mentions(read=read, write=write, trail=form)
+                if answer is not BACK:
+                    mentions = answer
+                continue
+
             if not text and not files:
                 write("Type a message or attach a file first.")
                 continue
@@ -648,6 +656,8 @@ async def _flow_send(*, session, runner, read, write) -> bool:
                 channel=picked.id,
                 text=text,
                 files=files or None,
+                reply_to=None,
+                mentions=mentions or None,
                 # The menu is never the shorter path past a gate: the preview
                 # and its y/N run exactly as they do for the flags.
                 yes=False,
@@ -656,6 +666,378 @@ async def _flow_send(*, session, runner, read, write) -> bool:
             if result is not STAY:
                 return result is not EXIT
             continue
+
+
+# -- the message group -------------------------------------------------------
+#
+# Every row builds exactly the arguments `message <verb>` takes and hands them
+# to the runner with `yes=False`, so the preview and its y/N — or, for a
+# delete, the dry-run and then the typed word — run inside the command exactly
+# as they do for the flags. The menu is never a shorter path past a gate.
+
+MENTION_ROWS = (
+    ([], "Nobody (the default)"),
+    (["users"], "Users named in the text"),
+    (["roles"], "Roles named in the text"),
+    (["users", "roles"], "Users and roles"),
+    (["everyone"], "Everyone (always asks, even with --yes)"),
+)
+
+
+def _mentions_label(mentions: list[str]) -> str:
+    return ", ".join(mentions) if mentions else "nobody"
+
+
+def _ask_mentions(*, read, write, trail: str) -> Any:
+    choice = choose([label for _keys, label in MENTION_ROWS], title=crumb(trail, "Who may this ping?"), read=read, write=write)
+    return BACK if choice is BACK else list(MENTION_ROWS[choice][0])
+
+
+def _ask_message_id(*, read, write, label: str = "Message ID") -> Any:
+    """A message id, or BACK. Copy it from Discord (right-click › Copy Message ID) or a search row."""
+    return _ask_id(label, read=read, write=write)
+
+
+def _ask_message_ids(*, read, write) -> Any:
+    """Several ids, space-separated, or BACK."""
+    while True:
+        typed = ask_text("Message IDs (space-separated)", read=read, write=write)
+        if typed is BACK:
+            return BACK
+        parts = typed.split()
+        if parts and all(part.isdecimal() for part in parts):
+            return [int(part) for part in parts]
+        write("Discord IDs are long numbers - copy them from a search row or from Discord.")
+
+
+@dataclass
+class _Field:
+    """One row of a message form: its key, how its row reads, and how it is asked."""
+
+    key: str
+    label: Callable[[dict], str]
+    ask: Callable[[dict], Any]
+
+
+async def _message_form(
+    *, title: str, fields: Sequence[_Field], go: str, values: dict, ready: Callable[[dict], str | None], read, write
+) -> Any:
+    """Fill the fields, then return `values` on the go row; BACK when abandoned.
+
+    `ready` says what is still missing, or None when the go row may run. A
+    filled form asks before it is discarded, like the send form does.
+    """
+    while True:
+        rows = [(field.key, field.label(values)) for field in fields] + [("go", go)]
+        choice = choose([label for _key, label in rows], title=title, read=read, write=write, back_label="Back (discards)")
+        if choice is BACK:
+            if any(values.values()) and not _confirm_discard(
+                title, title="Unsent form", said="Discarded it.", read=read, write=write
+            ):
+                continue
+            return BACK
+        key = rows[choice][0]
+        if key == "go":
+            missing = ready(values)
+            if missing:
+                write(missing)
+                continue
+            return values
+        field = next(f for f in fields if f.key == key)
+        answer = field.ask(values)
+        if answer is not BACK:
+            values[key] = answer
+
+
+def _message_flow(verb: str, *, title: str, fields, go: str, ready, build, after=(RUN_AGAIN, TWEAK)):
+    """A flow for one message verb: pick the channel, fill the form, run it."""
+
+    async def flow(*, session, runner, read, write) -> bool:
+        trail = crumb(MAIN, "Write", title)
+        while True:
+            picked = await _pick_channel(session=session, read=read, write=write, trail=trail)
+            if picked is BACK:
+                return True
+            form = crumb(trail, picked.title)
+            values: dict = {}
+            while True:
+                filled = await _message_form(
+                    title=form, fields=fields(read=read, write=write, trail=form, session=session), go=go,
+                    values=values, ready=ready, read=read, write=write,
+                )
+                if filled is BACK:
+                    break
+                # A form may switch the verb (react to unreact, pin to unpin).
+                args = _namespace(command="message", channel=picked.id, yes=False, **{"message_kind": verb, **build(filled)})
+                result = await _act(args, session=session, runner=runner, read=read, write=write, trail=form, rows=after)
+                if result is not STAY:
+                    return result is not EXIT
+                # Tweak it: back to the filled form.
+
+    return flow
+
+
+def _text_field(key: str, label: str, *, read, write):
+    return _Field(
+        key,
+        lambda v: f"{label:<9} [{_preview_line(v.get(key))}]",
+        lambda v: ask_lines(label, read=read, write=write, current=_preview_line(v.get(key)) if v.get(key) else None),
+    )
+
+
+def _id_field(key: str, label: str, *, read, write):
+    return _Field(key, lambda v: f"{label:<9} [{v.get(key) or '(none yet)'}]", lambda v: _ask_message_id(read=read, write=write, label=label))
+
+
+def _ids_field(*, read, write):
+    return _Field(
+        "ids",
+        lambda v: f"Messages  [{' '.join(str(i) for i in v.get('ids', [])) or '(none yet)'}]",
+        lambda v: _ask_message_ids(read=read, write=write),
+    )
+
+
+def _mentions_field(*, read, write, trail):
+    return _Field(
+        "mentions",
+        lambda v: f"Mentions  [{_mentions_label(v.get('mentions') or [])}]",
+        lambda v: _ask_mentions(read=read, write=write, trail=trail),
+    )
+
+
+def _needs(*keys):
+    def ready(values):
+        for key, said in keys:
+            if not values.get(key):
+                return said
+        return None
+
+    return ready
+
+
+_flow_reply = _message_flow(
+    "reply",
+    title="Reply",
+    fields=lambda *, read, write, trail, session: (
+        _id_field("to", "Reply to", read=read, write=write),
+        _text_field("text", "Message", read=read, write=write),
+        _mentions_field(read=read, write=write, trail=trail),
+    ),
+    go="Send the reply (shows the whole message, then asks y/N)",
+    ready=_needs(("to", "Type the message ID to reply to first."), ("text", "Type a message first.")),
+    build=lambda v: {"to": v["to"], "text": v["text"], "files": None, "mentions": v.get("mentions") or None},
+)
+
+_flow_edit = _message_flow(
+    "edit",
+    title="Edit my message",
+    fields=lambda *, read, write, trail, session: (
+        _id_field("id", "Message", read=read, write=write),
+        _text_field("text", "New text", read=read, write=write),
+        _mentions_field(read=read, write=write, trail=trail),
+    ),
+    go="Edit it (shows the message and the new text, then asks y/N)",
+    ready=_needs(("id", "Type the message ID first."), ("text", "Type the new text first.")),
+    build=lambda v: {"id": v["id"], "text": v["text"], "mentions": v.get("mentions") or None},
+)
+
+_flow_react = _message_flow(
+    "react",
+    title="React",
+    fields=lambda *, read, write, trail, session: (
+        _id_field("id", "Message", read=read, write=write),
+        _Field("emoji", lambda v: f"Emoji     [{v.get('emoji') or '(none yet)'}]", lambda v: ask_text("Emoji", read=read, write=write)),
+        _Field(
+            "remove",
+            lambda v: f"Action    [{'remove my reaction' if v.get('remove') else 'add a reaction'}]",
+            lambda v: _pick_action(read=read, write=write, trail=trail, rows=("Add a reaction", "Remove my reaction")),
+        ),
+    ),
+    go="Do it (shows the message, then asks y/N)",
+    ready=_needs(("id", "Type the message ID first."), ("emoji", "Type an emoji first.")),
+    build=lambda v: {"id": v["id"], "emoji": v["emoji"], **({"message_kind": "unreact"} if v.get("remove") else {})},
+)
+
+_flow_pin = _message_flow(
+    "pin",
+    title="Pin",
+    fields=lambda *, read, write, trail, session: (
+        _id_field("id", "Message", read=read, write=write),
+        _Field(
+            "remove",
+            lambda v: f"Action    [{'unpin' if v.get('remove') else 'pin'}]",
+            lambda v: _pick_action(read=read, write=write, trail=trail, rows=("Pin it", "Unpin it")),
+        ),
+    ),
+    go="Do it (shows the message, then asks y/N)",
+    ready=_needs(("id", "Type the message ID first.")),
+    build=lambda v: {"id": v["id"], **({"message_kind": "unpin"} if v.get("remove") else {})},
+)
+
+
+def _pick_action(*, read, write, trail, rows) -> Any:
+    choice = choose(list(rows), title=crumb(trail, "Which?"), read=read, write=write)
+    return BACK if choice is BACK else choice == 1
+
+
+_flow_poll = _message_flow(
+    "poll",
+    title="Poll",
+    fields=lambda *, read, write, trail, session: (
+        _Field("question", lambda v: f"Question  [{_preview_line(v.get('question'))}]", lambda v: ask_text("Question", read=read, write=write)),
+        _Field(
+            "options",
+            lambda v: f"Options   [{' / '.join(v.get('options') or []) or '(none yet)'}]",
+            lambda v: _ask_options(read=read, write=write),
+        ),
+        _Field("hours", lambda v: f"Open for  [{v.get('hours') or 24} hour(s)]", lambda v: ask_int("Hours", read=read, write=write, current=v.get("hours") or 24)),
+        _Field(
+            "multiple",
+            lambda v: f"Answers   [{'several per voter' if v.get('multiple') else 'one per voter'}]",
+            lambda v: _pick_action(read=read, write=write, trail=trail, rows=("One answer per voter", "Several answers per voter")),
+        ),
+    ),
+    go="Post it (shows the poll, then asks y/N)",
+    ready=_needs(("question", "Type the question first."), ("options", "Add at least two options first.")),
+    build=lambda v: {"question": v["question"], "options": v["options"], "hours": v.get("hours") or 24, "multiple": bool(v.get("multiple"))},
+)
+
+
+def _ask_options(*, read, write) -> Any:
+    """The answers, one per line, ended by a lone `.`."""
+    typed = ask_lines("Options, one per line", read=read, write=write)
+    if typed is BACK:
+        return BACK
+    options = [line.strip() for line in typed.split("\n") if line.strip()]
+    if len(options) < 2:
+        write("A poll needs at least two options.")
+        return BACK
+    return options
+
+
+_flow_typing = _message_flow(
+    "typing",
+    title="Typing",
+    fields=lambda *, read, write, trail, session: (
+        _Field("seconds", lambda v: f"Seconds   [{v.get('seconds') or 5}]", lambda v: ask_int("Seconds", read=read, write=write, current=v.get("seconds") or 5)),
+    ),
+    go="Show typing (asks y/N)",
+    ready=_needs(),
+    build=lambda v: {"seconds": v.get("seconds") or 5},
+)
+
+_flow_bookmark = _message_flow(
+    "bookmark",
+    title="Bookmark",
+    fields=lambda *, read, write, trail, session: (
+        _id_field("id", "Message", read=read, write=write),
+        _Field("label", lambda v: f"Label     [{v.get('label') or '(none)'}]", lambda v: ask_text("Label", read=read, write=write)),
+        _Field(
+            "remove",
+            lambda v: f"Action    [{'drop the bookmark' if v.get('remove') else 'keep it (local)'}]",
+            lambda v: _pick_action(read=read, write=write, trail=trail, rows=("Keep it", "Drop it")),
+        ),
+    ),
+    go="Do it (shows the message, then asks y/N)",
+    ready=_needs(("id", "Type the message ID first.")),
+    build=lambda v: {"id": v["id"], "label": v.get("label") or "", "remove": bool(v.get("remove")), "list_bookmarks": False},
+)
+
+
+async def _flow_bookmarks_list(*, session, runner, read, write) -> bool:
+    args = _namespace(command="message", message_kind="bookmark", channel=None, id=None, label="", remove=False, list_bookmarks=True, yes=False)
+    result = await _act(args, session=session, runner=runner, read=read, write=write, trail=crumb(MAIN, "Write", "Bookmarks"), rows=())
+    return result is not EXIT
+
+
+def _repost_flow(verb: str, *, title: str, go: str):
+    """forward and copy: source messages, a destination picked from the same list, a y/N inside the command."""
+
+    async def flow(*, session, runner, read, write) -> bool:
+        trail = crumb(MAIN, "Write", title)
+        while True:
+            picked = await _pick_channel(session=session, read=read, write=write, trail=crumb(trail, "From"))
+            if picked is BACK:
+                return True
+            ids = _ask_message_ids(read=read, write=write)
+            if ids is BACK:
+                continue
+            destination = await _pick_channel(session=session, read=read, write=write, trail=crumb(trail, "To"))
+            if destination is BACK:
+                continue
+            mentions = None
+            if verb == "copy":
+                answer = _ask_mentions(read=read, write=write, trail=trail)
+                if answer is BACK:
+                    continue
+                mentions = answer or None
+            args = _namespace(
+                command="message", message_kind=verb, channel=picked.id, ids=ids, to=destination.id, yes=False,
+                **({"mentions": mentions} if verb == "copy" else {}),
+            )
+            result = await _act(
+                args, session=session, runner=runner, read=read, write=write,
+                trail=crumb(trail, picked.title), rows=((STAY, f"{go} again"),),
+            )
+            if result is not STAY:
+                return result is not EXIT
+
+    return flow
+
+
+_flow_forward = _repost_flow("forward", title="Forward", go="Forward")
+_flow_copy = _repost_flow("copy", title="Copy", go="Copy")
+
+
+async def _flow_message_delete(*, session, runner, read, write) -> bool:
+    """Dry-run first, always; the typed word is asked inside the command."""
+    trail = crumb(MAIN, "Write", "Delete messages")
+    while True:
+        session.target = None
+        picked = await _pick_channel(session=session, read=read, write=write, trail=trail)
+        if picked is BACK:
+            return True
+        where = crumb(trail, picked.title)
+        how = choose(
+            ["By message IDs", "From an archive search (this channel's rows)"],
+            title=crumb(where, "Select"),
+            read=read,
+            write=write,
+        )
+        if how is BACK:
+            continue
+        ids = None
+        query = None
+        if how == 0:
+            ids = _ask_message_ids(read=read, write=write)
+            if ids is BACK:
+                continue
+        else:
+            query = ask_text("Search query", read=read, write=write)
+            if query is BACK:
+                continue
+        dry_run = _namespace(
+            command="message", message_kind="delete", channel=picked.id, ids=ids, from_search=query,
+            limit=None, i_know=False, execute=False,
+        )
+        if await _call(dry_run, session=session, runner=runner, write=write) is None:
+            return after_action(read=read, write=write)
+        choice = choose(
+            ["Delete them for real (asks you to type DELETE)"],
+            title=crumb(where, "Dry-run done"),
+            read=read,
+            write=write,
+            back_label="Back to the channel list",
+        )
+        if choice is BACK:
+            continue
+        for_real = _namespace(**{**vars(dry_run), "execute": True})
+        result = await _act(
+            for_real, session=session, runner=runner, read=read, write=write, trail=where,
+            rows=((STAY, "Delete elsewhere"),),
+        )
+        if result is not STAY:
+            return result is not EXIT
 
 
 # Running a create again would make a second, identical object, so the row after
@@ -1739,7 +2121,26 @@ async def run_menu(*, read=None, write=None, session=None, runner=None, profile:
             ),
             True,
         ),
-        (_flow_send, True),
+        (
+            _group(
+                "Write",
+                (
+                    ("Send a message", _flow_send),
+                    ("Reply to a message", _flow_reply),
+                    ("Edit my message", _flow_edit),
+                    ("Delete messages (by IDs or an archive search)", _flow_message_delete),
+                    ("Forward messages to another channel", _flow_forward),
+                    ("Copy messages to another channel (text + links)", _flow_copy),
+                    ("React / unreact", _flow_react),
+                    ("Pin / unpin", _flow_pin),
+                    ("Post a poll", _flow_poll),
+                    ("Show typing", _flow_typing),
+                    ("Bookmark a message (local)", _flow_bookmark),
+                    ("List my bookmarks", _flow_bookmarks_list),
+                ),
+            ),
+            True,
+        ),
         (
             _group(
                 "Build",

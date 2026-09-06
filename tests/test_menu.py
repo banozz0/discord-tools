@@ -15,7 +15,7 @@ from discord_tools.models import ChannelInfo, MemberInfo, ServerInfo, ThreadInfo
 DISCOVER = ("1",)
 SEARCH = ("2", "1")
 MEMBERS = ("2", "2")
-SEND = ("3",)
+SEND = ("3", "1")
 CREATE = ("4", "1")
 DELETE = ("4", "2")
 LEAVE = ("4", "3")
@@ -155,8 +155,8 @@ def test_search_flow_keep_editing_keeps_the_staged_filters():
 
 
 def test_send_flow_never_skips_the_gate():
-    # Send -> single server auto-picked -> channel 1 -> Message -> body -> Send it -> exit
-    code, calls, _output = drive([SEND, "1", "1", "hello there", ".", "3", "0"])
+    # Write -> Send -> single server auto-picked -> channel 1 -> Message -> body -> Send it -> exit
+    code, calls, _output = drive([SEND, "1", "1", "hello there", ".", "4", "0"])
     assert code == 0
     args = calls[0]
     assert args.command == "send"
@@ -166,12 +166,12 @@ def test_send_flow_never_skips_the_gate():
 
 
 def test_send_flow_can_target_a_thread():
-    code, calls, _output = drive([SEND, "2", "1", "hi", ".", "3", "0"])
+    code, calls, _output = drive([SEND, "2", "1", "hi", ".", "4", "0"])
     assert calls[0].channel == 101
 
 
 def test_send_flow_asks_before_discarding_a_composed_message():
-    code, calls, output = drive([SEND, "1", "1", "half a thought", ".", "0", "0", "0", "0"])
+    code, calls, output = drive([SEND, "1", "1", "half a thought", ".", "0", "0", "0", "0", "0"])
     assert calls == []
     assert "Discarded the unsent message." in screens(output)
 
@@ -396,7 +396,7 @@ def test_runner_errors_keep_the_menu_alive():
 
 
 def test_after_run_titles_a_declined_confirm_not_done():
-    code, _calls, output = drive([SEND, "1", "1", "hi", ".", "3", "0"], result=1)
+    code, _calls, output = drive([SEND, "1", "1", "hi", ".", "4", "0"], result=1)
     assert "Not done" in screens(output)
 
 

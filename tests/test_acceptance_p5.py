@@ -178,3 +178,94 @@ def test_message_delete_needs_execute_plus_typed_delete(monkeypatch):
     code, body, _stderr, client = go(["--json", "message", "delete", "--channel", "701", "--ids", "5", "--execute"])
     assert (code, body["status"]) == (0, "ok")
     assert client.deleted_single == [(701, 5)]
+
+
+# -- the menu ---------------------------------------------------------------
+
+
+def walk(answers):
+    """Drive the menu with the root-row tuples of the other menu tests; every call the runner saw."""
+    from discord_tools.menu import MenuSession, run_menu
+
+    keys = iter([key for answer in answers for key in ((answer,) if isinstance(answer, str) else tuple(answer))])
+    presses = iter(range(200))
+    printed: list[str] = []
+    reached: list = []
+
+    async def runner(args, *, client=None, config=None):
+        reached.append(args)
+        printed.append(f"<{command_name(args)}>")
+        return 0
+
+    def read(_prompt):
+        next(presses)
+        return next(keys, "0")
+
+    session = MenuSession(config=CONFIG, profile="harry")
+    session._client = a_client()
+    asyncio.run(run_menu(read=read, write=printed.append, session=session, runner=runner))
+    return printed, reached
+
+
+# Root row 3 is Write; the rows under it, each walked to the point its command runs.
+WRITE_ROWS = {
+    "send": [("3", "1"), "1", "1", "hello", ".", "4"],
+    "message reply": [("3", "2"), "1", "1", "5", "2", "hi", ".", "4"],
+    "message edit": [("3", "3"), "1", "1", "6", "2", "new", ".", "4"],
+    "message delete": [("3", "4"), "1", "1", "5 6"],
+    "message forward": [("3", "5"), "1", "5", "1"],
+    "message copy": [("3", "6"), "1", "5", "1", "1"],
+    "message react": [("3", "7"), "1", "1", "5", "2", "👍", "4"],
+    "message unreact": [("3", "7"), "1", "1", "5", "2", "👍", "3", "2", "4"],
+    "message pin": [("3", "8"), "1", "1", "5", "3"],
+    "message unpin": [("3", "8"), "1", "1", "5", "2", "2", "3"],
+    "message poll": [("3", "9"), "1", "1", "Ship?", "2", "a", "b", ".", "5"],
+    "message typing": [("3", "10"), "1", "2"],
+    "message bookmark": [("3", "11"), "1", "1", "5", "4"],
+}
+
+
+@pytest.mark.parametrize("expected,answers", list(WRITE_ROWS.items()), ids=list(WRITE_ROWS))
+def test_every_message_verb_is_reachable_from_the_write_row_and_shortcuts_no_gate(expected, answers):
+    printed, reached = walk(answers)
+    assert any(text == f"<{expected}>" for text in printed), expected
+    # The menu never answers a gate: no --yes, and a delete is a dry-run first.
+    assert not any(getattr(args, "yes", False) for args in reached)
+    if expected == "message delete":
+        assert [args.execute for args in reached] == [False]
+
+
+def test_the_menu_delete_dry_runs_then_asks_the_typed_word_inside_the_command():
+    _printed, reached = walk([("3", "4"), "1", "1", "5 6", "1"])
+    kinds = [(args.message_kind, args.execute, args.ids) for args in reached]
+    assert kinds == [("delete", False, [5, 6]), ("delete", True, [5, 6])]
+
+
+def test_the_menu_delete_can_select_from_an_archive_search():
+    _printed, reached = walk([("3", "4"), "1", "2", "spam"])
+    assert reached[0].from_search == "spam" and reached[0].ids is None and reached[0].execute is False
+
+
+def test_the_menu_reply_and_edit_build_the_flags_arguments():
+    _printed, reached = walk(WRITE_ROWS["message reply"])
+    assert (reached[0].channel, reached[0].to, reached[0].text, reached[0].mentions) == (701, 5, "hi", None)
+    _printed, reached = walk([("3", "3"), "1", "1", "6", "2", "new", ".", "3", "5", "4"])
+    assert (reached[0].id, reached[0].text, reached[0].mentions) == (6, "new", ["everyone"])
+
+
+def test_the_menu_forward_and_copy_carry_source_ids_and_destination():
+    _printed, reached = walk(WRITE_ROWS["message forward"])
+    assert (reached[0].channel, reached[0].ids, reached[0].to) == (701, [5], 701)
+    _printed, reached = walk([("3", "6"), "1", "5 6", "2", "3"])
+    assert (reached[0].ids, reached[0].to, reached[0].mentions) == ([5, 6], 702, ["roles"])
+
+
+def test_the_menu_poll_carries_question_options_hours_and_multiple():
+    _printed, reached = walk([("3", "9"), "1", "1", "Ship?", "2", "a", "b", ".", "3", "2", "4", "2", "5"])
+    args = reached[0]
+    assert (args.question, args.options, args.hours, args.multiple) == ("Ship?", ["a", "b"], 2, True)
+
+
+def test_the_menu_lists_bookmarks_offline():
+    _printed, reached = walk([("3", "12")])
+    assert reached[0].message_kind == "bookmark" and reached[0].list_bookmarks is True

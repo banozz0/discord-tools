@@ -172,4 +172,43 @@ The terms this codebase uses, and the boundaries they imply.
   the site. `tests/test_transcripts.py` fails when it no longer matches the
   menu it claims to show.
 
+- **Message verb** — one of `message <verb>` (`cli.py::MESSAGE_VERBS`,
+  `messages.py`): a write over a message a channel already holds. Every one
+  resolves the channel, fetches the message with `get_message` on the seam,
+  and previews both before its gate; the plan's mutation names the message id.
+  `reply` is `send` with a reference, and runs through the same code.
+- **Mention policy** — what a post may ping (`client.allowed_mentions`). The
+  default is nothing: Discord's `AllowedMentions.none()`, so an `@everyone` in
+  the text is drawn but silent. `--mention users|roles|everyone` opts in;
+  `everyone` makes the write `prompt_y` even under `--yes`, and no terminal
+  means `APPROVAL_REQUIRED` rather than a server-wide ping nobody approved.
+- **Posting verb** — a message verb that puts a message into a channel:
+  `reply`, `copy`, `forward`, `poll` (`cli._Gate(posts=True)`). Its `--yes` is
+  `send`'s: `yes_allowlist`, checked against the destination. The rest —
+  `edit`, `react`, `pin`, `typing`, `bookmark` — change something already
+  there, and `--yes` skips their prompt the way `create --yes` does.
+- **Selection** — what `message delete` acts on: `--ids`, or `--from-search`
+  over the channel's rows in the archive. The bound (`messages.bulk_limit`,
+  `check_selection`): `--limit` defaults to 200, above 1000 needs `--i-know`,
+  and a selection over the limit is refused with `BULK_LIMIT`, never cut to
+  its first rows. Above the hard limit the count is typed after `DELETE`. The
+  archive query is probed one past the hard limit so the refusal can say how
+  many matched.
+- **Copy attribution** — the line a `copy` adds under the re-posted text
+  (`messages.copy_text`): author, `#channel`, date, the jump link, then one
+  line per attachment URL. Bytes are never fetched; that is P4's job. A copy
+  over Discord's 2000 characters is refused before the preview.
+- **Bookmark** — a row in the archive's `bookmarks` table (`archive.py`),
+  scoped to the bot that made it, `source = manual`. Discord gives a bot no
+  bookmark or draft API, so the row is local and every screen says so. The
+  verb logs in to fetch the message for its preview; `--list` does not.
+- **Platform exception** — a verb the official API cannot do for a bot:
+  `read`, `unread`, `draft` (`messages.UNSUPPORTED`). Refused with
+  `PLATFORM_UNSUPPORTED` and the reason before config or login, because
+  nothing Discord could answer would change it. `edit` of another author's
+  message is the same code: a rule of the platform, not a right to be granted.
+- **Pin right** — `pin_messages`, the permission Discord split out of Manage
+  Messages in 2025 and discord.py 2.7.1 carries. `pin`/`unpin` preflight it,
+  not `manage_messages`, so a bot that can pin is not refused by name.
+
 Architecture decisions with more context than fits here go to `docs/adr/`.

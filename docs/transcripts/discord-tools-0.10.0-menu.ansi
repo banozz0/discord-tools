@@ -2,7 +2,7 @@
 [2m--------------------------------------------[0m
 [38;5;63m1.[0m Find IDs [2m(servers, channels, threads)[0m
 [38;5;63m2.[0m Read [2m(search live, archive, export, members)[0m
-[38;5;63m3.[0m Write [2m(send)[0m
+[38;5;63m3.[0m Write [2m(send, reply, edit, delete, forward, react, pin, poll)[0m
 [38;5;63m4.[0m Build [2m(create, delete, leave a server)[0m
 [38;5;63m5.[0m Clear messages
 [38;5;63m6.[0m Manage [2m(roles, members, invites, webhooks)[0m
@@ -72,7 +72,7 @@ Choose [2m(Enter = main menu)[0m:
 [2m--------------------------------------------[0m
 [38;5;63m1.[0m Find IDs [2m(servers, channels, threads)[0m
 [38;5;63m2.[0m Read [2m(search live, archive, export, members)[0m
-[38;5;63m3.[0m Write [2m(send)[0m
+[38;5;63m3.[0m Write [2m(send, reply, edit, delete, forward, react, pin, poll)[0m
 [38;5;63m4.[0m Build [2m(create, delete, leave a server)[0m
 [38;5;63m5.[0m Clear messages
 [38;5;63m6.[0m Manage [2m(roles, members, invites, webhooks)[0m
@@ -104,7 +104,7 @@ Enter = menu, 0 = exit:
 [2m--------------------------------------------[0m
 [38;5;63m1.[0m Find IDs [2m(servers, channels, threads)[0m
 [38;5;63m2.[0m Read [2m(search live, archive, export, members)[0m
-[38;5;63m3.[0m Write [2m(send)[0m
+[38;5;63m3.[0m Write [2m(send, reply, edit, delete, forward, react, pin, poll)[0m
 [38;5;63m4.[0m Build [2m(create, delete, leave a server)[0m
 [38;5;63m5.[0m Clear messages
 [38;5;63m6.[0m Manage [2m(roles, members, invites, webhooks)[0m
@@ -176,7 +176,7 @@ Choose [2m(Enter = main menu)[0m:
 [2m--------------------------------------------[0m
 [38;5;63m1.[0m Find IDs [2m(servers, channels, threads)[0m
 [38;5;63m2.[0m Read [2m(search live, archive, export, members)[0m
-[38;5;63m3.[0m Write [2m(send)[0m
+[38;5;63m3.[0m Write [2m(send, reply, edit, delete, forward, react, pin, poll)[0m
 [38;5;63m4.[0m Build [2m(create, delete, leave a server)[0m
 [38;5;63m5.[0m Clear messages
 [38;5;63m6.[0m Manage [2m(roles, members, invites, webhooks)[0m
@@ -229,7 +229,7 @@ Choose: 0
 [2m--------------------------------------------[0m
 [38;5;63m1.[0m Find IDs [2m(servers, channels, threads)[0m
 [38;5;63m2.[0m Read [2m(search live, archive, export, members)[0m
-[38;5;63m3.[0m Write [2m(send)[0m
+[38;5;63m3.[0m Write [2m(send, reply, edit, delete, forward, react, pin, poll)[0m
 [38;5;63m4.[0m Build [2m(create, delete, leave a server)[0m
 [38;5;63m5.[0m Clear messages
 [38;5;63m6.[0m Manage [2m(roles, members, invites, webhooks)[0m

@@ -931,6 +931,11 @@ async def _flow_leave(*, session, runner, read, write) -> bool:
             back_label="Back to the server list",
         )
         if choice is BACK:
+            # With one server the picker answers itself, so there is no list to
+            # go back to: 0 has to leave the flow, or it lands on this same
+            # screen again and the only way out is Ctrl-C.
+            if await _single_server(session):
+                return True
             continue
 
         for_real = _namespace(**{**vars(dry_run), "execute": True})

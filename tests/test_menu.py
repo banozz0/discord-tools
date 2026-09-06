@@ -540,3 +540,12 @@ def test_menu_creates_a_private_thread():
     code, calls, _output = drive([CREATE, "3", "2", "1", "hush", "0"])
     assert calls[0].create_kind == "thread"
     assert calls[0].private is True
+
+
+def test_leave_flow_backs_out_of_a_single_server_instead_of_looping():
+    # With one server the picker answers itself, so 0 on the screen below it
+    # has to leave the flow -- it used to land back on the same screen, and
+    # Ctrl-C was the only way out.
+    code, calls, _output = drive([LEAVE, "0", "0", "0"])
+    assert code == 0
+    assert [args.execute for args in calls] == [False]

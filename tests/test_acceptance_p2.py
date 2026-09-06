@@ -102,7 +102,7 @@ ACTING_WALKS = {
     "write: send": [("3",), "1"],
     "build: create": [("4", "1"), "1", "releases"],
     "build: delete": [("4", "2"), "1"],
-    "build: leave": [("4", "3"), "1"],
+    "build: leave": [("4", "3")],
     "clear": [("5",), "1"],
     "identity: my bot": [("8", "2")],
 }

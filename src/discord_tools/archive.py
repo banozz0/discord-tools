@@ -31,7 +31,7 @@ from discord_tools._core.plan import Plan
 from discord_tools.adapters.identity import label_for
 from discord_tools.config import Config, bot_id_from_token
 from discord_tools.records import parse_date_bound
-from discord_tools.search import ELLIPSIS, preview
+from discord_tools.search import ELLIPSIS, PREVIEW_WIDTH, preview
 
 TOOL = "discord-tools"
 CONFIG_NAME = "config.json"
@@ -220,6 +220,25 @@ def date_bound(value: str | None, *, end_of_day: bool) -> str | None:
     return parsed.isoformat() if parsed else None
 
 
+# 3. a hit's preview keeps the match on the row
+def preview_around(text: str, markers: tuple[str, str] = MARKERS, width: int = PREVIEW_WIDTH) -> str:
+    """`preview`, but cut so the first marked match stays on the row.
+
+    A hit whose match sits past the cut showed a row with no marker in it,
+    which reads as a wrong answer. When the match would fall off the end, the
+    window starts a little before it and the leading cut is shown.
+    """
+    flat = " / ".join(line.strip() for line in text.splitlines() if line.strip())
+    if len(flat) <= width:
+        return flat
+    at = flat.find(markers[0])
+    if at < 0 or at + len(markers[0]) < width - 8:
+        return flat[: width - 1] + ELLIPSIS
+    start = max(0, at - width // 3)
+    window = flat[start : start + width - 2]
+    return ELLIPSIS + window + (ELLIPSIS if start + width - 2 < len(flat) else "")
+
+
 # -- printing --------------------------------------------------------------
 
 
@@ -247,12 +266,16 @@ def format_status(status: dict[str, Any], scopes: Sequence[dict[str, Any]]) -> s
 
 
 def format_sync_report(report: SyncReport) -> str:
-    """The coverage table a sync ends with: every scope, what it did."""
+    """What a sync ends with: the scopes it could not read, then one summary line.
+
+    The scopes that went fine were already printed one by one as progress, and
+    on a terminal both streams land on the same screen; repeating them made
+    the run read as having walked everything twice. What is worth a second
+    look is the list of what was skipped or failed, and why.
+    """
     if not report.scopes:
         return "Nothing to sync: the bot sees no channel or thread it can read."
-    lines = []
-    for scope in report.scopes:
-        lines.append(f"{'! ' if scope.status != 'ok' else '  '}{scope.line()}")
+    lines = [f"! {scope.line()}" for scope in report.scopes if scope.status != "ok"]
     summary = f"{report.rows} message(s) written across {len(report.scopes)} scope(s)"
     if report.skipped:
         summary += f", {len(report.skipped)} skipped"
@@ -274,8 +297,8 @@ def format_hits(hits: Sequence[SearchHit], *, query: str) -> str:
     cut = False
     for hit in hits:
         where = hit.scope_title or hit.rid
-        body = preview(hit.highlight or hit.text)
-        cut = cut or body.endswith(ELLIPSIS)
+        body = preview_around(hit.highlight or hit.text)
+        cut = cut or ELLIPSIS in body
         deleted = " [deleted]" if hit.deleted_at else ""
         media = " [media]" if hit.media else ""
         for neighbour in hit.context_before:

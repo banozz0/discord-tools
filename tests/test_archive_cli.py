@@ -294,3 +294,40 @@ def test_doctor_never_migrates_the_archive_it_reports_on(home_is_a_tmp_dir):
     # Opening sets the journal mode, which writes a header page; what doctor
     # must never do is run the migrations, and no table is the proof.
     assert sqlite3.connect(path).execute("SELECT COUNT(*) FROM sqlite_master").fetchone()[0] == 0
+
+
+# -- what the first real walk showed ------------------------------------------
+
+
+def test_the_sync_table_lists_only_what_was_skipped_then_the_total():
+    from discord_tools._core.archive import ScopeReport, SyncReport
+
+    report = SyncReport(
+        identity_id="dc:bot:42",
+        scopes=(
+            ScopeReport("dc:channel:10", "general", "ok", rows=134),
+            ScopeReport("dc:channel:12", "lounge", "skipped", skipped_reason="no_access"),
+        ),
+    )
+    text = archive_store.format_sync_report(report)
+    assert "general" not in text
+    assert "! dc:channel:12 lounge: skipped (no_access)" in text
+    assert text.endswith("134 message(s) written across 2 scope(s), 1 skipped")
+
+
+def test_a_date_in_the_wrong_shape_says_the_shape(home_is_a_tmp_dir):
+    # A usage mistake, which argparse owns: main() turns it into usage plus
+    # exit 2, the same as the live search, with the shape named.
+    synced(home_is_a_tmp_dir)
+    with pytest.raises(ValueError, match="2026-09-06") as caught:
+        go(["archive", "search", "--query", "deploy", "--since", "06/09/2026"])
+    assert "isoformat" not in str(caught.value)
+
+
+def test_a_hit_keeps_its_match_on_the_row():
+    long = "word " * 30 + "«security» test now reproduces the full bug under background review"
+    row = archive_store.preview_around(long)
+    assert "«security»" in row
+    assert row.startswith("…") and row.endswith("…")
+    assert len(row) <= 72
+    assert archive_store.preview_around("short «hit» here") == "short «hit» here"

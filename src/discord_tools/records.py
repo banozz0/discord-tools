@@ -12,16 +12,27 @@ def snowflake_time(snowflake: int) -> datetime:
     return datetime.fromtimestamp(((snowflake >> 22) + DISCORD_EPOCH_MS) / 1000, tz=UTC)
 
 
+DATE_SHAPE = "a date is written year first: 2026-09-06, or 2026-09-06T14:30"
+
+
 def parse_date_bound(value: str | None, *, end_of_day: bool) -> datetime | None:
+    """An ISO date or datetime as a UTC bound, or a ValueError that says the shape.
+
+    `06/09/2026` is what a person types and what Python's parser answers with
+    `Invalid isoformat string`, which names the rule without saying it; the
+    error here says the shape instead, and the menu asks again on it.
+    """
     if not value:
         return None
 
-    if "T" not in value and len(value) == 10:
-        parsed_date = date.fromisoformat(value)
-        parsed_time = time.max if end_of_day else time.min
-        return datetime.combine(parsed_date, parsed_time, tzinfo=UTC)
-
-    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    try:
+        if "T" not in value and len(value) == 10:
+            parsed_date = date.fromisoformat(value)
+            parsed_time = time.max if end_of_day else time.min
+            return datetime.combine(parsed_date, parsed_time, tzinfo=UTC)
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"{value!r} is not a date this tool reads: {DATE_SHAPE}") from exc
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=UTC)
     return parsed.astimezone(UTC)

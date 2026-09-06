@@ -567,3 +567,16 @@ def test_backing_out_of_a_flow_still_lands_on_its_group():
     titles = [text.split("\n")[0] for text in output if "\n" in text]
     assert "Main › Read" in titles
     assert code == 0
+
+
+def test_search_flow_asks_a_date_again_until_it_is_one_the_tool_reads():
+    # Search -> channel -> Since -> a slash date -> asked again -> ISO -> Run it
+    code, calls, output = drive([SEARCH, "1", "3", "06/09/2026", "2026-09-06", "6", "0"])
+    assert calls[0].since == "2026-09-06"
+    assert "2026-09-06" in screens(output)
+    assert "Not a date this tool reads" in screens(output)
+
+
+def test_archive_search_flow_asks_a_date_again_too():
+    code, calls, output = drive([("2", "4"), "1", "security", "5", "06/09/2026", "2026-09-06", "10", "0"])
+    assert calls[0].archive_kind == "search" and calls[0].since == "2026-09-06"

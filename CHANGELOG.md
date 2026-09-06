@@ -57,6 +57,17 @@ it could not see, and `archive search` answers the next question from disk.
 - **`search --format`** gains `jsonl`, `markdown` and `html`; `json` and `csv`
   are written exactly as before, byte for byte. `members` is unchanged.
 
+### Small things the first walk showed
+
+- A sync no longer prints every scope twice: the progress lines say what was
+  read, and the table at the end lists only what was skipped or failed, then
+  the total.
+- A date typed as `06/09/2026` is refused where it is typed, with the shape
+  the tool reads (`2026-09-06`), instead of failing the run with a parser
+  message; the same holds for the live `search` dates.
+- A search hit whose match sits past the 70-character cut now shows the row
+  around the match, so `«…»` is always on the line.
+
 ### The menu
 
 - **Read** gains four rows — *Archive: sync*, *Archive: search / export*,

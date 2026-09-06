@@ -434,6 +434,22 @@ async def _flow_members(*, session, runner, read, write) -> bool:
             return result is not EXIT
 
 
+def _ask_date(label: str, *, read, write) -> Any:
+    """A since/until answer, asked again until it is a date the tool reads or blank."""
+    from discord_tools.records import DATE_SHAPE, parse_date_bound
+
+    while True:
+        typed = ask_text(label, read=read, write=write)
+        if typed is BACK:
+            return BACK
+        try:
+            parse_date_bound(typed, end_of_day=False)
+        except ValueError:
+            write(f"Not a date this tool reads - {DATE_SHAPE}.")
+            continue
+        return typed
+
+
 def _shown(value, empty: str) -> str:
     return empty if value in (None, "") else str(value)
 
@@ -525,12 +541,13 @@ async def _flow_search(*, session, runner, read, write) -> bool:
                     "until": ("Until", "(any date)"),
                 }
                 title, empty = labels[key]
+                asker = _ask_date if key in ("since", "until") else ask_text
                 answer = edit_field(
                     crumb(form, title),
                     _shown(staged[key], empty),
                     read=read,
                     write=write,
-                    ask=lambda: ask_text(title, read=read, write=write),
+                    ask=lambda: asker(title, read=read, write=write),
                     allow_clear=True,
                     is_set=staged[key] is not None,
                 )
@@ -1135,7 +1152,7 @@ async def _flow_archive_sync(*, session, runner, read, write) -> bool:
             continue
         since = None
         if walk == 1:
-            since = ask_text("Since (ISO date)", read=read, write=write)
+            since = _ask_date("Since", read=read, write=write)
             if since is BACK:
                 continue
 
@@ -1282,12 +1299,13 @@ async def _flow_archive_search(*, session, runner, read, write) -> bool:
                 "until": ("Until", "(any date)"),
             }
             title, empty = labels[key]
+            asker = _ask_date if key in ("since", "until") else ask_text
             answer = edit_field(
                 crumb(trail, title),
                 _shown(staged[key], empty),
                 read=read,
                 write=write,
-                ask=lambda: ask_text(title, read=read, write=write),
+                ask=lambda: asker(title, read=read, write=write),
                 allow_clear=True,
                 is_set=staged[key] is not None,
             )

@@ -1,5 +1,71 @@
 # Changelog
 
+## 0.9.0 — 2026-09-06
+
+A local archive. Discord gives bots no search API, so until now every history
+question re-fetched the channel; now `archive sync` walks what the bot can read
+into `~/.discord-tools/archive.sqlite` once, resumes where it stopped, says what
+it could not see, and `archive search` answers the next question from disk.
+
+### The archive
+
+- **`archive sync`** fetches new history from every text, announcement, voice
+  and stage channel and every thread — active, archived, and the posts of forum
+  and media channels — the bot can read. `--server` narrows it to one server,
+  `--scope` (a rid or a plain ID, repeatable) to one channel or thread,
+  `--since` stops the walk back at a date, `--full` walks everything again. A
+  run killed partway resumes from its last committed batch and never writes a
+  row twice; one progress line per scope goes to stderr and a coverage table
+  ends the run.
+- **Coverage says what was skipped, and why.** A channel the bot cannot read is
+  `no_access`; a login with the message-content intent off — or a channel whose
+  sampled messages all come back empty, `doctor`'s own probe — is
+  `intent_missing`, so the archive never claims coverage of blank rows; a
+  channel type this tool has no reader for is `unsupported_kind` rather than
+  silently absent.
+- **`archive search --query …`** is full-text search ranked by relevance, with
+  `--regex` as a second filter, `--scope`, `--from` (an ID, a username the
+  archive has seen, or a rid), `--since`, `--until`, `--context N` for the
+  neighbours around each hit, `--limit`, and `--include-deleted`. Matches are
+  marked `«like this»` in the printed rows.
+- **`archive export --format json|csv|jsonl|markdown|html --output NAME`**
+  writes the same result set the search prints; the five formats hold the same
+  messages in the same order, and the HTML is one self-contained file with no
+  script. Relative names land in `~/.discord-tools/exports/` as they always
+  have.
+- **`archive status`** — scopes, rows, dates, coverage and the size against
+  the budget. **`doctor`** reports whether this Python's SQLite has FTS5 and
+  what the archive holds, without touching the file.
+- **`archive retention --scope … --keep 90d|N`** prunes one scope's older rows;
+  **`archive forget --scope … | --identity …`** removes everything for one
+  scope or one bot. Both dry-run by default and execute only with `--execute`
+  **and** the target's exact name typed back — the same gate `delete` has, no
+  `--yes` — then read back what remains and write an audit line. Nothing on
+  Discord changes; this is the local file only.
+- **Budgets** live in `~/.discord-tools/config.json`, created with the
+  defaults on first use (2 GiB for the archive). A sync that would cross one
+  stops before writing with `DISK_BUDGET` and names the retention command.
+- **Only `archive sync` logs in.** Status, search, export, retention and forget
+  read the file, name the bot from the profile record `auth` wrote, and make no
+  call — a search works while a token is being rotated.
+
+### The live commands
+
+- **`search --archive`** searches the archive instead of fetching, with the
+  same `--channel`, `--keyword` (the query), `--from-user`, `--since`, `--until`,
+  `--limit`, `--format` and `--output`. It is an alias of `archive search`.
+- **`search --format`** gains `jsonl`, `markdown` and `html`; `json` and `csv`
+  are written exactly as before, byte for byte. `members` is unchanged.
+
+### The menu
+
+- **Read** gains four rows — *Archive: sync*, *Archive: search / export*,
+  *Archive: status*, *Archive: prune* — under the two it had. Every new flag has
+  a row. A prune dry-runs first and asks for the exact name inside the command;
+  the menu is never a shorter path past a gate. The root row reads
+  `Read (search live, archive, export, members)`; its number and every other
+  number are where they were.
+
 ## 0.8.0 — 2026-09-06
 
 Every screen says which bot is about to act, and a token in the wrong profile

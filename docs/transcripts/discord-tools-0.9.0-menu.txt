@@ -1,6 +1,6 @@
-discord-tools 0.8.0 — the menu, recorded in a real terminal (pty, TERM=xterm-256color)
+discord-tools 0.9.0 — the menu, recorded in a real terminal (pty, TERM=xterm-256color)
 =====================================================================================
-Recorded by scripts/record_menu.py on f5408c6. The menu code, the colour and the
+Recorded by scripts/record_menu.py on 5525b4f. The menu code, the colour and the
 prompt rendering are the real ones; the Discord side is a canned session (no network, no
 token), so the server, channels, threads and messages below are invented. Keystrokes
 appear after each prompt. The .ansi sibling of this file is the same run with the colour
@@ -9,7 +9,7 @@ escapes kept.
 discord-tools
 --------------------------------------------
 1. Find IDs (servers, channels, threads)
-2. Read (search, export, members)
+2. Read (search live, archive, export, members)
 3. Write (send)
 4. Build (create, delete, leave a server)
 5. Clear messages
@@ -22,8 +22,12 @@ Choose: 2
 Main › Read
 Acting as: harrybot (profile harry) · bot
 --------------------------------------------
-1. Search / export messages
+1. Search / export messages (live, one channel)
 2. Server members (names and IDs)
+3. Archive: sync history into the local archive
+4. Archive: search / export the archive
+5. Archive: status (scopes, coverage, size)
+6. Archive: prune (retention, forget)
 0. Back
 Choose: 1
 Main › Search › Pick a channel in Agency
@@ -75,7 +79,7 @@ Choose (Enter = main menu):
 discord-tools
 --------------------------------------------
 1. Find IDs (servers, channels, threads)
-2. Read (search, export, members)
+2. Read (search live, archive, export, members)
 3. Write (send)
 4. Build (create, delete, leave a server)
 5. Clear messages
@@ -107,7 +111,7 @@ Enter = menu, 0 = exit:
 discord-tools
 --------------------------------------------
 1. Find IDs (servers, channels, threads)
-2. Read (search, export, members)
+2. Read (search live, archive, export, members)
 3. Write (send)
 4. Build (create, delete, leave a server)
 5. Clear messages
@@ -179,7 +183,7 @@ Choose (Enter = main menu):
 discord-tools
 --------------------------------------------
 1. Find IDs (servers, channels, threads)
-2. Read (search, export, members)
+2. Read (search live, archive, export, members)
 3. Write (send)
 4. Build (create, delete, leave a server)
 5. Clear messages
@@ -232,7 +236,7 @@ Choose: 0
 discord-tools
 --------------------------------------------
 1. Find IDs (servers, channels, threads)
-2. Read (search, export, members)
+2. Read (search live, archive, export, members)
 3. Write (send)
 4. Build (create, delete, leave a server)
 5. Clear messages

@@ -133,6 +133,39 @@ The terms this codebase uses, and the boundaries they imply.
   goes to the workshop and is re-synced with `scripts/sync-core.sh`, and
   `tests/test_core_copy.py` fails on any local edit.
 
+- **Archive** — `~/.discord-tools/archive.sqlite` (`_core.archive`, opened
+  through `archive.py`): the shared core's store, one file per install, every
+  row scoped to the bot identity that read it. `archive.py` is the Discord rim
+  around it — where the file lives, the offline identity, how a typed scope or
+  author becomes a rid, and how status, sync reports and hits are printed.
+- **Scope** — one place messages live, as the archive keys it: a text, news,
+  voice or stage channel, or any thread (active, archived, a forum or media
+  post). A category and a forum container are not scopes; a channel type with
+  no reader is listed as `unsupported_kind` rather than dropped.
+- **Archive source** — `adapters/archive.py::DiscordArchiveSource`, the
+  `ArchiveSource` Protocol over the seam: `scopes()` lists every scope with its
+  reason when the bot cannot read it, `messages()` pages one scope from a
+  cursor. Holds an opened seam, never a token.
+- **Cursor** — `<newest>:<oldest>`, two message ids per scope, committed with
+  every batch. A fresh walk pages newest first the way Discord does; a resumed
+  one goes older than `oldest`, then newer than `newest`, so the checkpoint
+  grows outward and no row is fetched twice on purpose. `iter_history` takes
+  `before`/`after` for exactly this.
+- **Coverage** — what the archive can say it holds: a row per scope and
+  identity, visible or skipped with a reason. `no_access` is the permission
+  probe `doctor` uses; `intent_missing` is the login's intent flag, or
+  `doctor`'s five-message content probe when the flag is not conclusive;
+  `unsupported_kind` is a type with no reader.
+- **Offline command** — an archive command that never logs in (`status`,
+  `search`, `export`, `retention`, `forget`, and `search --archive`). Its
+  identity comes from the profile record or the token's own first segment
+  (`archive.local_identity`), so it works while a token is being rotated.
+- **Prune** — `archive retention` and `archive forget`: the two writes to the
+  archive, both `typed_name` gated like `delete`, both re-deriving their plan
+  before executing and refusing with `PLAN_DRIFT` if the archive moved. Local
+  only; nothing on Discord changes.
+- **Budget** — `~/.discord-tools/config.json`, the core's three ceilings.
+  `DISK_BUDGET` fires before the batch that would cross one is written.
 - **Transcript** — `docs/transcripts/discord-tools-<version>-menu.ansi` and
   its stripped siblings: a real session through the real menu against the
   canned client, recorded by `scripts/record_menu.py --write` and replayed by

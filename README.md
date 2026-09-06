@@ -4,9 +4,10 @@
 
 A local CLI for your own Discord servers, driven by a bot you own: discover
 server, channel and thread IDs, list server members, search and export
-messages, send messages, create and delete channels and threads, clear messages, and
-manage the bot's settings — with a guided setup that walks you through the
-Discord Developer Portal.
+messages, keep a local archive of history and search it offline, send messages,
+create and delete channels and threads, clear messages, and manage the bot's
+settings — with a guided setup that walks you through the Discord Developer
+Portal.
 
 One menu for humans, the same commands as flags for agents, and a safety
 gate on anything destructive. Bot-token auth only: Discord does not allow
@@ -36,7 +37,8 @@ scripts pass a subcommand.
 | `profiles` | Lists every stored bot by name and by the label `auth` recorded; `profiles remove --name <name>` drops one after you type its name back. Neither needs a working token |
 | `discover` | Prints the server → channel → thread tree with every ID; `--server <id>` narrows, `--json <path>` writes a file |
 | `members` | Lists a server's members (ID, username, display name, bot flag); `--output <name>` exports JSON/CSV. Needs the privileged **Server Members** intent enabled in the portal |
-| `search` | Searches a channel/thread's history locally (Discord gives bots no search API): `--keyword`, `--from-user`, `--since`, `--until`, `--limit`; `--output <name>` exports JSON/CSV. The printed table previews long bodies at 70 characters — exports carry them whole |
+| `search` | Searches a channel/thread's history locally (Discord gives bots no search API): `--keyword`, `--from-user`, `--since`, `--until`, `--limit`; `--output <name>` exports JSON, CSV, JSONL, Markdown or HTML (`--format`). `--archive` searches the local archive instead of fetching. The printed table previews long bodies at 70 characters — exports carry them whole |
+| `archive` | The local archive: `sync` fetches new history from everything the bot can read and resumes where it stopped; `status` shows scopes, rows and coverage; `search --query` is ranked full-text search with `--regex`, `--from`, `--since`, `--until`, `--context`; `export --format json/csv/jsonl/markdown/html --output` writes the same result; `retention --scope --keep 90d` and `forget --scope` prune it, dry-run by default and behind the scope's exact name. See [The archive](#the-archive) |
 | `send` | Posts as the bot after a full-message preview + y/N; `--yes` skips the prompt only for channels in `DISCORD_SEND_ALLOWLIST` |
 | `create` | `channel` (`--type text/news/voice/stage_voice/forum/media`) / `category` / `thread` (`--private`), each behind a confirmation. Every type `delete` can remove, `create` can make again |
 | `delete` | `channel` / `category` / `thread`. Dry-run by default; deleting for real takes `--execute` **and** typing the target's exact name. Deleting a category leaves its channels alive, just uncategorised. There is no `--yes` — deletion always needs a human |
@@ -52,7 +54,7 @@ scripts pass a subcommand.
 discord-tools
 --------------------------------------------
 1. Find IDs (servers, channels, threads)
-2. Read (search, export, members)
+2. Read (search live, archive, export, members)
 3. Write (send)
 4. Build (create, delete, leave a server)
 5. Clear messages
@@ -88,11 +90,13 @@ search or send form, *Create another*, *Clear somewhere else*, *Edit more* — p
 with something typed in it — a message, search filters, bot edits — asks first.
 
 Every flag has a row: `members`, `doctor --channel`, `bot --invite`, `bot --json`, a
-manual category ID for `create channel`, and, under *Identity*, listing the stored
+manual category ID for `create channel`, the four archive rows under *Read* (sync,
+search and export, status, prune), and, under *Identity*, listing the stored
 profiles, switching the one the rest of the session acts as, and removing one. The exceptions are deliberate — `send`, `create` and `bot` never
 get `--yes` from the menu, `clear-messages` always dry-runs first and still asks you to
-type `DELETE`, and `delete` and *Leave a server* dry-run first and still ask you to type
-the target's own name. The menu is never a shorter path past a gate.
+type `DELETE`, and `delete`, *Leave a server* and an archive prune dry-run first and
+still ask you to type the target's own name. The menu is never a shorter path past a
+gate.
 
 *Delete* lists categories, channels and threads nested the way Discord shows them and
 works out what kind of thing you picked, so you confirm the thing you saw rather than a
@@ -147,6 +151,57 @@ that check — those are your own chat exports, yours to share.
 `send --yes` may post to. Unset means every unattended send is refused — each
 destination is opted in by hand.
 
+## The archive
+
+Discord gives a bot no search API, so every `search` walks the channel again.
+The archive walks it once:
+
+```bash
+discord-tools archive sync                       # everything the bot can read
+discord-tools archive sync --server 1394...      # one server
+discord-tools archive sync --scope 1394... --since 2026-08-01
+discord-tools archive status
+discord-tools archive search --query "deploy AND rollback" --context 2
+discord-tools archive search --query deploy --from dobby --since 2026-09-01 --regex '4\.\d'
+discord-tools archive export --query deploy --format html --output deploys.html
+discord-tools search --channel 1394... --keyword deploy --archive   # the same search, as an alias
+```
+
+`sync` fetches new history from every text, announcement, voice and stage
+channel and every thread — active, archived, and the posts of forum and media
+channels — into `~/.discord-tools/archive.sqlite`, one file per install, its
+rows scoped to the bot that read them. Each scope keeps a checkpoint, so a run
+you interrupt resumes from its last committed batch and never writes a row
+twice, and the next run fetches only what is new. It prints one line per scope
+as it goes and ends with a coverage table: what it read, and what it could not
+and why — `no_access` where the bot lacks Read Messages or Read Message History,
+`intent_missing` where the message-content intent is off (the same probe
+`doctor` runs, so an archive never claims coverage of blank rows),
+`unsupported_kind` for a channel type it has no reader for.
+
+`search --query` is full-text search ranked by relevance (FTS5 syntax: words,
+`"quoted phrases"`, `AND`, `OR`, `NOT`), with `--regex` as a second filter over
+the matches, `--scope`, `--from` (an ID, a username the archive has seen, or a
+rid), `--since`, `--until`, `--context N` for the messages around each hit,
+`--limit` (50) and `--include-deleted`. `export` writes exactly what the search
+would print, in `json`, `csv`, `jsonl`, `markdown` or `html` — five files, the
+same messages in the same order, the HTML self-contained with no script.
+
+`retention --scope <id> --keep 90d` (or `--keep 500`, a count of newest
+messages) prunes one scope's older rows; `forget --scope <id>` or
+`forget --identity dc:bot:<id>` removes everything for one scope or one bot.
+Both dry-run by default and execute only with `--execute` **and** the scope's
+exact name typed back — the same gate `delete` has, and no `--yes`. They change
+the local file only; nothing on Discord is touched. Budgets sit in
+`~/.discord-tools/config.json`, created with the defaults on first use (2 GiB
+for the archive); a sync that would cross one stops before writing with
+`DISK_BUDGET` and names the retention command that frees space.
+
+Only `sync` logs in. `status`, `search`, `export`, `retention` and `forget`
+read the file and name the bot from the profile record `auth` wrote, so a
+search works while a token is being rotated. `doctor` reports whether this
+Python's SQLite has FTS5 (the archive needs it) and what the archive holds.
+
 ## Exports stay out of your repos
 
 Relative `--output` names land in `~/.discord-tools/exports/`, never the
@@ -166,8 +221,8 @@ discord-tools --json send --channel 1542... --text "shipped" --yes
 
 The keys are the same whatever the command ran — `status`, `result`, `error`,
 `plan`, `evidence`, `meta` and the rest — so there is one parser to write, not
-one per command. `--jsonl` streams a record per line for `search`, `members`
-and `discover` and closes with the same object.
+one per command. `--jsonl` streams a record per line for `search`, `members`,
+`discover` and `archive search` and closes with the same object.
 
 Exit codes say the same thing without parsing anything: **0** done, **1** not
 done (stopped at a gate, or a server clear that could not reach everything),

@@ -1,7 +1,7 @@
 [1m[38;5;63mdiscord-tools[0m
 [2m--------------------------------------------[0m
 [38;5;63m1.[0m Find IDs [2m(servers, channels, threads)[0m
-[38;5;63m2.[0m Read [2m(search, export, members)[0m
+[38;5;63m2.[0m Read [2m(search live, archive, export, members)[0m
 [38;5;63m3.[0m Write [2m(send)[0m
 [38;5;63m4.[0m Build [2m(create, delete, leave a server)[0m
 [38;5;63m5.[0m Clear messages
@@ -14,8 +14,12 @@ Choose: 2
 [2mMain › [0m[1m[38;5;63mRead[0m
 [2mActing as: harrybot (profile harry) · bot[0m
 [2m--------------------------------------------[0m
-[38;5;63m1.[0m Search / export messages
+[38;5;63m1.[0m Search / export messages [2m(live, one channel)[0m
 [38;5;63m2.[0m Server members [2m(names and IDs)[0m
+[38;5;63m3.[0m Archive: sync history into the local archive
+[38;5;63m4.[0m Archive: search / export the archive
+[38;5;63m5.[0m Archive: status [2m(scopes, coverage, size)[0m
+[38;5;63m6.[0m Archive: prune [2m(retention, forget)[0m
 [2m0. Back[0m
 Choose: 1
 [2mMain › [0m[2mSearch › [0m[1m[38;5;63mPick a channel in Agency[0m
@@ -67,7 +71,7 @@ Choose [2m(Enter = main menu)[0m:
 [1m[38;5;63mdiscord-tools[0m
 [2m--------------------------------------------[0m
 [38;5;63m1.[0m Find IDs [2m(servers, channels, threads)[0m
-[38;5;63m2.[0m Read [2m(search, export, members)[0m
+[38;5;63m2.[0m Read [2m(search live, archive, export, members)[0m
 [38;5;63m3.[0m Write [2m(send)[0m
 [38;5;63m4.[0m Build [2m(create, delete, leave a server)[0m
 [38;5;63m5.[0m Clear messages
@@ -99,7 +103,7 @@ Enter = menu, 0 = exit:
 [1m[38;5;63mdiscord-tools[0m
 [2m--------------------------------------------[0m
 [38;5;63m1.[0m Find IDs [2m(servers, channels, threads)[0m
-[38;5;63m2.[0m Read [2m(search, export, members)[0m
+[38;5;63m2.[0m Read [2m(search live, archive, export, members)[0m
 [38;5;63m3.[0m Write [2m(send)[0m
 [38;5;63m4.[0m Build [2m(create, delete, leave a server)[0m
 [38;5;63m5.[0m Clear messages
@@ -171,7 +175,7 @@ Choose [2m(Enter = main menu)[0m:
 [1m[38;5;63mdiscord-tools[0m
 [2m--------------------------------------------[0m
 [38;5;63m1.[0m Find IDs [2m(servers, channels, threads)[0m
-[38;5;63m2.[0m Read [2m(search, export, members)[0m
+[38;5;63m2.[0m Read [2m(search live, archive, export, members)[0m
 [38;5;63m3.[0m Write [2m(send)[0m
 [38;5;63m4.[0m Build [2m(create, delete, leave a server)[0m
 [38;5;63m5.[0m Clear messages
@@ -224,7 +228,7 @@ Choose: 0
 [1m[38;5;63mdiscord-tools[0m
 [2m--------------------------------------------[0m
 [38;5;63m1.[0m Find IDs [2m(servers, channels, threads)[0m
-[38;5;63m2.[0m Read [2m(search, export, members)[0m
+[38;5;63m2.[0m Read [2m(search live, archive, export, members)[0m
 [38;5;63m3.[0m Write [2m(send)[0m
 [38;5;63m4.[0m Build [2m(create, delete, leave a server)[0m
 [38;5;63m5.[0m Clear messages

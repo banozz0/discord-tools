@@ -1,13 +1,13 @@
 ---
 name: discord-tools
-description: "Use when you need the real numeric ID of a Discord server, channel, or thread — 'what's the ID of that channel?', 'where do I send this?' — when the user wants a channel's messages searched or exported to JSON/CSV, or when a message must be posted to a channel the user has allowlisted. Bot-token only; the bot sees only servers it was invited to."
-version: 1.3.0
+description: "Use when you need the real numeric ID of a Discord server, channel, or thread — 'what's the ID of that channel?', 'where do I send this?' — when the user wants a channel's messages searched or exported (JSON, CSV, JSONL, Markdown, HTML), when a history question can be answered from the local archive instead of a fresh fetch, or when a message must be posted to a channel the user has allowlisted. Bot-token only; the bot sees only servers it was invited to."
+version: 1.4.0
 author: banozz0
 license: MIT
 platforms: [macos]
 metadata:
   hermes:
-    tags: [discord, channel-ids, thread-ids, search, export, send, cli, bot]
+    tags: [discord, channel-ids, thread-ids, search, archive, export, send, cli, bot]
 ---
 
 # discord-tools
@@ -40,8 +40,8 @@ Same keys every time, whatever the command: `schema`, `tool`, `version`,
 `command`, `args`, `identity`, `target`, `status`, `result`, `plan`,
 `evidence`, `warnings`, `error`, `meta`. The command's own payload is under
 `result`. `--jsonl` instead streams one record per line for `search`,
-`members` and `discover`, then the same object as the last line, marked
-`"kind": "envelope"`.
+`members`, `discover` and `archive search`, then the same object as the last
+line, marked `"kind": "envelope"`.
 
 Read `status` and `error.code` rather than the text: `ok`, `empty`, `partial`,
 `dry_run`, `cancelled`, `refused`, `failed`, and stable codes like
@@ -132,6 +132,12 @@ stored token belongs to a different bot than `auth` recorded, so the run
 refused before making any call. Relay it and name the profile; do not try
 another profile, and never edit the user's `.env` to make it go away.
 
+**12. Never run `archive retention` or `archive forget`.** They remove rows
+from the user's local archive, and what is pruned is gone until the next sync
+re-fetches it — if Discord still has it. Both dry-run by default and need
+`--execute` plus the scope's exact name typed at a prompt; hand the user the
+command. `archive sync`, `status`, `search` and `export` are reads and fine.
+
 ## Commands
 
 | The ask | Run |
@@ -143,6 +149,10 @@ another profile, and never edit the user's `.env` to make it go away.
 | "find where X was discussed" | `discord-tools search --channel <id> --keyword "X"` |
 | "everything since Monday" | `discord-tools search --channel <id> --since 2026-08-24` |
 | "export it" | `discord-tools search --channel <id> --format csv --output name.csv` |
+| the same question, asked again, or across channels | `discord-tools archive search --query "X"` — from the local archive, no fetch |
+| "what do we have archived?" | `discord-tools archive status` |
+| "bring the archive up to date" | `discord-tools archive sync` (add `--server <id>` to keep it short) |
+| "save that search as a page" | `discord-tools archive export --query "X" --format html --output name.html` |
 | "post this there" (allowlisted) | `discord-tools send --channel <id> --text "..." --yes` |
 | a long or multi-line message | pipe it: `... \| discord-tools send --channel <id> --text - --yes` |
 | "send them that file" (allowlisted) | `discord-tools send --channel <id> --file /path --text "caption" --yes` |
@@ -160,6 +170,22 @@ another profile, and never edit the user's `.env` to make it go away.
 - **`search` is a local filter over fetched history** — Discord gives bots no
   search API. A big channel means a long fetch; narrow with `--since`,
   `--limit`, `--keyword` rather than pulling everything repeatedly.
+- **`archive search` is the cheap way to answer a history question.** It reads
+  `~/.discord-tools/archive.sqlite`, makes no Discord call, ranks by relevance,
+  and spans every archived channel unless `--scope <id>` narrows it. `--query`
+  takes FTS5 syntax (words, quoted phrases, AND, OR, NOT); `--context N` adds
+  the neighbours around a hit; `--from` takes an ID or a username. If it
+  answers `ARCHIVE_UNAVAILABLE` there is no archive yet: run `archive sync`
+  (a read; it may take a while on a big server) or fall back to live `search`.
+  `search --channel <id> --keyword "X" --archive` is the same thing as an alias.
+- **The archive says what it could not see.** `archive sync` ends with a
+  coverage table and `archive status` repeats it: `no_access` means the bot
+  lacks Read Message History there, `intent_missing` means the message-content
+  intent is off (a portal setting the user flips). A search that finds nothing
+  in a skipped scope is not evidence the messages do not exist — say which
+  scopes were skipped.
+- **`DISK_BUDGET` means the archive hit its ceiling.** Relay it; the hint names
+  the retention command, which the user runs (rule 12).
 - **`--output` takes a file name, not a place.** Relative names land in
   `~/.discord-tools/exports/`, never the working directory, so chat data
   cannot leak into a repo. An absolute path is honored as written.
@@ -211,6 +237,8 @@ another profile, and never edit the user's `.env` to make it go away.
   paste only the user can do. Tell them to run it; do not drive it.
 - **`profiles remove`** — rule 10. It drops a bot's token from the store and
   the token cannot be recovered. Plain `profiles` is a read and is fine.
+- **`archive retention` and `archive forget`** — rule 12. They prune the user's
+  local archive. The other `archive` commands are reads.
 - **A bare `discord-tools`** — no subcommand opens the interactive menu, which
   waits for a human. With no terminal attached it prints help instead, so it
   will not hang in a pipe, but it answers nothing either.

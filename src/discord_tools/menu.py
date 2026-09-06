@@ -24,6 +24,7 @@ from discord_tools.prompts import (
     after_run,
     ask_int,
     ask_lines,
+    MENU,
     ask_text,
     choose,
     edit_field,
@@ -67,6 +68,10 @@ class MenuSession:
         self.profile = profile
         self._client = None
         self._identity = None
+        # Set when a screen's answer was "Main menu" rather than "back one
+        # screen". A flow answers True to both, so a group above it has to be
+        # told which, or "Main menu" lands on the group and not on the root.
+        self.to_root = False
         # What the current flow has resolved to act on, for the banner's second
         # half. Cleared when a flow starts and when a picker re-opens, so a
         # screen never names a target the user has already stepped away from.
@@ -190,6 +195,8 @@ async def _act(args, *, session, runner, read, write, trail: str = MAIN, rows=(R
         outcome = "Done" if code == 0 else ("Failed" if code is None else "Not done")
         result = after_run(read=read, write=write, title=crumb(trail, outcome), rows=rows)
         if result is not AGAIN:
+            if result is MENU:
+                session.to_root = True
             return result
 
 
@@ -701,6 +708,9 @@ def _pick_category(categories, *, title, read, write) -> Any:
 async def _flow_create(*, session, runner, read, write) -> bool:
     trail = crumb(MAIN, "Create")
     while True:
+        # Back at the kind list, whatever the last one was made in is behind
+        # the user: the banner names the bot and stops.
+        session.target = None
         choice = choose([label for _kind, label in CREATE_KINDS], title=trail, read=read, write=write)
         if choice is BACK:
             return True
@@ -958,6 +968,9 @@ async def _flow_clear(*, session, runner, read, write) -> bool:
     scanned: tuple | None = None
     trail = crumb(MAIN, "Clear")
     while True:
+        # Back at the scope screen, the last dry-run's location is behind the
+        # user: the banner names the bot and stops.
+        session.target = None
         scope = choose(
             ["One channel or thread", "Whole server"],
             title=trail,
@@ -1280,7 +1293,8 @@ async def _flow_profiles(*, session, runner, read, write) -> bool:
             )
             if not after_action(read=read, write=write):
                 return False
-            continue
+            session.to_root = True
+            return True
         if choice == 1:
             if not await _flow_switch_profile(session=session, runner=runner, read=read, write=write):
                 return False
@@ -1322,6 +1336,10 @@ def _group(trail: str, rows):
                 return True
             if not await rows[choice][1](session=session, runner=runner, read=read, write=write):
                 return False
+            if session.to_root:
+                # "Main menu" means the root, not the screen this group draws.
+                session.to_root = False
+                return True
 
     return flow
 
@@ -1407,6 +1425,7 @@ async def run_menu(*, read=None, write=None, session=None, runner=None, profile:
             flow, acts = flows[choice]
             try:
                 session.target = None
+                session.to_root = False
                 if acts:
                     await session.identity()
                 keep_going = await flow(session=session, runner=runner, read=read, write=write)

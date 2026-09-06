@@ -1,0 +1,244 @@
+discord-tools 0.8.0 — the menu, recorded in a real terminal (pty, TERM=xterm-256color)
+=====================================================================================
+Recorded by scripts/record_menu.py on 76d8332. The menu code, the colour and the
+prompt rendering are the real ones; the Discord side is a canned session (no network, no
+token), so the server, channels, threads and messages below are invented. Keystrokes
+appear after each prompt. The .ansi sibling of this file is the same run with the colour
+escapes kept.
+
+discord-tools
+--------------------------------------------
+1. Find IDs (servers, channels, threads)
+2. Read (search, export, members)
+3. Write (send a message)
+4. Build (create, delete, leave a server)
+5. Clear messages
+6. Manage (roles, members, invites, webhooks)
+7. Watch (rules, runner, review queue)
+8. Identity (profiles, my bot, set up a bot)
+9. Check setup
+0. Exit
+Choose: 2
+Main › Read
+Acting as: harrybot (profile harry) · bot
+--------------------------------------------
+1. Search / export messages
+2. Server members (names and IDs)
+0. Back
+Choose: 1
+Main › Search › Pick a channel in Agency
+Acting as: harrybot (profile harry) · bot · Target: Agency (1394820000000)
+--------------------------------------------
+1. # 🚨alerts                        1394827364512
+2.   > 📚vault-alerts                1394829911004
+3.   > 🔧system-alerts               1394829911077
+4. # 📰briefings                     1394827364598
+5. Type a channel or thread ID
+0. Back
+Choose: 1
+Main › Search › 🚨alerts
+Acting as: harrybot (profile harry) · bot · Target: Agency › 🚨alerts (1394827364512)
+--------------------------------------------
+1. Contains       [(anything)]
+2. From           [(anyone)]
+3. Since          [(any date)]
+4. Until          [(any date)]
+5. Limit          [(no limit)]
+6. Run it (print here)
+7. Export to a file
+0. Back (discards)
+Choose: 1
+Contains (blank cancels): deploy
+Main › Search › 🚨alerts
+Acting as: harrybot (profile harry) · bot · Target: Agency › 🚨alerts (1394827364512)
+--------------------------------------------
+1. Contains       [deploy]
+2. From           [(anyone)]
+3. Since          [(any date)]
+4. Until          [(any date)]
+5. Limit          [(no limit)]
+6. Run it (print here)
+7. Export to a file
+0. Back (discards)
+Choose: 6
+1394829911100  2026-09-05 21:40  Harry: Deploy 4.2 is out: 6 checks green, 0 rollbacks, 41s.
+1394829911042  2026-09-05 15:00  Harry: Deploy queue: 3 waiting, oldest 11 minutes.
+2 message(s)
+Main › Search › 🚨alerts › Done
+Acting as: harrybot (profile harry) · bot · Target: Agency › 🚨alerts (1394827364512)
+--------------------------------------------
+1. Run it again
+2. Tweak it
+3. Main menu
+0. Exit
+Choose (Enter = main menu): 
+discord-tools
+--------------------------------------------
+1. Find IDs (servers, channels, threads)
+2. Read (search, export, members)
+3. Write (send a message)
+4. Build (create, delete, leave a server)
+5. Clear messages
+6. Manage (roles, members, invites, webhooks)
+7. Watch (rules, runner, review queue)
+8. Identity (profiles, my bot, set up a bot)
+9. Check setup
+0. Exit
+Choose: 8
+Main › Identity
+Acting as: harrybot (profile harry) · bot
+--------------------------------------------
+1. Profiles (list, switch, remove)
+2. My bot
+3. Set up a bot (guided)
+0. Back
+Choose: 1
+Main › Identity › Profiles
+Acting as: harrybot (profile harry) · bot
+--------------------------------------------
+1. List them
+2. Switch profile
+3. Remove a profile
+0. Back
+Choose: 1
+dobby        dobbybot (profile dobby)  bot 1394820000003   (no token stored)
+harry        harrybot (profile harry)  bot 1394820000002   (current, no token stored)
+Enter = menu, 0 = exit: 
+discord-tools
+--------------------------------------------
+1. Find IDs (servers, channels, threads)
+2. Read (search, export, members)
+3. Write (send a message)
+4. Build (create, delete, leave a server)
+5. Clear messages
+6. Manage (roles, members, invites, webhooks)
+7. Watch (rules, runner, review queue)
+8. Identity (profiles, my bot, set up a bot)
+9. Check setup
+0. Exit
+Choose: 4
+Main › Build
+Acting as: harrybot (profile harry) · bot
+--------------------------------------------
+1. Create a channel, category, or thread
+2. Delete a channel, category, or thread
+3. Leave a server
+0. Back
+Choose: 1
+Main › Create
+Acting as: harrybot (profile harry) · bot
+--------------------------------------------
+1. Channel
+2. Category
+3. Thread in a text channel
+0. Back
+Choose: 1
+Main › Create › Channel › Channel type
+Acting as: harrybot (profile harry) · bot
+--------------------------------------------
+1. Text channel
+2. Voice channel
+3. Forum channel
+4. Announcement channel
+5. Stage channel
+6. Media channel
+0. Back
+Choose: 1
+Text channel name (blank cancels): releases
+Main › Create › Text channel › Put it under a category?
+Acting as: harrybot (profile harry) · bot · Target: Agency (1394820000000)
+--------------------------------------------
+1. Ops stuff                       1394827364077
+2. No category
+3. Type a category ID
+0. Back
+Choose: 2
+Permissions  manage_channels — held
+About to create a real, visible object on Discord:
+--------------------------------------------
+Kind   text
+Name   releases
+Where  in server Agency (1394820000000)
+--------------------------------------------
+Create it? [y/N]: y
+{
+  "kind": "channel",
+  "id": 901,
+  "name": "releases",
+  "parent_id": null,
+  "created": true,
+  "cancelled": false
+}
+Main › Create › Text channel › Done
+Acting as: harrybot (profile harry) · bot · Target: Agency (1394820000000)
+--------------------------------------------
+1. Create another
+2. Main menu
+0. Exit
+Choose (Enter = main menu): 
+discord-tools
+--------------------------------------------
+1. Find IDs (servers, channels, threads)
+2. Read (search, export, members)
+3. Write (send a message)
+4. Build (create, delete, leave a server)
+5. Clear messages
+6. Manage (roles, members, invites, webhooks)
+7. Watch (rules, runner, review queue)
+8. Identity (profiles, my bot, set up a bot)
+9. Check setup
+0. Exit
+Choose: 5
+Main › Clear
+Acting as: harrybot (profile harry) · bot
+--------------------------------------------
+1. One channel or thread
+2. Whole server
+0. Back
+Choose: 1
+Main › Clear › Pick a channel in Agency
+Acting as: harrybot (profile harry) · bot · Target: Agency (1394820000000)
+--------------------------------------------
+1. # 🚨alerts                        1394827364512
+2.   > 📚vault-alerts                1394829911004
+3.   > 🔧system-alerts               1394829911077
+4. # 📰briefings                     1394827364598
+5. Type a channel or thread ID
+0. Back
+Choose: 1
+Permissions  manage_messages, read_message_history — held
+Dry-run: 2 message(s) would be cleared from 1394827364512 — 0 inside the 14-day bulk window (fast), 2 older (one-by-one, slower)
+{
+  "matched": 2,
+  "bulk_deletable": 0,
+  "single_delete_only": 2,
+  "cleared": 0,
+  "dry_run": true,
+  "cancelled": false
+}
+Main › Clear › 🚨alerts › Dry-run done
+Acting as: harrybot (profile harry) · bot · Target: Agency › 🚨alerts (1394827364512)
+--------------------------------------------
+1. Clear them for real (asks you to type DELETE)
+0. Back to clear scope
+Choose: 0
+Main › Clear
+Acting as: harrybot (profile harry) · bot
+--------------------------------------------
+1. One channel or thread
+2. Whole server
+0. Back
+Choose: 0
+discord-tools
+--------------------------------------------
+1. Find IDs (servers, channels, threads)
+2. Read (search, export, members)
+3. Write (send a message)
+4. Build (create, delete, leave a server)
+5. Clear messages
+6. Manage (roles, members, invites, webhooks)
+7. Watch (rules, runner, review queue)
+8. Identity (profiles, my bot, set up a bot)
+9. Check setup
+0. Exit
+Choose: 0

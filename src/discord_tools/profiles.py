@@ -101,8 +101,15 @@ def read(name: str, *, home: Path | None = None) -> Profile | None:
 
 
 def write(profile: Profile, *, home: Path | None = None) -> Path:
-    """`profile` written as a 0600 file in a 0700 directory."""
-    make_private_dir(directory(profile.name, home=home))
+    """`profile` written as a 0600 file under 0700 directories.
+
+    Every directory on the way down, not just the last one: creating a tree
+    only tightens the leaf, and a loose `~/.discord-tools` is the thing that
+    refuses every write until someone runs the chmod it names.
+    """
+    paths = ToolPaths.for_tool(TOOL, home=home)
+    for path in (paths.root, paths.profiles, directory(profile.name, home=home)):
+        make_private_dir(path)
     path = record_path(profile.name, home=home)
     return write_private(path, json.dumps(profile.to_dict(), indent=2) + "\n")
 

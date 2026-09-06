@@ -1,0 +1,236 @@
+[1m[38;5;63mdiscord-tools[0m
+[2m--------------------------------------------[0m
+[38;5;63m1.[0m Find IDs [2m(servers, channels, threads)[0m
+[38;5;63m2.[0m Read [2m(search, export, members)[0m
+[38;5;63m3.[0m Write [2m(send a message)[0m
+[38;5;63m4.[0m Build [2m(create, delete, leave a server)[0m
+[38;5;63m5.[0m Clear messages
+[38;5;63m6.[0m Manage [2m(roles, members, invites, webhooks)[0m
+[38;5;63m7.[0m Watch [2m(rules, runner, review queue)[0m
+[38;5;63m8.[0m Identity [2m(profiles, my bot, set up a bot)[0m
+[38;5;63m9.[0m Check setup
+[2m0. Exit[0m
+Choose: 2
+[2mMain › [0m[1m[38;5;63mRead[0m
+[2mActing as: harrybot (profile harry) · bot[0m
+[2m--------------------------------------------[0m
+[38;5;63m1.[0m Search / export messages
+[38;5;63m2.[0m Server members [2m(names and IDs)[0m
+[2m0. Back[0m
+Choose: 1
+[2mMain › [0m[2mSearch › [0m[1m[38;5;63mPick a channel in Agency[0m
+[2mActing as: harrybot (profile harry) · bot · Target: Agency (1394820000000)[0m
+[2m--------------------------------------------[0m
+[38;5;63m1.[0m # 🚨alerts                        1394827364512
+[38;5;63m2.[0m   > 📚vault-alerts                1394829911004
+[38;5;63m3.[0m   > 🔧system-alerts               1394829911077
+[38;5;63m4.[0m # 📰briefings                     1394827364598
+[38;5;63m5.[0m Type a channel or thread ID
+[2m0. Back[0m
+Choose: 1
+[2mMain › [0m[2mSearch › [0m[1m[38;5;63m🚨alerts[0m
+[2mActing as: harrybot (profile harry) · bot · Target: Agency › 🚨alerts (1394827364512)[0m
+[2m--------------------------------------------[0m
+[38;5;63m1.[0m Contains       [[2m(anything)[0m]
+[38;5;63m2.[0m From           [[2m(anyone)[0m]
+[38;5;63m3.[0m Since          [[2m(any date)[0m]
+[38;5;63m4.[0m Until          [[2m(any date)[0m]
+[38;5;63m5.[0m Limit          [[2m(no limit)[0m]
+[38;5;63m6.[0m Run it [2m(print here)[0m
+[38;5;63m7.[0m Export to a file
+[2m0. Back (discards)[0m
+Choose: 1
+Contains [2m(blank cancels)[0m: deploy
+[2mMain › [0m[2mSearch › [0m[1m[38;5;63m🚨alerts[0m
+[2mActing as: harrybot (profile harry) · bot · Target: Agency › 🚨alerts (1394827364512)[0m
+[2m--------------------------------------------[0m
+[38;5;63m1.[0m Contains       [deploy]
+[38;5;63m2.[0m From           [[2m(anyone)[0m]
+[38;5;63m3.[0m Since          [[2m(any date)[0m]
+[38;5;63m4.[0m Until          [[2m(any date)[0m]
+[38;5;63m5.[0m Limit          [[2m(no limit)[0m]
+[38;5;63m6.[0m Run it [2m(print here)[0m
+[38;5;63m7.[0m Export to a file
+[2m0. Back (discards)[0m
+Choose: 6
+1394829911100  2026-09-05 21:40  Harry: Deploy 4.2 is out: 6 checks green, 0 rollbacks, 41s.
+1394829911042  2026-09-05 15:00  Harry: Deploy queue: 3 waiting, oldest 11 minutes.
+2 message(s)
+[2mMain › [0m[2mSearch › [0m[2m🚨alerts › [0m[1m[38;5;63mDone[0m
+[2mActing as: harrybot (profile harry) · bot · Target: Agency › 🚨alerts (1394827364512)[0m
+[2m--------------------------------------------[0m
+[38;5;63m1.[0m Run it again
+[38;5;63m2.[0m Tweak it
+[38;5;63m3.[0m Main menu
+[2m0. Exit[0m
+Choose [2m(Enter = main menu)[0m: 
+[1m[38;5;63mdiscord-tools[0m
+[2m--------------------------------------------[0m
+[38;5;63m1.[0m Find IDs [2m(servers, channels, threads)[0m
+[38;5;63m2.[0m Read [2m(search, export, members)[0m
+[38;5;63m3.[0m Write [2m(send a message)[0m
+[38;5;63m4.[0m Build [2m(create, delete, leave a server)[0m
+[38;5;63m5.[0m Clear messages
+[38;5;63m6.[0m Manage [2m(roles, members, invites, webhooks)[0m
+[38;5;63m7.[0m Watch [2m(rules, runner, review queue)[0m
+[38;5;63m8.[0m Identity [2m(profiles, my bot, set up a bot)[0m
+[38;5;63m9.[0m Check setup
+[2m0. Exit[0m
+Choose: 8
+[2mMain › [0m[1m[38;5;63mIdentity[0m
+[2mActing as: harrybot (profile harry) · bot[0m
+[2m--------------------------------------------[0m
+[38;5;63m1.[0m Profiles [2m(list, switch, remove)[0m
+[38;5;63m2.[0m My bot
+[38;5;63m3.[0m Set up a bot [2m(guided)[0m
+[2m0. Back[0m
+Choose: 1
+[2mMain › [0m[2mIdentity › [0m[1m[38;5;63mProfiles[0m
+[2mActing as: harrybot (profile harry) · bot[0m
+[2m--------------------------------------------[0m
+[38;5;63m1.[0m List them
+[38;5;63m2.[0m Switch profile
+[38;5;63m3.[0m Remove a profile
+[2m0. Back[0m
+Choose: 1
+dobby        dobbybot (profile dobby)  bot 1394820000003   (no token stored)
+harry        harrybot (profile harry)  bot 1394820000002   (current, no token stored)
+Enter = menu, 0 = exit: 
+[1m[38;5;63mdiscord-tools[0m
+[2m--------------------------------------------[0m
+[38;5;63m1.[0m Find IDs [2m(servers, channels, threads)[0m
+[38;5;63m2.[0m Read [2m(search, export, members)[0m
+[38;5;63m3.[0m Write [2m(send a message)[0m
+[38;5;63m4.[0m Build [2m(create, delete, leave a server)[0m
+[38;5;63m5.[0m Clear messages
+[38;5;63m6.[0m Manage [2m(roles, members, invites, webhooks)[0m
+[38;5;63m7.[0m Watch [2m(rules, runner, review queue)[0m
+[38;5;63m8.[0m Identity [2m(profiles, my bot, set up a bot)[0m
+[38;5;63m9.[0m Check setup
+[2m0. Exit[0m
+Choose: 4
+[2mMain › [0m[1m[38;5;63mBuild[0m
+[2mActing as: harrybot (profile harry) · bot[0m
+[2m--------------------------------------------[0m
+[38;5;63m1.[0m Create a channel, category, or thread
+[38;5;63m2.[0m Delete a channel, category, or thread
+[38;5;63m3.[0m Leave a server
+[2m0. Back[0m
+Choose: 1
+[2mMain › [0m[1m[38;5;63mCreate[0m
+[2mActing as: harrybot (profile harry) · bot[0m
+[2m--------------------------------------------[0m
+[38;5;63m1.[0m Channel
+[38;5;63m2.[0m Category
+[38;5;63m3.[0m Thread in a text channel
+[2m0. Back[0m
+Choose: 1
+[2mMain › [0m[2mCreate › [0m[2mChannel › [0m[1m[38;5;63mChannel type[0m
+[2mActing as: harrybot (profile harry) · bot[0m
+[2m--------------------------------------------[0m
+[38;5;63m1.[0m Text channel
+[38;5;63m2.[0m Voice channel
+[38;5;63m3.[0m Forum channel
+[38;5;63m4.[0m Announcement channel
+[38;5;63m5.[0m Stage channel
+[38;5;63m6.[0m Media channel
+[2m0. Back[0m
+Choose: 1
+Text channel name [2m(blank cancels)[0m: releases
+[2mMain › [0m[2mCreate › [0m[2mText channel › [0m[1m[38;5;63mPut it under a category?[0m
+[2mActing as: harrybot (profile harry) · bot · Target: Agency (1394820000000)[0m
+[2m--------------------------------------------[0m
+[38;5;63m1.[0m Ops stuff                       1394827364077
+[38;5;63m2.[0m No category
+[38;5;63m3.[0m Type a category ID
+[2m0. Back[0m
+Choose: 2
+Permissions  manage_channels — held
+About to create a real, visible object on Discord:
+--------------------------------------------
+Kind   text
+Name   releases
+Where  in server Agency (1394820000000)
+--------------------------------------------
+Create it? [y/N]: y
+{
+  "kind": "channel",
+  "id": 901,
+  "name": "releases",
+  "parent_id": null,
+  "created": true,
+  "cancelled": false
+}
+[2mMain › [0m[2mCreate › [0m[2mText channel › [0m[1m[38;5;63mDone[0m
+[2mActing as: harrybot (profile harry) · bot · Target: Agency (1394820000000)[0m
+[2m--------------------------------------------[0m
+[38;5;63m1.[0m Create another
+[38;5;63m2.[0m Main menu
+[2m0. Exit[0m
+Choose [2m(Enter = main menu)[0m: 
+[1m[38;5;63mdiscord-tools[0m
+[2m--------------------------------------------[0m
+[38;5;63m1.[0m Find IDs [2m(servers, channels, threads)[0m
+[38;5;63m2.[0m Read [2m(search, export, members)[0m
+[38;5;63m3.[0m Write [2m(send a message)[0m
+[38;5;63m4.[0m Build [2m(create, delete, leave a server)[0m
+[38;5;63m5.[0m Clear messages
+[38;5;63m6.[0m Manage [2m(roles, members, invites, webhooks)[0m
+[38;5;63m7.[0m Watch [2m(rules, runner, review queue)[0m
+[38;5;63m8.[0m Identity [2m(profiles, my bot, set up a bot)[0m
+[38;5;63m9.[0m Check setup
+[2m0. Exit[0m
+Choose: 5
+[2mMain › [0m[1m[38;5;63mClear[0m
+[2mActing as: harrybot (profile harry) · bot[0m
+[2m--------------------------------------------[0m
+[38;5;63m1.[0m One channel or thread
+[38;5;63m2.[0m Whole server
+[2m0. Back[0m
+Choose: 1
+[2mMain › [0m[2mClear › [0m[1m[38;5;63mPick a channel in Agency[0m
+[2mActing as: harrybot (profile harry) · bot · Target: Agency (1394820000000)[0m
+[2m--------------------------------------------[0m
+[38;5;63m1.[0m # 🚨alerts                        1394827364512
+[38;5;63m2.[0m   > 📚vault-alerts                1394829911004
+[38;5;63m3.[0m   > 🔧system-alerts               1394829911077
+[38;5;63m4.[0m # 📰briefings                     1394827364598
+[38;5;63m5.[0m Type a channel or thread ID
+[2m0. Back[0m
+Choose: 1
+Permissions  manage_messages, read_message_history — held
+Dry-run: 2 message(s) would be cleared from 1394827364512 — 0 inside the 14-day bulk window (fast), 2 older (one-by-one, slower)
+{
+  "matched": 2,
+  "bulk_deletable": 0,
+  "single_delete_only": 2,
+  "cleared": 0,
+  "dry_run": true,
+  "cancelled": false
+}
+[2mMain › [0m[2mClear › [0m[2m🚨alerts › [0m[1m[38;5;63mDry-run done[0m
+[2mActing as: harrybot (profile harry) · bot · Target: Agency › 🚨alerts (1394827364512)[0m
+[2m--------------------------------------------[0m
+[38;5;63m1.[0m Clear them for real [2m(asks you to type DELETE)[0m
+[2m0. Back to clear scope[0m
+Choose: 0
+[2mMain › [0m[1m[38;5;63mClear[0m
+[2mActing as: harrybot (profile harry) · bot[0m
+[2m--------------------------------------------[0m
+[38;5;63m1.[0m One channel or thread
+[38;5;63m2.[0m Whole server
+[2m0. Back[0m
+Choose: 0
+[1m[38;5;63mdiscord-tools[0m
+[2m--------------------------------------------[0m
+[38;5;63m1.[0m Find IDs [2m(servers, channels, threads)[0m
+[38;5;63m2.[0m Read [2m(search, export, members)[0m
+[38;5;63m3.[0m Write [2m(send a message)[0m
+[38;5;63m4.[0m Build [2m(create, delete, leave a server)[0m
+[38;5;63m5.[0m Clear messages
+[38;5;63m6.[0m Manage [2m(roles, members, invites, webhooks)[0m
+[38;5;63m7.[0m Watch [2m(rules, runner, review queue)[0m
+[38;5;63m8.[0m Identity [2m(profiles, my bot, set up a bot)[0m
+[38;5;63m9.[0m Check setup
+[2m0. Exit[0m
+Choose: 0

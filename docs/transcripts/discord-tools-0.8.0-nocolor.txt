@@ -1,0 +1,14 @@
+discord-tools 0.8.0 with NO_COLOR=1 — same code, same terminal, plain text (root screen, then exit)
+discord-tools
+--------------------------------------------
+1. Find IDs (servers, channels, threads)
+2. Read (search, export, members)
+3. Write (send a message)
+4. Build (create, delete, leave a server)
+5. Clear messages
+6. Manage (roles, members, invites, webhooks)
+7. Watch (rules, runner, review queue)
+8. Identity (profiles, my bot, set up a bot)
+9. Check setup
+0. Exit
+Choose: 0

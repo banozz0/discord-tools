@@ -259,3 +259,12 @@ def test_the_removal_gate_asks_for_the_profiles_own_name():
     asked = []
     profiles.confirm_removal("preview", "harry", read=lambda prompt: asked.append(prompt) or "harry", write=lambda _: None)
     assert "harry" in asked[0]
+
+
+def test_writing_a_record_leaves_no_loose_directory_above_it(home_is_a_tmp_dir):
+    """A record written into a fresh home used to create ~/.discord-tools with
+    the default umask, and every write then refused until someone chmodded it."""
+    from discord_tools.config import loose_entries
+
+    profiles.remember("harry", label="harrybot", bot_id=42)
+    assert loose_entries() == []

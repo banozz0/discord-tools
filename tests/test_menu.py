@@ -549,3 +549,21 @@ def test_leave_flow_backs_out_of_a_single_server_instead_of_looping():
     code, calls, _output = drive([LEAVE, "0", "0", "0"])
     assert code == 0
     assert [args.execute for args in calls] == [False]
+
+
+def test_main_menu_from_inside_a_group_reaches_the_root_not_the_group():
+    # Search sits under Read; "Main menu" on its after-run screen has to leave
+    # the group, or the row says one thing and does another.
+    code, calls, output = drive([SEARCH, "1", "6", "", "0"])
+    assert [args.command for args in calls] == ["search"]
+    # The last screen drawn before the exit is the root, not "Main › Read".
+    titles = [text.split("\n")[0] for text in output if "\n" in text]
+    assert titles[-1] == "discord-tools"
+    assert code == 0
+
+
+def test_backing_out_of_a_flow_still_lands_on_its_group():
+    code, _calls, output = drive([SEARCH, "0", "0", "0"])
+    titles = [text.split("\n")[0] for text in output if "\n" in text]
+    assert "Main › Read" in titles
+    assert code == 0

@@ -7,25 +7,58 @@ internals.
 
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+# Read once, at import, before anything is patched: the directory the suite
+# must never touch. Kept so a test can assert it is not the one in use.
+REAL_HOME = Path.home()
+TOOL_VARIABLES = "DISCORD_"
+
+
+def _forget_tool_variables(patch) -> None:
+    for name in [key for key in os.environ if key.startswith(TOOL_VARIABLES)]:
+        patch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True, scope="session")
+def never_the_real_home(tmp_path_factory):
+    """No fixture of any scope sees the real ~/.discord-tools.
+
+    Higher-scoped fixtures are built *before* function-scoped ones, so a
+    module-scoped fixture that loads configuration ran against the real home
+    however carefully the per-test fixture below was written - and python-dotenv
+    copies what it finds there into os.environ, so from that moment the suite
+    held a live bot token and `doctor` logged into Discord for real. Patching
+    at session scope closes that, and clearing the tool's own variables means
+    an inherited environment cannot open the same hole.
+    """
+    home = tmp_path_factory.mktemp("session-home")
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(Path, "home", classmethod(lambda cls: home))
+        _forget_tool_variables(patch)
+        yield home
+
 
 @pytest.fixture(autouse=True)
-def home_is_a_tmp_dir(tmp_path, monkeypatch):
+def home_is_a_tmp_dir(tmp_path, monkeypatch, never_the_real_home):
     """No test ever writes into the real home directory.
 
-    The tool keeps its token, its exports and now its audit log under
-    `~/.discord-tools/`. A test that forgets to pass `home=` would otherwise
-    reach the actual one, which is the kind of thing nobody notices until it
-    has already happened.
+    The tool keeps its token, its exports and now its audit log and profile
+    records under `~/.discord-tools/`. A test that forgets to pass `home=`
+    would otherwise reach the actual one, which is the kind of thing nobody
+    notices until it has already happened. The variables are cleared again per
+    test, because a test that loads a .env of its own puts them in os.environ
+    where the next test would inherit them.
     """
     fake_home = tmp_path / "home"
     fake_home.mkdir()
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
+    _forget_tool_variables(monkeypatch)
     return fake_home
 
 from discord_tools.models import BotIdentity, ChannelInfo, MemberInfo, ServerInfo, ThreadInfo

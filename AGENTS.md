@@ -28,7 +28,11 @@ delete (channel/category/thread) · structure (export a server's roles,
 categories, channels, overwrites, forum tags, AutoMod rules and settings as
 one deterministic blueprint that never carries members, messages, webhooks,
 invites, bans or emoji; diff it against a server; apply it with new ids behind
-the typed server name, never deleting; remap table offline) · leave-server · clear-messages · bot
+the typed server name, never deleting; remap table offline) · role (list,
+create, edit, delete behind the typed role name; preflight names a missing
+Manage Roles, HIERARCHY_DENIED where the bot's top role cannot reach, never
+its own roles, never a right it lacks) · permission (show a channel's role
+overwrites, set one role's by merging allow and deny) · leave-server · clear-messages · bot
 (settings + invite URL for the active profile) · doctor (token,
 message-content intent, servers, per-channel perms). v1 (all but members)
 shipped 2026-08-27 after the joint testing session.
@@ -80,8 +84,12 @@ full message + y/N; `--yes` requires the destination in
 `DISCORD_SEND_ALLOWLIST` (unset = refuse). `create` and `bot` settings confirm
 before touching anything real. `structure apply` dry-runs by default and
 executes only with `--execute` + the target server's exact name, no `--yes`,
-and never deletes anything on the target. The menu is never a shorter path
-past a gate.
+and never deletes anything on the target. `role delete` dry-runs by default
+and executes only with `--execute` + the role's exact name, no `--yes`; any
+role change touching Administrator is typed too; `role create`, `role edit`
+and `permission set` preview + y/N. The tool never edits or elevates its own
+roles and never grants a right the bot does not hold. The menu is never a
+shorter path past a gate.
 
 Parity rule: anything `delete` removes, `create` can make again — the channel
 vocabulary lives once in `models.py` and both sides key off it.

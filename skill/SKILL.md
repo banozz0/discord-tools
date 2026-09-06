@@ -1,13 +1,13 @@
 ---
 name: discord-tools
-description: "Use when you need the real numeric ID of a Discord server, channel, or thread — 'what's the ID of that channel?', 'where do I send this?' — when the user wants a channel's messages searched or exported (JSON, CSV, JSONL, Markdown, HTML), when a history question can be answered from the local archive instead of a fresh fetch, when a message must be posted to a channel the user has allowlisted, when a message the user named should get a reply, a reaction, a pin, or be forwarded, copied or bookmarked, or when a server's structure should be exported as a blueprint or compared with another server. Bot-token only; the bot sees only servers it was invited to."
-version: 1.7.0
+description: "Use when you need the real numeric ID of a Discord server, channel, or thread — 'what's the ID of that channel?', 'where do I send this?' — when the user wants a channel's messages searched or exported (JSON, CSV, JSONL, Markdown, HTML), when a history question can be answered from the local archive instead of a fresh fetch, when a message must be posted to a channel the user has allowlisted, when a message the user named should get a reply, a reaction, a pin, or be forwarded, copied or bookmarked, when a server's structure should be exported as a blueprint or compared with another server, or when the user wants to see a server's roles or which role can do what in a channel. Bot-token only; the bot sees only servers it was invited to."
+version: 1.8.0
 author: banozz0
 license: MIT
 platforms: [macos]
 metadata:
   hermes:
-    tags: [discord, channel-ids, thread-ids, search, archive, export, send, message, reply, react, pin, review, structure, blueprint, cli, bot]
+    tags: [discord, channel-ids, thread-ids, search, archive, export, send, message, reply, react, pin, review, structure, blueprint, roles, permissions, cli, bot]
 ---
 
 # discord-tools
@@ -170,6 +170,15 @@ step and everything it would leave alone) and let them run the execute.
 when the user asked: export writes a file on this machine, diff compares, remap
 reads the archive.
 
+**16. Never run a role or permission write.** `role create`, `role edit`,
+`role delete` and `permission set` change who can do what on a real server;
+roles are the widest blast radius Discord has. Hand the user the command
+instead. `role delete` is gated on the role's exact name typed at a prompt no
+agent can answer, and anything touching Administrator is typed too; the rest
+take `--yes`, and you still do not pass it. `role list`, `permission show` and
+`permission show --names` are reads and fine: they show the roles, a channel's
+overwrites, and the permission vocabulary.
+
 ## Commands
 
 | The ask | Run |
@@ -201,6 +210,9 @@ reads the archive.
 | "how does this server differ from the blueprint?" | `discord-tools structure diff --blueprint name.json --target <server id>` |
 | "copy this server's structure to that one" | hand them `discord-tools structure apply --blueprint name.json --target <server id>` (the dry-run), then `--execute` — rule 15, they run it |
 | "what did that apply create?" | `discord-tools structure remap --apply-id <id>` — from the archive, no login |
+| "what roles does this server have / which is the bot's?" | `discord-tools role list --server <id>` — highest first, the bot's own marked |
+| "who can post in #channel / what does that role get there?" | `discord-tools permission show --target <channel id>` (add `--role <id>` for one role) |
+| "make / change / delete a role", "let that role post there" | hand them `discord-tools role create ...`, `role edit ...`, `role delete --server <id> --role <id>` (the dry-run) or `permission set ...` — rule 16, they run it |
 | a long or multi-line message | pipe it: `... \| discord-tools send --channel <id> --text - --yes` |
 | "send them that file" (allowlisted) | `discord-tools send --channel <id> --file /path --text "caption" --yes` |
 | "make a channel/thread" (they asked) | `discord-tools create channel --server <id> --name "..." --yes` |
@@ -286,6 +298,14 @@ reads the archive.
   report an export: "the structure is in the file" is not "the server is
   backed up". `export` and `diff` need Manage Server on the bot;
   `PERMISSION_DENIED` names it.
+- **A role write can be valid and still impossible.** `HIERARCHY_DENIED`
+  means the bot holds Manage Roles but its top role sits at or below the
+  target's, the role is managed by an integration, or it is one of the bot's
+  own roles — the tool never edits or elevates those. `PERMISSION_DENIED` on a
+  grant means the bot cannot hand out a right it does not hold. Both name the
+  role and the fix (move the bot's role above it, or give the bot the right);
+  relay that rather than retrying, because nothing on the command line changes
+  it. `role list` prints the positions and the bot's top role.
 - **`bookmark` is local.** Discord gives a bot no bookmark API, so it is a row
   in the user's archive file on this machine, and the envelope says `local`.
   Say so when you report it; nothing in Discord shows it.
@@ -329,6 +349,10 @@ reads the archive.
   and settings and is gated on the server's exact name, which no agent can
   supply. Hand the user the dry-run command instead. `export`, `diff` and
   `remap` are reads and fine.
+- **`role create`, `role edit`, `role delete` and `permission set`** — rule
+  16. They change who can do what on a real server; `role delete` and anything
+  touching Administrator are gated on a typed name no agent can supply. Hand
+  the user the command. `role list` and `permission show` are reads and fine.
 - **`--mention everyone`** on any posting verb — it always prompts, and the
   ping is the user's decision.
 - **`review approve` and `review accept`** — rule 14. A download onto the

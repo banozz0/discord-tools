@@ -1,5 +1,78 @@
 # Changelog
 
+## 0.13.0 — 2026-09-06
+
+Roles and permission overwrites. A server's roles can be listed, created,
+edited and deleted, and one role's overwrite on a channel or category shown
+and set — every write preflighted for Manage Roles, then checked against the
+two things a held right does not settle: Discord's role hierarchy, and what
+the bot is allowed to grant. The tool never edits or elevates its own roles.
+
+### The role group
+
+- **`role list --server <id>`** prints every role highest first — position,
+  name, ID, colour, hoist/mentionable/managed, and its permissions summarised —
+  with `*` on the roles the bot itself holds and the bot's top role named,
+  because that is what every write below is measured against.
+- **`role create --server <id> --name <name>`** with `--colour #RRGGBB`,
+  `--hoist`, `--mentionable` and `--permissions <names>` (Discord's own names,
+  comma-separated; `permission show --names` lists them). Preview + y/N;
+  `--yes` skips the prompt the way `create --yes` does.
+- **`role edit --server <id> --role <id>`** changes `--name`, `--colour`
+  (`none` clears it), `--hoist`/`--no-hoist`, `--mentionable`/
+  `--no-mentionable` and `--permissions` (the whole set, replaced; `none`
+  clears it). The preview shows only what actually changes; a field already at
+  the asked value is not a write. `--role everyone` is the server's default
+  role.
+- **`role delete --server <id> --role <id>`** dry-runs by default and prints
+  the role; `--execute` asks for the role's exact name inside the command.
+  There is no `--yes`, and with no terminal it exits 3 with
+  `APPROVAL_REQUIRED`. `@everyone` cannot be deleted and the tool says so.
+- **Administrator is typed.** A create or edit that grants Administrator, or
+  removes it, is confirmed by typing a name (the server's on a create, the
+  role's on an edit) under a warning that says what Administrator is; `--yes`
+  is refused there. Renaming an Administrator role is an ordinary edit.
+
+### The permission group
+
+- **`permission show --target <channel or category id>`** prints every role
+  overwrite by role name with what it allows and denies; `--role` narrows it to
+  one. Member overwrites are counted, not shown: a member is not a role.
+  `--names` prints the permission vocabulary and logs in for nothing.
+- **`permission set --target <id> --role <id> --allow <names> --deny <names>`**
+  merges into what the role already has there — allowing a right clears it from
+  the deny side and the other way round, a right named on neither side keeps
+  what it had — and `--clear` removes the role's overwrite entirely. Preview +
+  y/N, `--yes` skips it. `administrator` is refused as an overwrite (it is a
+  role permission), a right on both sides is refused, and a thread is refused
+  with its parent channel named, because a thread has no overwrites of its own.
+
+### What every write checks, in order
+
+- **Preflight names the missing right** — `PERMISSION_DENIED` with
+  `manage_roles` named, in the dry-run, before anything is written.
+- **`HIERARCHY_DENIED`** when the right is held but cannot reach the role: the
+  target sits at or above the bot's top role (both positions named, with the
+  move that fixes it), the role is managed by an integration, or the role is
+  one the bot itself holds — the tool never edits or removes its own roles,
+  whatever its position.
+- **A grant needs the right** — a role or an overwrite can only carry rights
+  the bot holds itself (Discord refuses the rest with a 403 that names
+  nothing); the tool refuses first with `PERMISSION_DENIED` naming the right.
+  A bot with Administrator grants freely.
+- **Drift, readback, audit.** The plan is re-derived after the gate and a role
+  renamed meanwhile is `PLAN_DRIFT`; the role or the overwrite is read back
+  and reported as evidence; every executed write leaves one line in
+  `~/.discord-tools/audit.jsonl` and carries `cli-tools <command> plan <id>`
+  as Discord's own audit-log reason. Refusals and dry-runs are not logged.
+
+### The menu
+
+- *Manage* is a group: list roles, create a role, edit a role, delete a role
+  (dry-run first, the name asked inside the command), show a channel's
+  overwrites, set a role's overwrite. The menu never passes `--yes`. Members,
+  invites and webhooks still say they are not built.
+
 ## 0.12.0 — 2026-09-06
 
 Structure blueprints. A server's roles, categories, channels, permission

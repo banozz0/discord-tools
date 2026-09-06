@@ -295,3 +295,40 @@ Architecture decisions with more context than fits here go to `docs/adr/`.
   against the blueprint. Empty means `ok`; anything still to add or change is
   `PARTIAL_FAILURE` (exit 1) with the diff and remap commands as the hint, as
   is a step that failed.
+
+- **Role target** — a role as a `Target` (`roles.role_target`): `dc:role:<id>`,
+  titled by name, its path the server and the role, ids `guild` and `role`.
+  A role write plans against two targets, the server first so preflight
+  probes the server-wide rights, the role second so drift catches a rename.
+  `--role everyone` names the default role, whose id is the server's own.
+- **Top role** — the highest role the bot holds (`roles.top_role`, from the
+  seam's `bot_role_ids`); @everyone when it holds nothing else. What Discord
+  measures every role write against, and what `role list` names last.
+- **Hierarchy** — the check after preflight (`roles.hierarchy`): Manage Roles
+  held but unusable. A target at or above the top role, a managed role, or a
+  role the bot itself holds (never @everyone, which everyone holds) is
+  `HIERARCHY_DENIED` with both positions named. The third rule is this tool's
+  own — it never edits or elevates its own roles — and applies whatever the
+  bot's position.
+- **Grant rule** — `roles.ungrantable`: a role's permissions or an overwrite's
+  allow and deny may only name rights the bot holds where it writes (the
+  preflight's `held`; Administrator holds everything). Refused as
+  `PERMISSION_DENIED` naming the right, so the bot never gains a right through
+  the tool that the portal did not grant.
+- **Administrator gate** — a role create or edit that grants or removes
+  `administrator` is `typed_name` (the server's name on a create, the role's
+  on an edit) and refuses `--yes`; a rename of an Administrator role is
+  `prompt_y`. `administrator` is refused as an overwrite: it is a role
+  permission, and no overwrite can take it away.
+- **Overwrite** — one role's allow/deny pair on a channel or category, read
+  through `channel_overwrites` and written as the whole set through
+  `edit_channel` (the blueprint primitive). `permission set` merges
+  (`roles.merged_overwrite`): a right allowed leaves the deny side and the
+  other way round, a right on neither side keeps what it had, `--clear` drops
+  the row. The plan's mutation carries the resulting rows, so an overwrite
+  someone else changed meanwhile is `PLAN_DRIFT`. Member overwrites are
+  counted on the screen and never edited: a member is not a role.
+- **Permission name** — Discord's own snake_case flag (`client.PERMISSION_NAMES`,
+  from discord.py), the only vocabulary above the seam; `permission_bits` and
+  `permission_names` translate at the seam. `permission show --names` prints
+  the list with no login.

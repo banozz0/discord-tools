@@ -6,8 +6,8 @@ A local CLI for your own Discord servers, driven by a bot you own: discover
 server, channel and thread IDs, list server members, search and export
 messages, keep a local archive of history and search it offline, send messages,
 create and delete channels and threads, export a server's structure as a
-blueprint and apply it elsewhere, clear messages, and manage the bot's
-settings — with a guided setup that walks you through the Discord Developer
+blueprint and apply it elsewhere, manage roles and permission overwrites, clear
+messages, and manage the bot's settings — with a guided setup that walks you through the Discord Developer
 Portal.
 
 One menu for humans, the same commands as flags for agents, and a safety
@@ -45,6 +45,8 @@ scripts pass a subcommand.
 | `message` | What you do to a message once it exists: `reply`, `edit` (the bot's own only), `delete` (dry-run, then `--execute` + typed `DELETE`, bounded by `--limit`), `forward`, `copy`, `react`/`unreact`, `pin`/`unpin`, `poll`, `typing`, `bookmark` (local). Each shows the channel and the message first. `read`, `unread` and `draft` say a bot cannot. See [Message operations](#message-operations) |
 | `create` | `channel` (`--type text/news/voice/stage_voice/forum/media`) / `category` / `thread` (`--private`), each behind a confirmation. Every type `delete` can remove, `create` can make again |
 | `structure` | Structure blueprints: `export --target <server id> --output <file>` writes a server's roles, categories, channels, overwrites, forum tags, AutoMod rules and settings as one deterministic file (never members, messages, webhooks, invites, bans or emoji); `diff` compares it with a server; `apply` dry-runs, and for real takes `--execute` **and** the server's exact name typed back, creates and edits with new IDs and never deletes; `remap --apply-id` prints the ID table. See [Structure blueprints](#structure-blueprints) |
+| `role` | `list --server <id>` (highest first, the bot's own marked); `create`, `edit` (name, colour, hoist, mentionable, the whole permission set as names) behind a preview + y/N; `delete` dry-runs, and for real takes `--execute` **and** the role's exact name, no `--yes`. Anything touching Administrator is typed too. Every write preflights Manage Roles, refuses `HIERARCHY_DENIED` where the bot's top role cannot reach, and never grants a right the bot lacks. See [Roles and permissions](#roles-and-permissions) |
+| `permission` | `show --target <channel or category id>` prints every role overwrite by name (`--names` lists the vocabulary); `set --target --role --allow --deny` merges into what the role has there, `--clear` removes it, preview + y/N. See [Roles and permissions](#roles-and-permissions) |
 | `delete` | `channel` / `category` / `thread`. Dry-run by default; deleting for real takes `--execute` **and** typing the target's exact name. Deleting a category leaves its channels alive, just uncategorised. There is no `--yes` — deletion always needs a human |
 | `leave-server` | Makes the bot leave `--server <id>`; nothing in the server is deleted. Same gate as `delete`. Discord gives a bot no way to delete a server (that needs ownership, which a bot never has) |
 | `clear-messages` | Clears either `--channel <id>` or every accessible message location under `--server <id>`. Dry-run by default; deleting for real takes `--execute` **and** typing `DELETE`. Server clears include active/archived threads and forum/media posts (`--skip-threads` leaves them untouched and clears channels only), report skipped locations, and continue past per-location failures |
@@ -99,11 +101,12 @@ search and export, status, prune), the message verbs under *Write* (send with a
 mentions row, reply, edit, delete, forward, copy, react, pin, poll, typing, bookmark),
 the review queue under *Watch* (what is waiting, approve and fetch, accept, reject,
 status, retry), the four structure rows under *Build* (export a blueprint, diff it
-against a server, apply it, the remap table), and, under *Identity*, listing the stored profiles, switching the one
+against a server, apply it, the remap table), the six rows under *Manage* (list,
+create, edit and delete a role; show and set a channel's overwrites), and, under *Identity*, listing the stored profiles, switching the one
 the rest of the session acts as, and removing one. The exceptions are deliberate —
-`send`, `create`, `bot` and the message verbs never get `--yes` from the menu,
+`send`, `create`, `bot`, the message verbs, a role create or edit and a permission set never get `--yes` from the menu,
 `clear-messages` and *Delete messages* always dry-run first and still ask you to type
-`DELETE`, `delete`, *Leave a server*, a structure apply and an archive prune dry-run
+`DELETE`, `delete`, *Leave a server*, a structure apply, a role delete and an archive prune dry-run
 first and still ask you to type the target's own name, and a review approve or accept asks its `y/N`
 inside the command. The menu is never a shorter path past a gate.
 
@@ -393,6 +396,51 @@ on it); `apply` needs *Manage Server*, *Manage Roles* and *Manage Channels*
 and names every missing one before the first step. `remap` reads the archive
 and never logs in.
 
+## Roles and permissions
+
+Roles are the widest blast radius on Discord, and the place where a valid
+command can still be impossible: a bot with *Manage Roles* can only act on
+roles below its own top role, never on a managed role, and can only hand out
+rights it holds itself. The tool checks all three before it writes, and
+explains the refusal rather than relaying a 403.
+
+```bash
+discord-tools role list --server 1394...                                            # highest first; * = the bot's own
+discord-tools role create --server 1394... --name Helpers --colour '#00FF00' --permissions send_messages,attach_files
+discord-tools role edit --server 1394... --role 1401... --hoist --permissions none   # replaces the whole set
+discord-tools role delete --server 1394... --role 1401...                           # dry-run: the role, nothing touched
+discord-tools role delete --server 1394... --role 1401... --execute                 # asks for the role's exact name
+discord-tools permission show --target 1394...                                      # a channel's or category's role overwrites
+discord-tools permission set --target 1394... --role everyone --deny send_messages  # merges into what @everyone has there
+discord-tools permission set --target 1394... --role 1401... --clear                # removes that role's overwrite
+discord-tools permission show --names                                               # the permission vocabulary, no login
+```
+
+**Every write, in order:** preflight names a missing *Manage Roles* as
+`PERMISSION_DENIED` in the dry-run; `HIERARCHY_DENIED` names the bot's top
+role and the target's position when the right is held but cannot reach (a
+managed role, and any role the bot itself holds, are refused the same way —
+the tool never edits or elevates its own roles); a right the bot does not hold
+cannot be granted to a role or an overwrite, and the refusal names it. Then
+the gate, a drift check (a role renamed while the preview sat on screen is
+`PLAN_DRIFT`), the write with the audit reason, and a readback of the role or
+the overwrite as it now is.
+
+**The gates.** Creating and editing a role and setting an overwrite preview
+and ask `y/N`; `--yes` skips the prompt the way `create --yes` does. Deleting
+a role dry-runs by default and for real takes `--execute` **and** the role's
+exact name typed at a prompt — no `--yes`, and no terminal means
+`APPROVAL_REQUIRED`. Anything that grants or removes Administrator is typed
+too (the server's name on a create, the role's on an edit), under a warning
+that says what Administrator is, and `--yes` is refused there.
+
+Permission names are Discord's own in snake_case (`send_messages`,
+`manage_channels`); `--permissions` on a role is the whole set, replaced, and
+`none` clears it. An overwrite merges: allowing a right clears it from the
+deny side and the other way round, a right named on neither side keeps what
+it had. `administrator` is a role permission and is refused as an overwrite;
+a thread has no overwrites of its own and the refusal names its parent.
+
 ## Exports stay out of your repos
 
 Relative `--output` names land in `~/.discord-tools/exports/`, never the
@@ -435,8 +483,8 @@ to `~/.discord-tools/audit.jsonl` (mode 0600, no secrets), and Discord's own
 audit log records the change against `cli-tools <command> plan <id>`.
 
 `skill/SKILL.md` is a bundled agent skill describing the CLI surface and the
-rules an agent must follow (never `clear-messages`, `message delete` or
-`structure apply`, allowlist-gated sends, never print tokens). It updates in the same commit as any CLI-surface change.
+rules an agent must follow (never `clear-messages`, `message delete`,
+`structure apply` or a role or permission write, allowlist-gated sends, never print tokens). It updates in the same commit as any CLI-surface change.
 
 ## Development
 

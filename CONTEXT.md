@@ -226,7 +226,11 @@ The terms this codebase uses, and the boundaries they imply.
   The sync's `sink` hands them to the queue as each row is read.
 - **Media fetcher** — `adapters/media.py::DiscordMediaFetcher`, the
   `MediaFetcher` Protocol: the bytes of one attachment from the CDN and only
-  the CDN, with `Range` from the byte count the pipeline already holds.
+  the CDN, with `Range` from the byte count the pipeline already holds. The
+  core's opener connects only to a pinned address and its private-network
+  check runs on link hops, so the fetcher resolves, classifies and pins the
+  CDN host itself (`_pin`), once per host per fetch, and again after a
+  refresh onto the other CDN host.
 - **Refresh** — what the fetcher does when an attachment URL's `ex` stamp has
   passed or the CDN answers 403/404: re-read the source message through the
   seam, take the current URL, record it on the manifest (`refreshed`, with

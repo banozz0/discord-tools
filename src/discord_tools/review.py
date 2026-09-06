@@ -107,6 +107,7 @@ def pipeline(queue: ReviewQueue, client, *, now=None) -> Pipeline:
         "media": DiscordMediaFetcher(
             client,
             opener=opener,
+            resolver=RESOLVER,
             on_refresh=lambda manifest_id, values: set_extra(queue.archive, manifest_id, values),
             **({"now": now} if now is not None else {}),
         ),

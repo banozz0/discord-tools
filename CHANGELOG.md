@@ -43,8 +43,11 @@ accept it.
   URL, records the refresh on the manifest (`review status` lists it) and
   fetches that. An attachment no longer on its message is a failed download
   with the reason, not a loop.
-- **Only Discord's CDN.** An attachment is fetched from `cdn.discordapp.com`
-  or `media.discordapp.net` and nowhere else; a link goes through the shared
+- **Only Discord's CDN, at an address that was checked.** An attachment is
+  fetched from `cdn.discordapp.com` or `media.discordapp.net` and nowhere
+  else; the host is resolved once, every address refused unless public, and
+  the connection pinned to the one that was checked, the same rule a link
+  gets; a link goes through the shared
   checks in order — scheme, redirects walked by `HEAD` after approval, private
   and cloud-metadata addresses refused with the connection pinned to the
   address that was checked, path, size (256 MiB and the quarantine budget),

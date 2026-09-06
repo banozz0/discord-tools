@@ -15,7 +15,13 @@ served and still fails is a failed download to retry, not a loop.
 The request goes through the core's opener: no proxy from the environment,
 no redirect followed on its own, and the only hosts it will contact are
 Discord's CDN hosts, refused by name otherwise, because platform media never
-fetch through a URL a message chose (spec section 9.3, check 1). `Range`
+fetch through a URL a message chose (spec section 9.3, check 1). The core's
+opener connects only to an address that was validated and pinned on the
+request, and the pipeline's own private-network check runs on link hops, not
+on platform media, so this fetcher does that check itself: the CDN host is
+resolved once through the same resolver, every address it resolves to is
+classified with the core's own rules, the first one is pinned on the request,
+and a refresh that lands on a different CDN host pins that host afresh. `Range`
 resumes from the byte count the pipeline hands over, and a CDN that answers
 200 to a Range request is handled by discarding the prefix, so the payload
 never gains a duplicate. Nothing here is written to disk and no verdict is
@@ -37,7 +43,17 @@ from typing import Any, AsyncIterator, Callable, Mapping
 
 from discord_tools._core import rid as _rid
 from discord_tools._core.contract import utc_now
-from discord_tools._core.download import CHUNK, USER_AGENT, FetchError, Opener, build_opener
+from discord_tools._core.download import (
+    CHUNK,
+    USER_AGENT,
+    Blocked,
+    FetchError,
+    Opener,
+    Resolver,
+    address_reason,
+    build_opener,
+    resolve_host,
+)
 from discord_tools.adapters.archive import attachment_id_of
 
 # Where an attachment lives. `media.discordapp.net` is the resizing proxy in
@@ -81,9 +97,10 @@ class DiscordMediaFetcher:
 
     `client` is the opened seam, used for one thing: re-reading the source
     message when the URL has expired. `opener` is the core's by default and
-    a fake in tests; `on_refresh` is told the manifest id and the refresh
-    record so the row in the archive carries it; `now` is injectable so a
-    test can put a URL in the past.
+    a fake in tests; `resolver` is the one DNS lookup, the core's by default,
+    injected so the suite runs with no network; `on_refresh` is told the
+    manifest id and the refresh record so the row in the archive carries it;
+    `now` is injectable so a test can put a URL in the past.
     """
 
     def __init__(
@@ -91,16 +108,20 @@ class DiscordMediaFetcher:
         client,
         *,
         opener: Opener | None = None,
+        resolver: Resolver | None = None,
         on_refresh: OnRefresh | None = None,
         timeout: float = TIMEOUT,
         now: Callable[[], float] = time.time,
     ) -> None:
         self._client = client
         self.opener = opener or build_opener()
+        self.resolver = resolver or resolve_host
         self.on_refresh = on_refresh
         self.timeout = timeout
         self.now = now
         self.requests: list[tuple[str, str, dict[str, str]]] = []
+        # Host to the validated address of the last fetch, for a test to read.
+        self.pins: dict[str, str] = {}
 
     async def stream(self, manifest: Mapping[str, Any], offset: int = 0) -> AsyncIterator[bytes]:
         state = dict(manifest)
@@ -113,10 +134,12 @@ class DiscordMediaFetcher:
             url = await self._refresh(state, reason="the URL's expiry stamp has passed")
             refreshed = True
 
+        pins: dict[str, str] = {}
         while True:
             self._check_host(url)
+            self._pin(url, pins)
             try:
-                response = await self._open(url, offset)
+                response = await self._open(url, offset, pins)
             except urllib.error.HTTPError as error:
                 if error.code in STALE_STATUSES and not refreshed:
                     url = await self._refresh(state, reason=f"the CDN answered {error.code}")
@@ -147,14 +170,35 @@ class DiscordMediaFetcher:
             if close:
                 close()
 
-    async def _open(self, url: str, offset: int) -> Any:
+    async def _open(self, url: str, offset: int, pins: Mapping[str, str]) -> Any:
         headers = {"User-Agent": USER_AGENT}
         if offset:
             headers["Range"] = f"bytes={offset}-"
         request = urllib.request.Request(url, method="GET", headers=headers)
-        request.pinned = None  # type: ignore[attr-defined]
+        # The core's opener connects to this address and nothing else, with
+        # the Host header and SNI still naming the CDN host.
+        request.pinned = pins[host_of(url)]  # type: ignore[attr-defined]
         self.requests.append(("GET", url, dict(headers)))
         return await asyncio.to_thread(self.opener.open, request, timeout=self.timeout)
+
+    def _pin(self, url: str, pins: dict[str, str]) -> None:
+        """Section 9.3 check 3 for the CDN host: resolve it once, refuse any address that is
+        not public, pin the first. A host already pinned on this fetch is not looked up
+        again; a refresh onto the other CDN host is."""
+        host = host_of(url)
+        if host in pins:
+            return
+        parsed = urllib.parse.urlsplit(url)
+        port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+        addresses = list(self.resolver(host, port))
+        if not addresses:
+            raise Blocked("private_network", f"{host} resolves to no address")
+        for address in addresses:
+            reason = address_reason(address)
+            if reason:
+                raise Blocked("private_network", f"{host} resolves to {address}, which is {reason}")
+        pins[host] = addresses[0]
+        self.pins[host] = addresses[0]
 
     @staticmethod
     def _check_host(url: str) -> None:

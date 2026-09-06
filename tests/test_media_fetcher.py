@@ -3,17 +3,26 @@
 from __future__ import annotations
 
 import asyncio
+import socket
+import ssl
+import threading
 
 import pytest
 
 from conftest import FakeClient
-from discord_tools._core.download import FetchError
+from discord_tools._core.download import Blocked, FetchError, build_opener
 from discord_tools._core.review import Candidate
 from discord_tools.adapters.archive import attachment_id_of, candidates_of, links_in
 from discord_tools.adapters.media import DiscordMediaFetcher, expiry_of, is_expired
 from discord_tools.models import AttachmentInfo, MessageInfo
 
 URL = "https://cdn.discordapp.com/attachments/10/5001/report.bin?ex=68f00000&is=68e00000&hm=abc"
+PUBLIC = "93.184.216.34"
+PUBLIC_TOO = "93.184.216.35"
+
+
+def public(host, port):
+    return [PUBLIC]
 
 
 def test_the_expiry_stamp_is_hex_unix_time():
@@ -110,7 +119,7 @@ class Opener:
 
 def test_a_host_that_is_not_the_cdn_is_refused_by_name_before_any_request():
     opener = Opener()
-    fetcher = DiscordMediaFetcher(FakeClient(), opener=opener, now=lambda: 0)
+    fetcher = DiscordMediaFetcher(FakeClient(), opener=opener, resolver=public, now=lambda: 0)
     with pytest.raises(FetchError, match="not Discord's CDN"):
         collect(fetcher, manifest("https://evil.example/attachments/10/5001/report.bin"))
     assert opener.urls == []
@@ -120,7 +129,7 @@ def test_a_manifest_with_no_url_reads_the_message_first():
     client = FakeClient(messages={(10, 1): MessageInfo(id=1, channel_id=10, author_id=7, author_name="s", text="", attachments=(AttachmentInfo(filename="r.bin", url=URL),))})
     opener = Opener()
     recorded = []
-    fetcher = DiscordMediaFetcher(client, opener=opener, now=lambda: 0, on_refresh=lambda manifest_id, values: recorded.append((manifest_id, values)))
+    fetcher = DiscordMediaFetcher(client, opener=opener, resolver=public, now=lambda: 0, on_refresh=lambda manifest_id, values: recorded.append((manifest_id, values)))
     assert collect(fetcher, manifest(None)) == b"payload"
     assert opener.urls == [URL]
     ((manifest_id, values),) = recorded
@@ -133,7 +142,86 @@ def test_a_range_resume_discards_a_prefix_only_when_the_cdn_answers_200():
             request.remove_header("Range")
             return super().open(request, timeout)
 
-    fetcher = DiscordMediaFetcher(FakeClient(), opener=Ignores(b"0123456789"), now=lambda: 0)
+    fetcher = DiscordMediaFetcher(FakeClient(), opener=Ignores(b"0123456789"), resolver=public, now=lambda: 0)
     assert collect(fetcher, manifest(), offset=4) == b"456789"
-    fetcher = DiscordMediaFetcher(FakeClient(), opener=Opener(b"0123456789"), now=lambda: 0)
+    fetcher = DiscordMediaFetcher(FakeClient(), opener=Opener(b"0123456789"), resolver=public, now=lambda: 0)
     assert collect(fetcher, manifest(), offset=4) == b"456789"
+
+
+# -- the pin, through the core's real opener --------------------------------------
+
+
+class PeerNamed:
+    """One end of a socketpair that reports the address it was asked to connect to, the way a
+    real connected socket does; everything else is the socket's own."""
+
+    def __init__(self, sock, address):
+        self._sock = sock
+        self._address = address
+
+    def getpeername(self):
+        return (self._address, 443)
+
+    def __getattr__(self, name):
+        return getattr(self._sock, name)
+
+
+def serve(body: bytes):
+    """A connector for `build_opener`: hands back one end of a socketpair and answers the
+    request on the other end with `body`. Records every address it was asked for."""
+    asked = []
+
+    def connector(address, timeout=None):
+        asked.append(address)
+        client, server = socket.socketpair()
+
+        def answer():
+            request = b""
+            while b"\r\n\r\n" not in request:
+                piece = server.recv(4096)
+                if not piece:
+                    break
+                request += piece
+            server.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: " + str(len(body)).encode() + b"\r\nConnection: close\r\n\r\n" + body)
+            server.close()
+
+        threading.Thread(target=answer, daemon=True).start()
+        return PeerNamed(client, address[0])
+
+    return connector, asked
+
+
+@pytest.fixture()
+def no_tls(monkeypatch):
+    """TLS is the one thing a socketpair cannot do; the pin and the peer check happen before it."""
+    monkeypatch.setattr(ssl.SSLContext, "wrap_socket", lambda self, sock, **kwargs: sock)
+
+
+def test_the_cdn_host_is_resolved_classified_and_pinned_through_the_real_opener(no_tls):
+    connector, asked = serve(b"payload")
+    fetcher = DiscordMediaFetcher(FakeClient(), opener=build_opener(connector), resolver=public, now=lambda: 0)
+    assert collect(fetcher, manifest()) == b"payload"
+    assert asked == [(PUBLIC, 443)], "the opener connected to the validated address and nothing else"
+    assert fetcher.pins == {"cdn.discordapp.com": PUBLIC}
+
+
+def test_a_cdn_host_resolving_to_a_private_address_is_blocked_before_any_socket(no_tls):
+    connector, asked = serve(b"payload")
+    fetcher = DiscordMediaFetcher(FakeClient(), opener=build_opener(connector), resolver=lambda host, port: ["10.0.0.9"], now=lambda: 0)
+    with pytest.raises(Blocked, match="private_network"):
+        collect(fetcher, manifest())
+    assert asked == []
+
+
+def test_a_refresh_onto_the_other_cdn_host_pins_that_host_afresh(no_tls):
+    stale = "https://media.discordapp.net/attachments/10/5001/report.bin?ex=1&is=1&hm=old"
+    fresh = "https://cdn.discordapp.com/attachments/10/5001/report.bin?ex=7fffffff&is=1&hm=new"
+    client = FakeClient(messages={(10, 1): MessageInfo(id=1, channel_id=10, author_id=7, author_name="s", text="", attachments=(AttachmentInfo(filename="r.bin", url=fresh),))})
+    addresses = {"media.discordapp.net": PUBLIC_TOO, "cdn.discordapp.com": PUBLIC}
+    connector, asked = serve(b"payload")
+    fetcher = DiscordMediaFetcher(client, opener=build_opener(connector), resolver=lambda host, port: [addresses[host]], now=lambda: 10)
+    assert collect(fetcher, manifest(stale)) == b"payload"
+    # The stale host's stamp had passed, so it was never resolved or contacted;
+    # the fresh host was resolved, pinned and connected to at its own address.
+    assert asked == [(PUBLIC, 443)]
+    assert fetcher.pins == {"cdn.discordapp.com": PUBLIC}

@@ -301,7 +301,8 @@ the bot, takes the current URL and records the refresh, which `status` lists.
 
 **Every fetch is checked, in order, and the first failure is `BLOCKED` with
 the check named.** An attachment is fetched from Discord's CDN and nowhere
-else. A link goes through: scheme (`https`/`http` only), redirects (walked by
+else, its host resolved, refused unless every address is public, and the
+connection pinned to the address that was checked. A link goes through: scheme (`https`/`http` only), redirects (walked by
 `HEAD` only after approval, at most five, each hop re-checked), private
 network (loopback, link-local, RFC 1918, cloud metadata addresses refused by
 name, and the connection pinned to the address that was checked so a second

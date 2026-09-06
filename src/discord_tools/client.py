@@ -9,9 +9,12 @@ import discord
 from discord_tools.config import ConfigError
 from discord_tools.models import (
     GUILD_CHANNEL_TYPES,
+    AttachmentInfo,
     BotIdentity,
     ChannelInfo,
     MemberInfo,
+    MessageInfo,
+    ReactionInfo,
     ServerInfo,
     ThreadInfo,
 )
@@ -55,6 +58,47 @@ CHANNEL_KINDS = {
 }
 
 assert tuple(CHANNEL_KINDS) == GUILD_CHANNEL_TYPES, "every deletable channel type needs a maker"
+
+
+# What `--mention` may name. Nothing is the default: a message this tool
+# posts pings nobody unless the person running it said who.
+MENTION_KINDS = ("users", "roles", "everyone")
+
+
+def allowed_mentions(mentions: Sequence[str] = ()) -> discord.AllowedMentions:
+    """discord.py's mention policy for a post: none, plus what was opted into."""
+    unknown = [kind for kind in mentions if kind not in MENTION_KINDS]
+    if unknown:
+        raise ValueError(f"--mention takes {', '.join(MENTION_KINDS)}; not {', '.join(unknown)}.")
+    return discord.AllowedMentions(
+        everyone="everyone" in mentions,
+        users="users" in mentions,
+        roles="roles" in mentions,
+        replied_user=False,
+    )
+
+
+def _message_info(message: Any, channel_id: int) -> MessageInfo:
+    author = getattr(message, "author", None)
+    created = getattr(message, "created_at", None)
+    return MessageInfo(
+        id=int(message.id),
+        channel_id=channel_id,
+        author_id=getattr(author, "id", None),
+        author_name=str(getattr(author, "name", "") or ""),
+        text=getattr(message, "content", "") or "",
+        date=created.isoformat() if created is not None else None,
+        pinned=bool(getattr(message, "pinned", False)),
+        attachments=tuple(
+            AttachmentInfo(filename=a.filename, url=a.url, size=int(getattr(a, "size", 0) or 0))
+            for a in getattr(message, "attachments", None) or ()
+        ),
+        reactions=tuple(
+            ReactionInfo(emoji=str(r.emoji), count=int(r.count), me=bool(getattr(r, "me", False)))
+            for r in getattr(message, "reactions", None) or ()
+        ),
+        jump_url=str(getattr(message, "jump_url", "") or ""),
+    )
 
 
 def _intent_status(flags: Any) -> str:
@@ -238,13 +282,88 @@ class DiscordClient:
         async for message in channel.history(limit=limit, oldest_first=oldest_first, **bounds):
             yield message
 
-    async def send_message(self, channel_id: int, text: str | None, *, files: Sequence[str] = ()) -> int:
-        channel = await self._fetch_channel(channel_id)
-        if not hasattr(channel, "send"):
-            raise ClientError(f"Channel {channel_id} ({_channel_type_name(channel)}) cannot receive messages.")
+    async def send_message(
+        self,
+        channel_id: int,
+        text: str | None,
+        *,
+        files: Sequence[str] = (),
+        reply_to: int | None = None,
+        mentions: Sequence[str] = (),
+    ) -> int:
+        """Post to a channel. Pings nobody unless `mentions` opts in.
+
+        `reply_to` is a message id in the same channel; Discord draws the
+        reply and does not ping its author either (`replied_user=False`).
+        """
+        channel = await self._messageable(channel_id)
         attachments = [discord.File(path) for path in files]
-        message = await channel.send(content=text or None, files=attachments or None)
+        reference = discord.MessageReference(message_id=reply_to, channel_id=channel_id) if reply_to else None
+        message = await channel.send(
+            content=text or None,
+            files=attachments or None,
+            reference=reference,
+            allowed_mentions=allowed_mentions(mentions),
+        )
         return message.id
+
+    async def get_message(self, channel_id: int, message_id: int) -> MessageInfo:
+        message = await self._fetch_message(channel_id, message_id)
+        return _message_info(message, channel_id)
+
+    async def edit_message(
+        self, channel_id: int, message_id: int, text: str, *, mentions: Sequence[str] = ()
+    ) -> None:
+        """Edit a message. Discord only lets a bot edit its own; the caller checks that first."""
+        message = await self._fetch_message(channel_id, message_id)
+        await message.edit(content=text, allowed_mentions=allowed_mentions(mentions))
+
+    async def forward_message(self, channel_id: int, message_id: int, to_channel_id: int) -> int:
+        """`Message.forward` (discord.py 2.5+): Discord's own forward, header and all."""
+        message = await self._fetch_message(channel_id, message_id)
+        destination = await self._messageable(to_channel_id)
+        forwarded = await message.forward(destination)
+        return forwarded.id
+
+    async def add_reaction(self, channel_id: int, message_id: int, emoji: str) -> None:
+        message = await self._fetch_message(channel_id, message_id)
+        await message.add_reaction(emoji)
+
+    async def remove_reaction(self, channel_id: int, message_id: int, emoji: str) -> None:
+        """Take the bot's own reaction off; nobody else's."""
+        message = await self._fetch_message(channel_id, message_id)
+        await message.remove_reaction(emoji, self._client.user)
+
+    async def pin_message(self, channel_id: int, message_id: int, *, reason: str | None = None) -> None:
+        message = await self._fetch_message(channel_id, message_id)
+        await message.pin(reason=reason)
+
+    async def unpin_message(self, channel_id: int, message_id: int, *, reason: str | None = None) -> None:
+        message = await self._fetch_message(channel_id, message_id)
+        await message.unpin(reason=reason)
+
+    async def send_poll(
+        self,
+        channel_id: int,
+        question: str,
+        options: Sequence[str],
+        *,
+        hours: int,
+        multiple: bool = False,
+    ) -> int:
+        from datetime import timedelta
+
+        channel = await self._messageable(channel_id)
+        poll = discord.Poll(question=question, duration=timedelta(hours=hours), multiple=multiple)
+        for option in options:
+            poll.add_answer(text=option)
+        message = await channel.send(poll=poll, allowed_mentions=allowed_mentions())
+        return message.id
+
+    async def trigger_typing(self, channel_id: int) -> None:
+        """Show the bot typing once; Discord clears it after about ten seconds."""
+        channel = await self._messageable(channel_id)
+        await channel.typing()
 
     async def delete_message(self, channel_id: int, message_id: int, *, reason: str | None = None) -> None:
         await self._client.http.delete_message(channel_id, message_id, reason=reason)
@@ -347,6 +466,23 @@ class DiscordClient:
             raise ClientError(f"No server with ID {server_id} — is the bot invited to it?") from exc
         except discord.Forbidden as exc:
             raise PermissionError(f"The bot cannot access server {server_id}.") from exc
+
+    async def _messageable(self, channel_id: int) -> Any:
+        channel = await self._fetch_channel(channel_id)
+        if not hasattr(channel, "send"):
+            raise ClientError(f"Channel {channel_id} ({_channel_type_name(channel)}) cannot receive messages.")
+        return channel
+
+    async def _fetch_message(self, channel_id: int, message_id: int) -> Any:
+        channel = await self._fetch_channel(channel_id)
+        if not hasattr(channel, "fetch_message"):
+            raise ClientError(f"Channel {channel_id} ({_channel_type_name(channel)}) holds no messages.")
+        try:
+            return await channel.fetch_message(message_id)
+        except discord.NotFound as exc:
+            raise ClientError(f"No message with ID {message_id} in channel {channel_id}.") from exc
+        except discord.Forbidden as exc:
+            raise PermissionError(f"The bot cannot read message {message_id} in channel {channel_id}.") from exc
 
     async def _fetch_channel(self, channel_id: int) -> Any:
         try:

@@ -204,3 +204,60 @@ class ContainerDeleteResult:
             "dry_run": self.dry_run,
             "cancelled": self.cancelled,
         }
+
+
+@dataclass(frozen=True)
+class AttachmentInfo:
+    """One attachment as a message carries it: a name and the URL Discord serves it at."""
+
+    filename: str
+    url: str
+    size: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"filename": self.filename, "url": self.url, "size": self.size}
+
+
+@dataclass(frozen=True)
+class ReactionInfo:
+    emoji: str
+    count: int
+    me: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"emoji": self.emoji, "count": self.count, "me": self.me}
+
+
+@dataclass(frozen=True)
+class MessageInfo:
+    """One message fetched by id: what the message commands preview and read back.
+
+    `author_id` is what `edit` checks against the bot's own id, `pinned` and
+    `reactions` are what pin and react read back, and `attachments` carry the
+    URLs a `copy` links to — never the bytes.
+    """
+
+    id: int
+    channel_id: int
+    author_id: int | None
+    author_name: str
+    text: str
+    date: str | None = None
+    pinned: bool = False
+    attachments: tuple[AttachmentInfo, ...] = ()
+    reactions: tuple[ReactionInfo, ...] = ()
+    jump_url: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "channel_id": self.channel_id,
+            "author_id": self.author_id,
+            "author_name": self.author_name,
+            "text": self.text,
+            "date": self.date,
+            "pinned": self.pinned,
+            "attachments": [attachment.to_dict() for attachment in self.attachments],
+            "reactions": [reaction.to_dict() for reaction in self.reactions],
+            "jump_url": self.jump_url,
+        }

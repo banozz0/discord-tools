@@ -61,7 +61,7 @@ def home_is_a_tmp_dir(tmp_path, monkeypatch, never_the_real_home):
     _forget_tool_variables(monkeypatch)
     return fake_home
 
-from discord_tools.models import BotIdentity, ChannelInfo, MemberInfo, ServerInfo, ThreadInfo
+from discord_tools.models import BotIdentity, ChannelInfo, MemberInfo, MessageInfo, ServerInfo, ThreadInfo
 
 # Discord resolves Administrator as holding every permission, and so does the
 # probe above the seam; one key is the whole grant.
@@ -92,6 +92,7 @@ class FakeClient:
         guild_permissions: dict[int, dict[str, bool]] | None = None,
         default_permissions: dict[str, bool] | None = None,
         members: dict[int, list[MemberInfo]] | None = None,
+        messages: dict[tuple[int, int], MessageInfo] | None = None,
     ) -> None:
         self.identity = identity
         self.servers = servers or []
@@ -109,8 +110,17 @@ class FakeClient:
         # Tests about a refusal pass `default_permissions={}` and mean it.
         self.default_permissions = ADMINISTRATOR if default_permissions is None else default_permissions
         self.members = members or {}
+        # What `get_message` answers, keyed (channel_id, message_id). A message
+        # the fake was not given raises the way Discord's 404 does.
+        self.messages: dict[tuple[int, int], MessageInfo] = dict(messages or {})
 
         self.sent: list[dict] = []
+        self.edited: list[dict] = []
+        self.forwarded: list[dict] = []
+        self.reactions: list[tuple[str, int, int, str]] = []
+        self.pins: list[tuple[str, int, int]] = []
+        self.polls: list[dict] = []
+        self.typing: list[int] = []
         self.deleted_single: list[tuple[int, int]] = []
         self.deleted_bulk: list[tuple[int, list[int]]] = []
         self.created: list[dict] = []
@@ -169,24 +179,127 @@ class FakeClient:
                 return
             yield message
 
-    async def send_message(self, channel_id, text, *, files=()):
+    async def send_message(self, channel_id, text, *, files=(), reply_to=None, mentions=()):
         self.next_id += 1
-        self.sent.append({"channel_id": channel_id, "text": text, "files": list(files), "id": self.next_id})
+        self.sent.append(
+            {
+                "channel_id": channel_id,
+                "text": text,
+                "files": list(files),
+                "id": self.next_id,
+                "reply_to": reply_to,
+                "mentions": tuple(mentions),
+            }
+        )
         # History is newest-first, and a message that was just sent is in the
         # channel: without this the fake could not answer a readback, and the
         # readback path would only ever be exercised as a failure.
         self.history.setdefault(channel_id, []).insert(
             0, SimpleNamespace(id=self.next_id, content=text or "", author=None, attachments=[])
         )
+        self.messages[(channel_id, self.next_id)] = MessageInfo(
+            id=self.next_id,
+            channel_id=channel_id,
+            author_id=self.identity.id,
+            author_name=self.identity.username,
+            text=text or "",
+        )
         return self.next_id
+
+    def _message(self, channel_id, message_id) -> MessageInfo:
+        from discord_tools.client import ClientError
+
+        info = self.messages.get((channel_id, message_id))
+        if info is None:
+            raise ClientError(f"No message with ID {message_id} in channel {channel_id}.")
+        return info
+
+    async def get_message(self, channel_id, message_id):
+        return self._message(channel_id, message_id)
+
+    async def edit_message(self, channel_id, message_id, text, *, mentions=()):
+        from dataclasses import replace
+
+        current = self._message(channel_id, message_id)
+        self.messages[(channel_id, message_id)] = replace(current, text=text)
+        self.edited.append({"channel_id": channel_id, "message_id": message_id, "text": text, "mentions": tuple(mentions)})
+
+    async def forward_message(self, channel_id, message_id, to_channel_id):
+        original = self._message(channel_id, message_id)
+        self.next_id += 1
+        self.forwarded.append({"channel_id": channel_id, "message_id": message_id, "to": to_channel_id, "id": self.next_id})
+        self.history.setdefault(to_channel_id, []).insert(
+            0, SimpleNamespace(id=self.next_id, content=original.text, author=None, attachments=[])
+        )
+        return self.next_id
+
+    async def add_reaction(self, channel_id, message_id, emoji):
+        from dataclasses import replace
+
+        from discord_tools.models import ReactionInfo
+
+        current = self._message(channel_id, message_id)
+        self.reactions.append(("add", channel_id, message_id, emoji))
+        kept = tuple(r for r in current.reactions if r.emoji != emoji)
+        found = next((r for r in current.reactions if r.emoji == emoji), None)
+        added = ReactionInfo(emoji=emoji, count=(found.count + 1 if found else 1), me=True)
+        self.messages[(channel_id, message_id)] = replace(current, reactions=kept + (added,))
+
+    async def remove_reaction(self, channel_id, message_id, emoji):
+        from dataclasses import replace
+
+        current = self._message(channel_id, message_id)
+        self.reactions.append(("remove", channel_id, message_id, emoji))
+        kept = tuple(r for r in current.reactions if not (r.emoji == emoji and r.me))
+        self.messages[(channel_id, message_id)] = replace(current, reactions=kept)
+
+    async def pin_message(self, channel_id, message_id, *, reason=None):
+        from dataclasses import replace
+
+        current = self._message(channel_id, message_id)
+        self.pins.append(("pin", channel_id, message_id))
+        self.reasons.append(reason)
+        self.messages[(channel_id, message_id)] = replace(current, pinned=True)
+
+    async def unpin_message(self, channel_id, message_id, *, reason=None):
+        from dataclasses import replace
+
+        current = self._message(channel_id, message_id)
+        self.pins.append(("unpin", channel_id, message_id))
+        self.reasons.append(reason)
+        self.messages[(channel_id, message_id)] = replace(current, pinned=False)
+
+    async def send_poll(self, channel_id, question, options, *, hours, multiple=False):
+        self.next_id += 1
+        self.polls.append(
+            {"channel_id": channel_id, "question": question, "options": list(options), "hours": hours, "multiple": multiple, "id": self.next_id}
+        )
+        self.history.setdefault(channel_id, []).insert(
+            0, SimpleNamespace(id=self.next_id, content="", author=None, attachments=[])
+        )
+        return self.next_id
+
+    async def trigger_typing(self, channel_id):
+        self.typing.append(channel_id)
 
     async def delete_message(self, channel_id, message_id, *, reason=None):
         self.deleted_single.append((channel_id, message_id))
         self.reasons.append(reason)
+        self._drop(channel_id, [message_id])
 
     async def bulk_delete(self, channel_id, message_ids, *, reason=None):
         self.deleted_bulk.append((channel_id, list(message_ids)))
         self.reasons.append(reason)
+        self._drop(channel_id, message_ids)
+
+    def _drop(self, channel_id, message_ids) -> None:
+        # A deleted message is gone from what `get_message` and the history
+        # answer, so a readback can see it went rather than only that a
+        # delete was asked for.
+        for message_id in message_ids:
+            self.messages.pop((channel_id, int(message_id)), None)
+        ids = {int(m) for m in message_ids}
+        self.history[channel_id] = [m for m in self.history.get(channel_id, []) if int(m.id) not in ids]
 
     async def create_channel(self, server_id, name, *, category_id=None, kind="text", reason=None):
         self.next_id += 1

@@ -35,6 +35,10 @@ COMMANDS = [
     ("profiles",), ("profiles", "remove"),
     ("archive",), ("archive", "sync"), ("archive", "status"), ("archive", "search"),
     ("archive", "export"), ("archive", "retention"), ("archive", "forget"),
+    ("message",), ("message", "reply"), ("message", "edit"), ("message", "delete"),
+    ("message", "forward"), ("message", "copy"), ("message", "react"), ("message", "unreact"),
+    ("message", "pin"), ("message", "unpin"), ("message", "poll"), ("message", "typing"),
+    ("message", "bookmark"), ("message", "read"), ("message", "unread"), ("message", "draft"),
 ]
 
 BANNER = "=" * 72

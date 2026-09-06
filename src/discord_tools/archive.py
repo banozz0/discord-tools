@@ -372,3 +372,64 @@ def messages_of(archive: Archive, identity_id: str) -> int:
     return archive.connection.execute(
         "SELECT COUNT(*) FROM messages WHERE identity_id = ?", (identity_id,)
     ).fetchone()[0]
+
+
+# -- bookmarks ------------------------------------------------------------
+#
+# Discord gives a bot no bookmark and no draft API, so `message bookmark` is a
+# row in the archive's own bookmarks table, scoped to the bot that made it,
+# and named as local wherever it is printed. Nothing on Discord changes.
+
+BOOKMARK_SOURCE = "manual"
+
+
+def add_bookmark(archive: Archive, *, rid: str, message_id: int, identity_id: str, label: str = "") -> dict[str, Any]:
+    from discord_tools._core.contract import utc_now
+
+    archive.connection.execute(
+        "INSERT INTO bookmarks (rid, message_id, identity_id, label, created, source) VALUES (?, ?, ?, ?, ?, ?)"
+        " ON CONFLICT(rid, message_id) DO UPDATE SET label = excluded.label, identity_id = excluded.identity_id",
+        (rid, str(message_id), identity_id, label, utc_now(), BOOKMARK_SOURCE),
+    )
+    return read_bookmark(archive, rid=rid, message_id=message_id) or {}
+
+
+def remove_bookmark(archive: Archive, *, rid: str, message_id: int) -> bool:
+    cursor = archive.connection.execute(
+        "DELETE FROM bookmarks WHERE rid = ? AND message_id = ?", (rid, str(message_id))
+    )
+    return cursor.rowcount > 0
+
+
+def read_bookmark(archive: Archive, *, rid: str, message_id: int) -> dict[str, Any] | None:
+    row = archive.connection.execute(
+        "SELECT rid, message_id, identity_id, label, created, source FROM bookmarks WHERE rid = ? AND message_id = ?",
+        (rid, str(message_id)),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def list_bookmarks(archive: Archive, identity_id: str | None = None) -> list[dict[str, Any]]:
+    """Every bookmark, newest first, with the archived text beside it when the archive holds the message."""
+    where, params = ("WHERE b.identity_id = ?", [identity_id]) if identity_id else ("", [])
+    rows = archive.connection.execute(
+        "SELECT b.rid, b.message_id, b.identity_id, b.label, b.created, b.source, s.title AS scope_title,"
+        " (SELECT m.text FROM messages m WHERE m.rid = b.rid AND m.message_id = b.message_id) AS text"
+        f" FROM bookmarks b LEFT JOIN scopes s ON s.rid = b.rid {where}"
+        " ORDER BY b.created DESC, b.message_id DESC",
+        params,
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def format_bookmarks(rows: Sequence[dict[str, Any]]) -> str:
+    if not rows:
+        return "No bookmarks yet - `discord-tools message bookmark --channel <id> --id <message id>` adds one."
+    lines = []
+    for row in rows:
+        where = row.get("scope_title") or _rid.parse(row["rid"]).id
+        label = f"  [{row['label']}]" if row.get("label") else ""
+        text = preview(row["text"], PREVIEW_WIDTH) if row.get("text") else "(not in the archive)"
+        lines.append(f"{row['message_id']}  {row['created'][:16].replace('T', ' ')}  {where}{label}: {text}")
+    lines.append(f"{len(rows)} bookmark(s), local to this machine")
+    return "\n".join(lines)

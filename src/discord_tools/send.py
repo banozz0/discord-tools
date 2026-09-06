@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from discord_tools.models import ChannelInfo, SendResult
+from discord_tools.models import ChannelInfo, MessageInfo, SendResult
 
 RULE = "--------------------------------------------"
 
@@ -21,16 +21,37 @@ def format_size(size: int) -> str:
     return f"{size:.1f} GB"
 
 
+def mentions_label(mentions: Sequence[str]) -> str:
+    """What the preview says about pings: `none` unless --mention opted someone in."""
+    return ", ".join(mentions) if mentions else "none"
+
+
 def format_send_preview(
-    channel: ChannelInfo, text: str | None, *, sender: str, files: Sequence[str] = ()
+    channel: ChannelInfo,
+    text: str | None,
+    *,
+    sender: str,
+    files: Sequence[str] = (),
+    reply_to: MessageInfo | None = None,
+    mentions: Sequence[str] = (),
 ) -> str:
-    """The whole message and its destination, so a y/N is never answered blind."""
+    """The whole message and its destination, so a y/N is never answered blind.
+
+    A reply shows the message it answers, and every send says who it will
+    ping: nobody unless `--mention` said otherwise, and `everyone` is the line
+    a person should read twice.
+    """
+    from discord_tools.messages import message_line
+
     kind = "thread" if channel.type in ("public_thread", "private_thread", "news_thread") else channel.type
     lines = [
         "Sending as " + sender,
         RULE,
         f"Channel #{channel.name} ({channel.id}, {kind})",
     ]
+    if reply_to is not None:
+        lines.append(f"Reply to {message_line(reply_to)}")
+    lines.append(f"Mentions {mentions_label(mentions)}")
     for index, raw in enumerate(files):
         path = Path(raw)
         # Sizes come off disk, not from the argument: naming a file that is not
@@ -78,6 +99,8 @@ async def send_to_channel(
     files: Sequence[str] | None = None,
     confirm: Callable[[], bool] | None = None,
     before_write=None,
+    reply_to: int | None = None,
+    mentions: Sequence[str] = (),
 ) -> SendResult:
     """Post `text` to `channel` once the gate is answered.
 
@@ -92,5 +115,5 @@ async def send_to_channel(
     if before_write is not None:
         await before_write()
 
-    message_id = await client.send_message(channel.id, text, files=files)
+    message_id = await client.send_message(channel.id, text, files=files, reply_to=reply_to, mentions=tuple(mentions))
     return SendResult(channel_id=channel.id, message_id=message_id, cancelled=False, files=len(files))

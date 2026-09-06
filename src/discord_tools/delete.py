@@ -99,7 +99,7 @@ async def _scan_messages(client, channel_id: int, *, now: datetime | None = None
     return ids, bulk, single
 
 
-async def _delete_messages(
+async def delete_message_ids(
     client,
     channel_id: int,
     ids: list[int],
@@ -170,7 +170,7 @@ async def clear_messages(
     if before_write is not None:
         await before_write()
 
-    deleted, error = await _delete_messages(
+    deleted, error = await delete_message_ids(
         client,
         channel_id,
         ids,
@@ -291,7 +291,7 @@ async def clear_server_messages(
                 await before_write()
             for location, ids, bulk, single in plans:
                 progress(f"Clearing {location.name} ({location.id})")
-                location_deleted, error = await _delete_messages(
+                location_deleted, error = await delete_message_ids(
                     client,
                     location.id,
                     ids,

@@ -2,10 +2,10 @@
 discord-tools --help
 ========================================================================
 usage: discord-tools [-h] [--profile PROFILE] [--json] [--jsonl]
-                     {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,bot} ...
+                     {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,message,bot} ...
 
 positional arguments:
-  {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,bot}
+  {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,message,bot}
     auth                Guided bot setup: Developer Portal walkthrough, token check, invite URL
     doctor              Check token, message-content intent, servers, and channel permissions
     discover            List the server -> channel -> thread tree with IDs
@@ -19,6 +19,8 @@ positional arguments:
     leave-server        Make the bot leave a server (nothing in it is deleted; dry-run by default)
     profiles            List the stored bot profiles, or remove one (no token is ever printed)
     archive             The local archive: sync history into it, search it, export it, prune it
+    message             Act on messages a channel holds: reply, edit, delete, forward, copy,
+                        react, pin, poll, typing, bookmark
     bot                 Show or edit the active profile's bot settings and invite URL
 
 options:
@@ -97,14 +99,20 @@ options:
 ========================================================================
 discord-tools send --help
 ========================================================================
-usage: discord-tools send [-h] --channel CHANNEL [--text TEXT] [--file PATH] [--yes]
+usage: discord-tools send [-h] --channel CHANNEL [--text TEXT] [--file PATH]
+                          [--reply-to MESSAGE_ID] [--mention {users,roles,everyone}] [--yes]
 
 options:
-  -h, --help         show this help message and exit
-  --channel CHANNEL  Channel or thread ID
-  --text TEXT        Message text, or - to read it from stdin; optional when --file is given
-  --file PATH        Attach a file; repeatable
-  --yes              Skip the preview and send; the channel must be in DISCORD_SEND_ALLOWLIST
+  -h, --help            show this help message and exit
+  --channel CHANNEL     Channel or thread ID
+  --text TEXT           Message text, or - to read it from stdin; optional when --file is given
+  --file PATH           Attach a file; repeatable
+  --reply-to MESSAGE_ID
+                        Post as a reply to this message in the same channel
+  --mention {users,roles,everyone}
+                        Let the post ping this group; repeatable. Nobody is pinged without it, and
+                        everyone always asks, even with --yes
+  --yes                 Skip the preview and send; the channel must be in DISCORD_SEND_ALLOWLIST
 
 ========================================================================
 discord-tools create --help
@@ -374,3 +382,233 @@ options:
   --scope RID_OR_ID    The channel or thread to forget (a rid or a numeric ID)
   --identity IDENTITY  The bot identity whose rows all go (a dc:bot rid)
   --execute            Actually remove after typing the target's exact name
+
+========================================================================
+discord-tools message --help
+========================================================================
+usage: discord-tools message [-h]
+                             {reply,edit,delete,forward,copy,react,unreact,pin,unpin,poll,typing,bookmark,read,unread,draft} ...
+
+positional arguments:
+  {reply,edit,delete,forward,copy,react,unreact,pin,unpin,poll,typing,bookmark,read,unread,draft}
+    reply               Reply to a message as the bot (a `send --reply-to`)
+    edit                Edit one of the bot's own messages (Discord lets a bot edit no other)
+    delete              Delete chosen messages in one channel (dry-run by default; bounded)
+    forward             Forward messages to another channel with Discord's own forward header
+    copy                Re-post messages' text elsewhere with an attribution line and links to
+                        their attachments
+    react               Add the bot's reaction to a message
+    unreact             Remove the bot's own reaction from a message
+    pin                 Pin a message (needs Pin Messages)
+    unpin               Unpin a message (needs Pin Messages)
+    poll                Post a poll
+    typing              Show the bot typing in a channel for a few seconds
+    bookmark            Keep a message as a local bookmark (Discord gives a bot no bookmark API)
+    read                Not possible for a Discord bot; exits 2 with PLATFORM_UNSUPPORTED and says
+                        why
+    unread              Not possible for a Discord bot; exits 2 with PLATFORM_UNSUPPORTED and says
+                        why
+    draft               Not possible for a Discord bot; exits 2 with PLATFORM_UNSUPPORTED and says
+                        why
+
+options:
+  -h, --help            show this help message and exit
+
+========================================================================
+discord-tools message reply --help
+========================================================================
+usage: discord-tools message reply [-h] --channel CHANNEL --to MESSAGE_ID [--text TEXT]
+                                   [--file PATH] [--mention {users,roles,everyone}] [--yes]
+
+options:
+  -h, --help            show this help message and exit
+  --channel CHANNEL     Channel or thread ID the message is in
+  --to MESSAGE_ID       Message to reply to
+  --text TEXT           Reply text, or - to read it from stdin; optional when --file is given
+  --file PATH           Attach a file; repeatable
+  --mention {users,roles,everyone}
+                        Let the post ping this group; repeatable. Nobody is pinged without it, and
+                        everyone always asks, even with --yes
+  --yes                 Skip the preview and post; the destination must be in
+                        DISCORD_SEND_ALLOWLIST
+
+========================================================================
+discord-tools message edit --help
+========================================================================
+usage: discord-tools message edit [-h] --channel CHANNEL --id MESSAGE_ID --text TEXT
+                                  [--mention {users,roles,everyone}] [--yes]
+
+options:
+  -h, --help            show this help message and exit
+  --channel CHANNEL     Channel or thread ID the message is in
+  --id MESSAGE_ID       Message ID
+  --text TEXT           The new text, or - to read it from stdin
+  --mention {users,roles,everyone}
+                        Let the post ping this group; repeatable. Nobody is pinged without it, and
+                        everyone always asks, even with --yes
+  --yes                 Skip the confirmation prompt
+
+========================================================================
+discord-tools message delete --help
+========================================================================
+usage: discord-tools message delete [-h] --channel CHANNEL (--ids MESSAGE_ID [MESSAGE_ID ...] |
+                                    --from-search QUERY) [--limit LIMIT] [--i-know] [--execute]
+
+options:
+  -h, --help            show this help message and exit
+  --channel CHANNEL     Channel or thread ID the message is in
+  --ids MESSAGE_ID [MESSAGE_ID ...]
+                        Message IDs, space-separated
+  --from-search QUERY   Select by a full-text query over this channel's rows in the local archive
+  --limit LIMIT         Most messages one run may delete (default 200; above 1000 needs --i-know)
+  --i-know              Allow --limit above 1000; the count is typed back at the prompt
+  --execute             Actually delete after typing DELETE
+
+========================================================================
+discord-tools message forward --help
+========================================================================
+usage: discord-tools message forward [-h] --channel CHANNEL [--ids MESSAGE_ID [MESSAGE_ID ...]]
+                                     --to CHANNEL_ID [--yes]
+
+options:
+  -h, --help            show this help message and exit
+  --channel CHANNEL     Channel or thread ID the message is in
+  --ids MESSAGE_ID [MESSAGE_ID ...]
+                        Message IDs, space-separated
+  --to CHANNEL_ID       Destination channel or thread ID
+  --yes                 Skip the preview and post; the destination must be in
+                        DISCORD_SEND_ALLOWLIST
+
+========================================================================
+discord-tools message copy --help
+========================================================================
+usage: discord-tools message copy [-h] --channel CHANNEL [--ids MESSAGE_ID [MESSAGE_ID ...]]
+                                  --to CHANNEL_ID [--mention {users,roles,everyone}] [--yes]
+
+options:
+  -h, --help            show this help message and exit
+  --channel CHANNEL     Channel or thread ID the message is in
+  --ids MESSAGE_ID [MESSAGE_ID ...]
+                        Message IDs, space-separated
+  --to CHANNEL_ID       Destination channel or thread ID
+  --mention {users,roles,everyone}
+                        Let the post ping this group; repeatable. Nobody is pinged without it, and
+                        everyone always asks, even with --yes
+  --yes                 Skip the preview and post; the destination must be in
+                        DISCORD_SEND_ALLOWLIST
+
+========================================================================
+discord-tools message react --help
+========================================================================
+usage: discord-tools message react [-h] --channel CHANNEL --id MESSAGE_ID --emoji EMOJI [--yes]
+
+options:
+  -h, --help         show this help message and exit
+  --channel CHANNEL  Channel or thread ID the message is in
+  --id MESSAGE_ID    Message ID
+  --emoji EMOJI      A unicode emoji, or a custom one as <:name:id>
+  --yes              Skip the confirmation prompt
+
+========================================================================
+discord-tools message unreact --help
+========================================================================
+usage: discord-tools message unreact [-h] --channel CHANNEL --id MESSAGE_ID --emoji EMOJI [--yes]
+
+options:
+  -h, --help         show this help message and exit
+  --channel CHANNEL  Channel or thread ID the message is in
+  --id MESSAGE_ID    Message ID
+  --emoji EMOJI      The reaction to remove
+  --yes              Skip the confirmation prompt
+
+========================================================================
+discord-tools message pin --help
+========================================================================
+usage: discord-tools message pin [-h] --channel CHANNEL --id MESSAGE_ID [--yes]
+
+options:
+  -h, --help         show this help message and exit
+  --channel CHANNEL  Channel or thread ID the message is in
+  --id MESSAGE_ID    Message ID
+  --yes              Skip the confirmation prompt
+
+========================================================================
+discord-tools message unpin --help
+========================================================================
+usage: discord-tools message unpin [-h] --channel CHANNEL --id MESSAGE_ID [--yes]
+
+options:
+  -h, --help         show this help message and exit
+  --channel CHANNEL  Channel or thread ID the message is in
+  --id MESSAGE_ID    Message ID
+  --yes              Skip the confirmation prompt
+
+========================================================================
+discord-tools message poll --help
+========================================================================
+usage: discord-tools message poll [-h] --channel CHANNEL --question QUESTION --option TEXT
+                                  [--multiple] [--hours HOURS] [--yes]
+
+options:
+  -h, --help           show this help message and exit
+  --channel CHANNEL    Channel or thread ID to post in
+  --question QUESTION  The question
+  --option TEXT        An answer; repeat for each (2 to 10)
+  --multiple           Let a voter pick more than one answer
+  --hours HOURS        How long it stays open, 1 to 768 (default 24)
+  --yes                Skip the preview and post; the destination must be in
+                       DISCORD_SEND_ALLOWLIST
+
+========================================================================
+discord-tools message typing --help
+========================================================================
+usage: discord-tools message typing [-h] --channel CHANNEL [--seconds SECONDS] [--yes]
+
+options:
+  -h, --help         show this help message and exit
+  --channel CHANNEL  Channel or thread ID
+  --seconds SECONDS  How long, 1 to 300 (default 5)
+  --yes              Skip the confirmation prompt
+
+========================================================================
+discord-tools message bookmark --help
+========================================================================
+usage: discord-tools message bookmark [-h] [--channel CHANNEL] [--id MESSAGE_ID] [--label LABEL]
+                                      [--remove] [--list] [--yes]
+
+options:
+  -h, --help         show this help message and exit
+  --channel CHANNEL  Channel or thread ID the message is in
+  --id MESSAGE_ID    Message ID
+  --label LABEL      A note to keep with it
+  --remove           Drop the bookmark instead of adding it
+  --list             Print this machine's bookmarks; no login
+  --yes              Skip the confirmation prompt
+
+========================================================================
+discord-tools message read --help
+========================================================================
+usage: discord-tools message read [-h] [--scope SCOPE]
+
+options:
+  -h, --help     show this help message and exit
+  --scope SCOPE  Channel or thread ID
+
+========================================================================
+discord-tools message unread --help
+========================================================================
+usage: discord-tools message unread [-h] [--scope SCOPE]
+
+options:
+  -h, --help     show this help message and exit
+  --scope SCOPE  Channel or thread ID
+
+========================================================================
+discord-tools message draft --help
+========================================================================
+usage: discord-tools message draft [-h] [--scope SCOPE] [--text TEXT]
+
+options:
+  -h, --help     show this help message and exit
+  --scope SCOPE  Channel or thread ID
+  --text TEXT    The draft text

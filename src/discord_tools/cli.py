@@ -23,8 +23,10 @@ from discord_tools.adapters import (
     DiscordTargetResolver,
 )
 from discord_tools.adapters.targets import TargetError
-from discord_tools.client import ClientError
+from discord_tools.client import MENTION_KINDS, ClientError
 from discord_tools import __version__
+from discord_tools import messages as message_ops
+from discord_tools.models import MessageInfo
 from discord_tools.envelope import TOOL, CountingClient, Outcome, Run, command_name, echoed_args
 from discord_tools.portal import invite_url, run_auth
 from discord_tools import profiles as profile_store
@@ -47,7 +49,9 @@ from discord_tools.delete import (
     confirm_delete,
     confirm_leave_server,
     delete_container,
+    delete_message_ids,
     leave_server,
+    split_bulk_window,
 )
 from discord_tools.doctor import collect_checks
 from discord_tools.bot import (
@@ -88,6 +92,17 @@ def snowflake(value: str) -> int:
     if not value.isdecimal():
         raise argparse.ArgumentTypeError("must be a numeric Discord ID")
     return int(value)
+
+
+def _mention_flag(parser) -> None:
+    parser.add_argument(
+        "--mention",
+        dest="mentions",
+        action="append",
+        choices=MENTION_KINDS,
+        default=None,
+        help="Let the post ping this group; repeatable. Nobody is pinged without it, and everyone always asks, even with --yes",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -152,6 +167,8 @@ def build_parser() -> argparse.ArgumentParser:
     send_parser.add_argument("--channel", required=True, type=snowflake, help="Channel or thread ID")
     send_parser.add_argument("--text", help="Message text, or - to read it from stdin; optional when --file is given")
     send_parser.add_argument("--file", dest="files", action="append", metavar="PATH", help="Attach a file; repeatable")
+    send_parser.add_argument("--reply-to", dest="reply_to", type=snowflake, metavar="MESSAGE_ID", help="Post as a reply to this message in the same channel")
+    _mention_flag(send_parser)
     send_parser.add_argument(
         "--yes",
         action="store_true",
@@ -291,6 +308,113 @@ def build_parser() -> argparse.ArgumentParser:
     forget_what.add_argument("--identity", help="The bot identity whose rows all go (a dc:bot rid)")
     archive_forget.add_argument("--execute", action="store_true", help="Actually remove after typing the target's exact name")
 
+    message_parser = subparsers.add_parser(
+        "message",
+        help="Act on messages a channel holds: reply, edit, delete, forward, copy, react, pin, poll, typing, bookmark",
+    )
+    message_kinds = message_parser.add_subparsers(dest="message_kind")
+
+    def channel_flag(parser, help="Channel or thread ID the message is in"):
+        parser.add_argument("--channel", required=True, type=snowflake, help=help)
+
+    def id_flag(parser):
+        parser.add_argument("--id", dest="id", required=True, type=snowflake, metavar="MESSAGE_ID", help="Message ID")
+
+    def ids_flag(parser):
+        parser.add_argument("--ids", nargs="+", type=snowflake, metavar="MESSAGE_ID", help="Message IDs, space-separated")
+
+    def yes_flag(parser, help):
+        parser.add_argument("--yes", action="store_true", help=help)
+
+    POSTS = "Skip the preview and post; the destination must be in DISCORD_SEND_ALLOWLIST"
+    SKIPS = "Skip the confirmation prompt"
+
+    reply = message_kinds.add_parser("reply", help="Reply to a message as the bot (a `send --reply-to`)")
+    channel_flag(reply)
+    reply.add_argument("--to", required=True, type=snowflake, metavar="MESSAGE_ID", help="Message to reply to")
+    reply.add_argument("--text", help="Reply text, or - to read it from stdin; optional when --file is given")
+    reply.add_argument("--file", dest="files", action="append", metavar="PATH", help="Attach a file; repeatable")
+    _mention_flag(reply)
+    yes_flag(reply, POSTS)
+
+    edit = message_kinds.add_parser("edit", help="Edit one of the bot's own messages (Discord lets a bot edit no other)")
+    channel_flag(edit)
+    id_flag(edit)
+    edit.add_argument("--text", required=True, help="The new text, or - to read it from stdin")
+    _mention_flag(edit)
+    yes_flag(edit, SKIPS)
+
+    delete = message_kinds.add_parser("delete", help="Delete chosen messages in one channel (dry-run by default; bounded)")
+    channel_flag(delete)
+    selection = delete.add_mutually_exclusive_group(required=True)
+    ids_flag(selection)
+    selection.add_argument("--from-search", dest="from_search", metavar="QUERY", help="Select by a full-text query over this channel's rows in the local archive")
+    delete.add_argument("--limit", type=positive_int, help="Most messages one run may delete (default 200; above 1000 needs --i-know)")
+    delete.add_argument("--i-know", dest="i_know", action="store_true", help="Allow --limit above 1000; the count is typed back at the prompt")
+    delete.add_argument("--execute", action="store_true", help="Actually delete after typing DELETE")
+
+    forward = message_kinds.add_parser("forward", help="Forward messages to another channel with Discord's own forward header")
+    channel_flag(forward)
+    ids_flag(forward)
+    forward.add_argument("--to", required=True, type=snowflake, metavar="CHANNEL_ID", help="Destination channel or thread ID")
+    yes_flag(forward, POSTS)
+
+    copy = message_kinds.add_parser("copy", help="Re-post messages' text elsewhere with an attribution line and links to their attachments")
+    channel_flag(copy)
+    ids_flag(copy)
+    copy.add_argument("--to", required=True, type=snowflake, metavar="CHANNEL_ID", help="Destination channel or thread ID")
+    _mention_flag(copy)
+    yes_flag(copy, POSTS)
+
+    react = message_kinds.add_parser("react", help="Add the bot's reaction to a message")
+    channel_flag(react)
+    id_flag(react)
+    react.add_argument("--emoji", required=True, help="A unicode emoji, or a custom one as <:name:id>")
+    yes_flag(react, SKIPS)
+
+    unreact = message_kinds.add_parser("unreact", help="Remove the bot's own reaction from a message")
+    channel_flag(unreact)
+    id_flag(unreact)
+    unreact.add_argument("--emoji", required=True, help="The reaction to remove")
+    yes_flag(unreact, SKIPS)
+
+    pin = message_kinds.add_parser("pin", help="Pin a message (needs Pin Messages)")
+    channel_flag(pin)
+    id_flag(pin)
+    yes_flag(pin, SKIPS)
+
+    unpin = message_kinds.add_parser("unpin", help="Unpin a message (needs Pin Messages)")
+    channel_flag(unpin)
+    id_flag(unpin)
+    yes_flag(unpin, SKIPS)
+
+    poll = message_kinds.add_parser("poll", help="Post a poll")
+    channel_flag(poll, "Channel or thread ID to post in")
+    poll.add_argument("--question", required=True, help="The question")
+    poll.add_argument("--option", dest="options", action="append", required=True, metavar="TEXT", help="An answer; repeat for each (2 to 10)")
+    poll.add_argument("--multiple", action="store_true", help="Let a voter pick more than one answer")
+    poll.add_argument("--hours", type=positive_int, default=24, help="How long it stays open, 1 to 768 (default 24)")
+    yes_flag(poll, POSTS)
+
+    typing = message_kinds.add_parser("typing", help="Show the bot typing in a channel for a few seconds")
+    channel_flag(typing, "Channel or thread ID")
+    typing.add_argument("--seconds", type=positive_int, default=5, help="How long, 1 to 300 (default 5)")
+    yes_flag(typing, SKIPS)
+
+    bookmark = message_kinds.add_parser("bookmark", help="Keep a message as a local bookmark (Discord gives a bot no bookmark API)")
+    bookmark.add_argument("--channel", type=snowflake, help="Channel or thread ID the message is in")
+    bookmark.add_argument("--id", dest="id", type=snowflake, metavar="MESSAGE_ID", help="Message ID")
+    bookmark.add_argument("--label", default="", help="A note to keep with it")
+    bookmark.add_argument("--remove", action="store_true", help="Drop the bookmark instead of adding it")
+    bookmark.add_argument("--list", dest="list_bookmarks", action="store_true", help="Print this machine's bookmarks; no login")
+    yes_flag(bookmark, SKIPS)
+
+    for verb in message_ops.UNSUPPORTED:
+        unsupported = message_kinds.add_parser(verb, help=f"Not possible for a Discord bot; exits 2 with PLATFORM_UNSUPPORTED and says why")
+        unsupported.add_argument("--scope", type=snowflake, help="Channel or thread ID")
+        if verb == "draft":
+            unsupported.add_argument("--text", help="The draft text")
+
     bot_parser = subparsers.add_parser("bot", help="Show or edit the active profile's bot settings and invite URL")
     bot_parser.add_argument("--invite", action="store_true", help="Print only the invite URL")
     bot_parser.add_argument(
@@ -349,6 +473,8 @@ def _as_outcome(exc: Exception) -> Outcome | None:
     """
     if isinstance(exc, TargetError):
         return _refused(exc.code, str(exc), hint=exc.hint)
+    if isinstance(exc, message_ops.BulkLimitError):
+        return Outcome(status="refused", error=exc.error)
     if isinstance(exc, CodedError):
         return Outcome(status="refused", error=exc.error)
     if isinstance(exc, (SearchError, ExportError)):
@@ -389,8 +515,15 @@ async def run(args, *, client=None, config=None, out=None) -> int:
         # token needed. Listing has to work after the last one was removed.
         return await _run_profiles(args, out)
 
+    if args.command == "message" and args.message_kind in message_ops.UNSUPPORTED:
+        # Refused before any config or login: there is nothing Discord could answer.
+        return out.finish(Outcome(status="refused", error=message_ops.platform_unsupported(args.message_kind)))
+
     if config is None:
         config = load_config(profile=args.profile)
+
+    if args.command == "message" and args.message_kind == "bookmark" and args.list_bookmarks:
+        return await _dispatch_offline(args, config, out)
 
     if _is_offline_archive(args):
         # The rows are on disk and the identity comes from the profile record:
@@ -605,7 +738,9 @@ async def _dispatch_offline(args, config, out) -> int:
         out.identity = archive_store.local_identity(config)
         if out.presents:
             out.frame(banner(out.identity))
-        if args.command == "search":
+        if args.command == "message":
+            outcome = await _run_bookmark_list(args, out)
+        elif args.command == "search":
             outcome = await _run_archive_search(_archive_args_from_search(args), out)
         elif args.archive_kind == "status":
             outcome = await _run_archive_status(args, out)
@@ -890,13 +1025,27 @@ def _drift_guard(out, write, rebuild):
     return before_write
 
 
+def _mentions(args) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(getattr(args, "mentions", None) or ()))
+
+
+def _asks_anyway(args) -> bool:
+    """`--mention everyone` is prompt_y even under --yes: a flag does not answer for a server-wide ping."""
+    return "everyone" in _mentions(args)
+
+
 async def _run_send(client, args, config, out) -> Outcome:
     files = _attachments(getattr(args, "files", None))
     text = _message_text(args.text, has_files=bool(files))
+    mentions = _mentions(args)
+    reply_to = getattr(args, "reply_to", None)
 
     resolver = DiscordTargetResolver(client)
     target = await resolver.resolve(args.channel)
     identity = await _identity(out, client, config)
+    # A reply previews the message it answers; a reply to nothing is caught here.
+    replied = await client.get_message(args.channel, reply_to) if reply_to else None
+    ask = not args.yes or _asks_anyway(args)
 
     async def build():
         return await _plan(
@@ -908,10 +1057,15 @@ async def _run_send(client, args, config, out) -> Outcome:
                 Mutation(
                     op="send_message",
                     rid=str(_rid.make("dc", target.kind, args.channel)),
-                    params={"files": len(files), "text_chars": len(text or "")},
+                    params={
+                        "files": len(files),
+                        "text_chars": len(text or ""),
+                        "mentions": list(mentions),
+                        **({"reply_to": str(reply_to)} if reply_to else {}),
+                    },
                 ),
             ),
-            approval="yes_allowlist" if args.yes else "prompt_y",
+            approval="prompt_y" if ask else "yes_allowlist",
             rights=plans.REQUIRED_RIGHTS["send"],
         )
 
@@ -920,13 +1074,13 @@ async def _run_send(client, args, config, out) -> Outcome:
         return Outcome(status="refused", target=target, plan=write.plan, error=write.refusal)
 
     confirm = None
-    ask = not args.yes
-    if args.yes:
+    if not ask:
         require_send_allowed(config.send_allowlist, args.channel)
     else:
         refusal = out.approval_unavailable(
-            f"Run `discord-tools send --channel {args.channel} ... --yes` with the channel in "
+            f"Run `discord-tools {out.command} --channel {args.channel} ... --yes` with the channel in "
             "DISCORD_SEND_ALLOWLIST, or answer the preview in a terminal."
+            + (" A message that pings everyone always asks." if _asks_anyway(args) else "")
         )
         if refusal is not None:
             return Outcome(status="refused", target=target, plan=write.plan, error=refusal)
@@ -934,12 +1088,21 @@ async def _run_send(client, args, config, out) -> Outcome:
     # asking Discord twice for it is a call that buys nothing.
     channel = await client.get_channel(args.channel)
     if ask:
-        preview = format_send_preview(channel, text, sender=identity.label, files=files)
+        preview = format_send_preview(
+            channel, text, sender=identity.label, files=files, reply_to=replied, mentions=mentions
+        )
         out.say(plans.format_preflight(write.plan))
         confirm = partial(confirm_send, preview, write=out.say)
 
     result = await send_to_channel(
-        client, channel, text, files=files, confirm=confirm, before_write=_drift_guard(out, write, build)
+        client,
+        channel,
+        text,
+        files=files,
+        confirm=confirm,
+        before_write=_drift_guard(out, write, build),
+        reply_to=reply_to,
+        mentions=mentions,
     )
     out.payload(result.to_dict())
     if result.cancelled:
@@ -1277,6 +1440,667 @@ async def _run_clear_messages(client, args, config, out) -> Outcome:
     return Outcome(status="ok", target=target, plan=write.plan, result=result.to_dict(), evidence=evidence)
 
 
+
+# -- message operations ----------------------------------------------------
+#
+# One command group over messages a channel already holds. Every verb is a
+# write the way `send` is — plan, preview of the target *and the message*,
+# preflight, gate, drift check, readback, audit line — and the shape below is
+# what they share, so a verb is its mutation, its rights, its preview and its
+# call, and nothing else.
+
+TYPING_EVERY = 8.0
+TYPING_MAX_SECONDS = 300
+POLL_MAX_HOURS = 768
+POLL_OPTIONS = (2, 10)
+_typing_sleep = asyncio.sleep
+
+
+class _Gate:
+    """How a message verb is confirmed, decided once from its flags.
+
+    `posts` verbs put a message into a channel and follow `send`: `--yes` is
+    the allowlisted unattended path. The rest — an edit, a reaction, a pin —
+    change something already there, and `--yes` skips the prompt the way
+    `create --yes` does. `everyone` asks whatever the flags said.
+    """
+
+    def __init__(self, args, *, posts: bool) -> None:
+        self.yes = bool(getattr(args, "yes", False))
+        self.posts = posts
+        self.ask = not self.yes or _asks_anyway(args)
+
+    @property
+    def approval(self) -> str:
+        if self.ask:
+            return "prompt_y"
+        return "yes_allowlist" if self.posts else "prompt_y"
+
+
+async def _confirm_message_write(out, config, gate: _Gate, *, write, target, channel_id, preview, question) -> Outcome | None:
+    """The refusal or cancellation that stops a verb, or None to go ahead."""
+    if not gate.ask:
+        if gate.posts:
+            require_send_allowed(config.send_allowlist, channel_id)
+        return None
+    refusal = out.approval_unavailable(
+        f"Run `discord-tools {out.command} ... --yes` "
+        + ("with the destination in DISCORD_SEND_ALLOWLIST, " if gate.posts else "")
+        + "or answer the preview in a terminal."
+        + (" A message that pings everyone always asks." if _asks_anyway_gate(gate) else "")
+    )
+    if refusal is not None:
+        return Outcome(status="refused", target=target, plan=write.plan, error=refusal)
+    out.say(plans.format_preflight(write.plan))
+    if not message_ops.confirm_write(preview, question, write=out.say):
+        return Outcome(status="cancelled", target=target, plan=write.plan, result={"cancelled": True})
+    return None
+
+
+def _asks_anyway_gate(gate: _Gate) -> bool:
+    return gate.yes and gate.ask
+
+
+async def _message_verified(client, channel_id: int, message_id: int, check) -> str:
+    """Readback for a verb that changes a message: fetch it again and let `check` say what it sees."""
+    message = await client.get_message(channel_id, message_id)
+    return check(message)
+
+
+async def _run_message(client, args, config, out) -> Outcome:
+    verb = args.message_kind
+    if verb is None:
+        raise ValueError("message needs a verb: reply, edit, delete, forward, copy, react, unreact, pin, unpin, poll, typing, bookmark.")
+    if verb == "reply":
+        args.reply_to = args.to
+        return await _run_send(client, args, config, out)
+    runner = MESSAGE_VERBS[verb]
+    return await runner(client, args, config, out)
+
+
+async def _run_message_edit(client, args, config, out) -> Outcome:
+    text = _message_text(args.text, has_files=False)
+    mentions = _mentions(args)
+    resolver = DiscordTargetResolver(client)
+    target = await resolver.resolve(args.channel)
+    identity = await _identity(out, client, config)
+    message = await client.get_message(args.channel, args.id)
+    bot_id = int(_rid.parse(identity.id).id)
+    if message.author_id != bot_id:
+        return _refused(
+            "PLATFORM_UNSUPPORTED",
+            f"Discord lets a bot edit only its own messages, and message {args.id} is by "
+            f"{message.author_name or message.author_id}.",
+            hint="Reply to it, or ask its author to edit it.",
+            platform="discord",
+        )
+    gate = _Gate(args, posts=False)
+
+    async def build():
+        return await _plan(
+            client,
+            command=out.command,
+            identity=identity,
+            targets=(await resolver.resolve(args.channel),),
+            mutations=(
+                Mutation(
+                    op="edit_message",
+                    rid=target.rid,
+                    params={"message_id": str(args.id), "text_chars": len(text), "mentions": list(mentions)},
+                ),
+            ),
+            approval=gate.approval,
+            rights=plans.REQUIRED_RIGHTS["message-edit"],
+        )
+
+    write = await build()
+    if write.refusal is not None:
+        return Outcome(status="refused", target=target, plan=write.plan, error=write.refusal)
+    preview = message_ops.format_message_preview(
+        target, message, acting_as=identity.label, action="Edit the bot's message",
+        detail=["New text:", text, f"Mentions {', '.join(mentions) or 'none'}"],
+    )
+    stopped = await _confirm_message_write(
+        out, config, gate, write=write, target=target, channel_id=args.channel, preview=preview, question="Edit it?"
+    )
+    if stopped is not None:
+        return stopped
+    await _drift_guard(out, write, build)()
+    await client.edit_message(args.channel, args.id, text, mentions=mentions)
+    result = {"channel_id": args.channel, "message_id": args.id, "edited": True}
+    out.payload(result)
+    evidence = await plans.read_back(
+        "the message could not be read back",
+        lambda: _message_verified(
+            client, args.channel, args.id,
+            lambda m: f"message {args.id} now reads as edited" if m.text == text else f"message {args.id} still reads differently",
+        ),
+    )
+    return Outcome(status="ok", target=target, plan=write.plan, result=result, evidence=evidence)
+
+
+def _hit_as_message(hit, channel_id: int) -> MessageInfo:
+    """An archive hit in the preview's shape: nothing is fetched to list a selection."""
+    return MessageInfo(
+        id=int(hit.message_id),
+        channel_id=channel_id,
+        author_id=None,
+        author_name=hit.sender,
+        text=hit.text,
+        date=hit.date,
+    )
+
+
+async def _run_message_delete(client, args, config, out) -> Outcome:
+    limit = message_ops.bulk_limit(args.limit, i_know=args.i_know)
+    resolver = DiscordTargetResolver(client)
+    target = await resolver.resolve(args.channel)
+    identity = await _identity(out, client, config)
+
+    if args.from_search:
+        if not archive_store.archive_exists():
+            return _refused(
+                "ARCHIVE_UNAVAILABLE",
+                "--from-search selects from the local archive, and there is none yet.",
+                hint="Run `discord-tools archive sync` first, or pass --ids.",
+            )
+        with archive_store.open_archive() as archive:
+            # Up to one past the hard limit: a selection that overflows is
+            # refused by its count, never cut to the first `limit` of what
+            # matched, and the refusal can say how many there were.
+            hits = archive.search(args.from_search, scope=[target.rid], limit=message_ops.BULK_PROBE)
+        message_ops.check_selection(len(hits), limit)
+        ids = [int(hit.message_id) for hit in hits]
+        listed = [_hit_as_message(hit, args.channel) for hit in hits]
+        source = f"archive search {args.from_search!r}"
+    else:
+        ids = list(dict.fromkeys(args.ids))
+        message_ops.check_selection(len(ids), limit)
+        # The first rows of the preview are fetched so the person sees words,
+        # not numbers; the rest are listed by id. A wrong id past the preview
+        # fails its own delete and is reported, never silently skipped.
+        listed = [await client.get_message(args.channel, message_id) for message_id in ids[: message_ops.PREVIEW_ROWS]]
+        source = "--ids"
+    bulk, single = split_bulk_window(ids)
+    gate_kind = "typed_delete"
+
+    async def build():
+        return await _plan(
+            client,
+            command=out.command,
+            identity=identity,
+            targets=(await resolver.resolve(args.channel),),
+            mutations=(
+                Mutation(
+                    op="delete_messages",
+                    rid=target.rid,
+                    params={"ids": [str(i) for i in ids], "bulk": len(bulk), "single": len(single)},
+                ),
+            ),
+            approval=gate_kind,
+            rights=plans.REQUIRED_RIGHTS["message-delete"],
+        )
+
+    write = await build()
+    if write.refusal is not None:
+        return Outcome(status="refused", target=target, plan=write.plan, error=write.refusal)
+    result = {
+        "channel_id": args.channel,
+        "matched": len(ids),
+        "bulk_deletable": len(bulk),
+        "single_delete_only": len(single),
+        "ids": [str(i) for i in ids],
+        "deleted": 0,
+        "dry_run": not args.execute,
+        "cancelled": False,
+    }
+    out.say(plans.format_preflight(write.plan))
+    out.say(message_ops.format_selection_preview(target, listed, bulk=len(bulk), single=len(single), source=source))
+    if not args.execute:
+        out.say("Dry run: nothing deleted. Add --execute to delete these (you will type DELETE).")
+        return Outcome(status="dry_run", target=target, plan=write.plan, result=result)
+
+    refusal = out.approval_unavailable(
+        "Run `discord-tools message delete --execute` in a terminal: it asks you to type DELETE, "
+        "and there is deliberately no flag that answers for you."
+    )
+    if refusal is not None:
+        return Outcome(status="refused", target=target, plan=write.plan, error=refusal)
+    if not message_ops.confirm_delete_messages(len(ids), write=out.say):
+        result["cancelled"] = True
+        return Outcome(status="cancelled", target=target, plan=write.plan, result=result)
+    await _drift_guard(out, write, build)()
+
+    deleted, error = await delete_message_ids(
+        client, args.channel, ids, bulk, single, progress=out.say, sleep=asyncio.sleep, reason=write.reason
+    )
+    result["deleted"] = deleted
+    out.payload(result)
+    if error is not None:
+        return Outcome(
+            status="partial",
+            target=target,
+            plan=write.plan,
+            result=result,
+            warnings=(f"stopped after {deleted} of {len(ids)}: {error}",),
+            evidence=Evidence.unverified(f"the run stopped early: {error}"),
+        )
+
+    async def gone() -> str:
+        try:
+            await client.get_message(args.channel, ids[0])
+        except (ClientError, PermissionError):
+            return f"message {ids[0]} no longer resolves; {deleted} deleted"
+        raise ClientError(f"message {ids[0]} still resolves")
+
+    evidence = await plans.read_back("the channel could not be read back", gone)
+    return Outcome(status="ok", target=target, plan=write.plan, result=result, evidence=evidence)
+
+
+async def _run_message_forward(client, args, config, out) -> Outcome:
+    return await _run_message_repost(client, args, config, out, copy=False)
+
+
+async def _run_message_copy(client, args, config, out) -> Outcome:
+    return await _run_message_repost(client, args, config, out, copy=True)
+
+
+async def _run_message_repost(client, args, config, out, *, copy: bool) -> Outcome:
+    """forward and copy: the same shape, one uses Discord's forward and one re-posts text."""
+    if not args.ids:
+        raise ValueError("Pass --ids with at least one message ID.")
+    ids = list(dict.fromkeys(args.ids))
+    mentions = _mentions(args) if copy else ()
+    resolver = DiscordTargetResolver(client)
+    source = await resolver.resolve(args.channel)
+    destination = await resolver.resolve(args.to)
+    identity = await _identity(out, client, config)
+    messages = [await client.get_message(args.channel, message_id) for message_id in ids]
+    source_channel = await client.get_channel(args.channel)
+    bodies = [message_ops.copy_text(message, source_channel) for message in messages] if copy else []
+    gate = _Gate(args, posts=True)
+    op = "copy_message" if copy else "forward_message"
+
+    async def build():
+        return await _plan(
+            client,
+            command=out.command,
+            identity=identity,
+            targets=(await resolver.resolve(args.to), source),
+            mutations=tuple(
+                Mutation(
+                    op=op,
+                    rid=destination.rid,
+                    params={"from": source.rid, "message_id": str(message.id), **({"mentions": list(mentions)} if copy else {})},
+                )
+                for message in messages
+            ),
+            approval=gate.approval,
+            rights=plans.REQUIRED_RIGHTS["message-copy" if copy else "message-forward"],
+        )
+
+    write = await build()
+    if write.refusal is not None:
+        return Outcome(status="refused", target=destination, plan=write.plan, error=write.refusal)
+    verb = "Copy" if copy else "Forward"
+    detail = [f"To {destination.display} ({args.to})"]
+    if copy:
+        detail.append(f"Mentions {', '.join(mentions) or 'none'}")
+        detail.append("Posted as:")
+        detail.extend(bodies)
+    else:
+        detail.append("With Discord's own forward header; attachments travel with it.")
+    preview = "\n".join(
+        message_ops.format_message_preview(
+            source, message, acting_as=identity.label, action=f"{verb} this message", detail=detail
+        )
+        for message in messages
+    )
+    stopped = await _confirm_message_write(
+        out, config, gate, write=write, target=destination, channel_id=args.to, preview=preview,
+        question=f"{verb} {len(messages)} message(s)?",
+    )
+    if stopped is not None:
+        return stopped
+    await _drift_guard(out, write, build)()
+    posted: list[int] = []
+    for message, body in zip(messages, bodies or [None] * len(messages)):
+        if copy:
+            posted.append(await client.send_message(args.to, body, mentions=mentions))
+        else:
+            posted.append(await client.forward_message(args.channel, message.id, args.to))
+    result = {"from_channel_id": args.channel, "to_channel_id": args.to, "message_ids": ids, "posted_ids": posted}
+    out.payload(result)
+    evidence = await plans.read_back(
+        "the destination could not be read back",
+        lambda: plans.message_landed(client, args.to, posted[-1]),
+    )
+    return Outcome(status="ok", target=destination, plan=write.plan, result=result, evidence=evidence)
+
+
+async def _run_message_react(client, args, config, out) -> Outcome:
+    return await _reaction(client, args, config, out, add=True)
+
+
+async def _run_message_unreact(client, args, config, out) -> Outcome:
+    return await _reaction(client, args, config, out, add=False)
+
+
+async def _reaction(client, args, config, out, *, add: bool) -> Outcome:
+    emoji = args.emoji.strip()
+    if not emoji:
+        raise ValueError("--emoji is empty.")
+    resolver = DiscordTargetResolver(client)
+    target = await resolver.resolve(args.channel)
+    identity = await _identity(out, client, config)
+    message = await client.get_message(args.channel, args.id)
+    gate = _Gate(args, posts=False)
+    op = "add_reaction" if add else "remove_reaction"
+
+    async def build():
+        return await _plan(
+            client,
+            command=out.command,
+            identity=identity,
+            targets=(await resolver.resolve(args.channel),),
+            mutations=(Mutation(op=op, rid=target.rid, params={"message_id": str(args.id), "emoji": emoji}),),
+            approval=gate.approval,
+            rights=plans.REQUIRED_RIGHTS["message-react" if add else "message-unreact"],
+        )
+
+    write = await build()
+    if write.refusal is not None:
+        return Outcome(status="refused", target=target, plan=write.plan, error=write.refusal)
+    action = f"Add reaction {emoji} to" if add else f"Remove the bot's reaction {emoji} from"
+    preview = message_ops.format_message_preview(target, message, acting_as=identity.label, action=action)
+    stopped = await _confirm_message_write(
+        out, config, gate, write=write, target=target, channel_id=args.channel, preview=preview,
+        question="React?" if add else "Remove it?",
+    )
+    if stopped is not None:
+        return stopped
+    await _drift_guard(out, write, build)()
+    if add:
+        await client.add_reaction(args.channel, args.id, emoji)
+    else:
+        await client.remove_reaction(args.channel, args.id, emoji)
+    result = {"channel_id": args.channel, "message_id": args.id, "emoji": emoji, "reacted": add}
+    out.payload(result)
+
+    def check(current) -> str:
+        mine = any(r.emoji == emoji and r.me for r in current.reactions)
+        if mine == add:
+            return f"message {args.id} {'carries' if add else 'no longer carries'} the bot's {emoji}"
+        raise ClientError(f"message {args.id} {'does not carry' if add else 'still carries'} the bot's {emoji}")
+
+    evidence = await plans.read_back(
+        "the message could not be read back", lambda: _message_verified(client, args.channel, args.id, check)
+    )
+    return Outcome(status="ok", target=target, plan=write.plan, result=result, evidence=evidence)
+
+
+async def _run_message_pin(client, args, config, out) -> Outcome:
+    return await _pin(client, args, config, out, pin=True)
+
+
+async def _run_message_unpin(client, args, config, out) -> Outcome:
+    return await _pin(client, args, config, out, pin=False)
+
+
+async def _pin(client, args, config, out, *, pin: bool) -> Outcome:
+    resolver = DiscordTargetResolver(client)
+    target = await resolver.resolve(args.channel)
+    identity = await _identity(out, client, config)
+    message = await client.get_message(args.channel, args.id)
+    gate = _Gate(args, posts=False)
+
+    async def build():
+        return await _plan(
+            client,
+            command=out.command,
+            identity=identity,
+            targets=(await resolver.resolve(args.channel),),
+            mutations=(Mutation(op="pin_message" if pin else "unpin_message", rid=target.rid, params={"message_id": str(args.id)}),),
+            approval=gate.approval,
+            rights=plans.REQUIRED_RIGHTS["message-pin"],
+        )
+
+    write = await build()
+    if write.refusal is not None:
+        return Outcome(status="refused", target=target, plan=write.plan, error=write.refusal)
+    preview = message_ops.format_message_preview(
+        target, message, acting_as=identity.label, action="Pin this message" if pin else "Unpin this message"
+    )
+    stopped = await _confirm_message_write(
+        out, config, gate, write=write, target=target, channel_id=args.channel, preview=preview,
+        question="Pin it?" if pin else "Unpin it?",
+    )
+    if stopped is not None:
+        return stopped
+    await _drift_guard(out, write, build)()
+    if pin:
+        await client.pin_message(args.channel, args.id, reason=write.reason)
+    else:
+        await client.unpin_message(args.channel, args.id, reason=write.reason)
+    result = {"channel_id": args.channel, "message_id": args.id, "pinned": pin}
+    out.payload(result)
+
+    def check(current) -> str:
+        if current.pinned == pin:
+            return f"message {args.id} reads back {'pinned' if pin else 'unpinned'}"
+        raise ClientError(f"message {args.id} reads back {'unpinned' if pin else 'pinned'}")
+
+    evidence = await plans.read_back(
+        "the message could not be read back", lambda: _message_verified(client, args.channel, args.id, check)
+    )
+    return Outcome(status="ok", target=target, plan=write.plan, result=result, evidence=evidence)
+
+
+async def _run_message_poll(client, args, config, out) -> Outcome:
+    options = [option.strip() for option in args.options if option.strip()]
+    if not POLL_OPTIONS[0] <= len(options) <= POLL_OPTIONS[1]:
+        raise ValueError(f"A poll takes {POLL_OPTIONS[0]} to {POLL_OPTIONS[1]} options; {len(options)} given.")
+    if not 1 <= args.hours <= POLL_MAX_HOURS:
+        raise ValueError(f"--hours is 1 to {POLL_MAX_HOURS} (Discord's limit); {args.hours} given.")
+    question = args.question.strip()
+    if not question:
+        raise ValueError("--question is empty.")
+    resolver = DiscordTargetResolver(client)
+    target = await resolver.resolve(args.channel)
+    identity = await _identity(out, client, config)
+    gate = _Gate(args, posts=True)
+
+    async def build():
+        return await _plan(
+            client,
+            command=out.command,
+            identity=identity,
+            targets=(await resolver.resolve(args.channel),),
+            mutations=(
+                Mutation(
+                    op="send_poll",
+                    rid=target.rid,
+                    params={"question": question, "options": options, "hours": args.hours, "multiple": args.multiple},
+                ),
+            ),
+            approval=gate.approval,
+            rights=plans.REQUIRED_RIGHTS["message-poll"],
+        )
+
+    write = await build()
+    if write.refusal is not None:
+        return Outcome(status="refused", target=target, plan=write.plan, error=write.refusal)
+    preview = "\n".join(
+        [
+            f"Acting as {identity.label}",
+            message_ops.RULE,
+            f"Poll in {target.display} ({args.channel}), open {args.hours} hour(s)"
+            + (", several answers allowed" if args.multiple else ""),
+            message_ops.RULE,
+            question,
+            *[f"  - {option}" for option in options],
+            message_ops.RULE,
+        ]
+    )
+    stopped = await _confirm_message_write(
+        out, config, gate, write=write, target=target, channel_id=args.channel, preview=preview, question="Post the poll?"
+    )
+    if stopped is not None:
+        return stopped
+    await _drift_guard(out, write, build)()
+    message_id = await client.send_poll(args.channel, question, options, hours=args.hours, multiple=args.multiple)
+    result = {"channel_id": args.channel, "message_id": message_id, "options": len(options), "hours": args.hours}
+    out.payload(result)
+    evidence = await plans.read_back(
+        "the poll could not be read back", lambda: plans.message_landed(client, args.channel, message_id)
+    )
+    return Outcome(status="ok", target=target, plan=write.plan, result=result, evidence=evidence)
+
+
+async def _run_message_typing(client, args, config, out) -> Outcome:
+    if not 1 <= args.seconds <= TYPING_MAX_SECONDS:
+        raise ValueError(f"--seconds is 1 to {TYPING_MAX_SECONDS}; {args.seconds} given.")
+    resolver = DiscordTargetResolver(client)
+    target = await resolver.resolve(args.channel)
+    identity = await _identity(out, client, config)
+    gate = _Gate(args, posts=False)
+
+    async def build():
+        return await _plan(
+            client,
+            command=out.command,
+            identity=identity,
+            targets=(await resolver.resolve(args.channel),),
+            mutations=(Mutation(op="typing", rid=target.rid, params={"seconds": args.seconds}),),
+            approval=gate.approval,
+            rights=plans.REQUIRED_RIGHTS["message-typing"],
+        )
+
+    write = await build()
+    if write.refusal is not None:
+        return Outcome(status="refused", target=target, plan=write.plan, error=write.refusal)
+    preview = "\n".join(
+        [
+            f"Acting as {identity.label}",
+            message_ops.RULE,
+            f"Show the bot typing in {target.display} ({args.channel}) for {args.seconds} second(s)",
+            message_ops.RULE,
+        ]
+    )
+    stopped = await _confirm_message_write(
+        out, config, gate, write=write, target=target, channel_id=args.channel, preview=preview, question="Show it?"
+    )
+    if stopped is not None:
+        return stopped
+    await _drift_guard(out, write, build)()
+    triggers = 0
+    for elapsed in range(0, args.seconds, int(TYPING_EVERY)):
+        if elapsed:
+            await _typing_sleep(TYPING_EVERY)
+        await client.trigger_typing(args.channel)
+        triggers += 1
+    result = {"channel_id": args.channel, "seconds": args.seconds, "triggers": triggers}
+    out.payload(result)
+    # There is nothing to fetch: Discord keeps no record of who was typing.
+    evidence = Evidence.unverified("a typing indicator leaves nothing to read back")
+    return Outcome(status="ok", target=target, plan=write.plan, result=result, evidence=evidence)
+
+
+async def _run_bookmark_list(args, out) -> Outcome:
+    if not archive_store.archive_exists():
+        out.say(archive_store.format_bookmarks([]))
+        return Outcome(status="empty", result={"bookmarks": []})
+    with archive_store.open_archive() as archive:
+        rows = archive_store.list_bookmarks(archive, out.identity.id if out.identity else None)
+    if not out.machine:
+        print(archive_store.format_bookmarks(rows))
+    return Outcome(status="ok" if rows else "empty", result={"bookmarks": rows})
+
+
+async def _run_message_bookmark(client, args, config, out) -> Outcome:
+    if args.channel is None or args.id is None:
+        raise ValueError("bookmark needs --channel and --id, or --list.")
+    resolver = DiscordTargetResolver(client)
+    target = await resolver.resolve(args.channel)
+    identity = await _identity(out, client, config)
+    message = await client.get_message(args.channel, args.id)
+    gate = _Gate(args, posts=False)
+    op = "remove_bookmark" if args.remove else "add_bookmark"
+
+    async def build():
+        return await _plan(
+            client,
+            command=out.command,
+            identity=identity,
+            targets=(await resolver.resolve(args.channel),),
+            mutations=(
+                Mutation(
+                    op=op,
+                    rid=target.rid,
+                    params={"message_id": str(args.id), **({} if args.remove else {"label": args.label})},
+                ),
+            ),
+            approval=gate.approval,
+            rights=plans.REQUIRED_RIGHTS["message-bookmark"],
+        )
+
+    write = await build()
+    if write.refusal is not None:
+        return Outcome(status="refused", target=target, plan=write.plan, error=write.refusal)
+    preview = message_ops.format_message_preview(
+        target, message, acting_as=identity.label,
+        action="Drop the local bookmark on" if args.remove else "Bookmark (locally, on this machine)",
+        detail=[f"Label: {args.label}"] if args.label and not args.remove else (),
+    )
+    stopped = await _confirm_message_write(
+        out, config, gate, write=write, target=target, channel_id=args.channel, preview=preview,
+        question="Drop it?" if args.remove else "Keep it?",
+    )
+    if stopped is not None:
+        return stopped
+    await _drift_guard(out, write, build)()
+    with archive_store.open_archive() as archive:
+        if args.remove:
+            removed = archive_store.remove_bookmark(archive, rid=target.rid, message_id=args.id)
+            row = None
+        else:
+            row = archive_store.add_bookmark(
+                archive, rid=target.rid, message_id=args.id, identity_id=identity.id, label=args.label
+            )
+            removed = False
+        readback = archive_store.read_bookmark(archive, rid=target.rid, message_id=args.id)
+    result = {"channel_id": args.channel, "message_id": args.id, "bookmarked": row is not None, "removed": removed, "local": True}
+    out.payload(result)
+    if args.remove:
+        evidence = (
+            Evidence.verified(f"no bookmark row for message {args.id} in {target.rid}")
+            if readback is None
+            else Evidence.unverified(f"a bookmark row for message {args.id} is still there")
+        )
+    else:
+        evidence = (
+            Evidence.verified(f"bookmark row for message {args.id} in {target.rid}, created {readback['created']}")
+            if readback
+            else Evidence.unverified("the bookmark row could not be read back")
+        )
+    return Outcome(status="ok", target=target, plan=write.plan, result=result, evidence=evidence)
+
+
+MESSAGE_VERBS = {
+    "edit": _run_message_edit,
+    "delete": _run_message_delete,
+    "forward": _run_message_forward,
+    "copy": _run_message_copy,
+    "react": _run_message_react,
+    "unreact": _run_message_unreact,
+    "pin": _run_message_pin,
+    "unpin": _run_message_unpin,
+    "poll": _run_message_poll,
+    "typing": _run_message_typing,
+    "bookmark": _run_message_bookmark,
+}
+
+
 async def _run_bot(client, args, config, out) -> Outcome:
     identity = await _identity(out, client, config)
     bot_identity = await client.get_identity()
@@ -1364,6 +2188,7 @@ WRITING = {
     "leave-server": _run_leave_server,
     "clear-messages": _run_clear_messages,
     "bot": _run_bot,
+    "message": lambda client, args, config, out: _run_message(client, args, config, out),
 }
 
 

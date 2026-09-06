@@ -385,7 +385,7 @@ def test_the_seam_methods_that_take_a_reason_are_the_ones_that_get_one():
     from discord_tools.client import DiscordClient
 
     passed = {"create_channel", "create_category", "create_thread", "delete_channel",
-              "delete_message", "bulk_delete"}
+              "delete_message", "bulk_delete", "pin_message", "unpin_message"}
     accepts = {
         name
         for name, member in inspect.getmembers(DiscordClient, inspect.isfunction)
@@ -394,7 +394,10 @@ def test_the_seam_methods_that_take_a_reason_are_the_ones_that_get_one():
     assert accepts == passed
 
     # And the ones Discord gives no field for stay honest about it.
-    for name in ("send_message", "leave_server", "edit_bot_user", "edit_application"):
+    for name in (
+        "send_message", "leave_server", "edit_bot_user", "edit_application",
+        "edit_message", "forward_message", "add_reaction", "remove_reaction", "send_poll", "trigger_typing",
+    ):
         assert "reason" not in inspect.signature(getattr(DiscordClient, name)).parameters
 
 

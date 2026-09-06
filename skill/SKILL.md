@@ -1,13 +1,13 @@
 ---
 name: discord-tools
 description: "Use when you need the real numeric ID of a Discord server, channel, or thread — 'what's the ID of that channel?', 'where do I send this?' — when the user wants a channel's messages searched or exported (JSON, CSV, JSONL, Markdown, HTML), when a history question can be answered from the local archive instead of a fresh fetch, when a message must be posted to a channel the user has allowlisted, or when a message the user named should get a reply, a reaction, a pin, or be forwarded, copied or bookmarked. Bot-token only; the bot sees only servers it was invited to."
-version: 1.5.0
+version: 1.6.0
 author: banozz0
 license: MIT
 platforms: [macos]
 metadata:
   hermes:
-    tags: [discord, channel-ids, thread-ids, search, archive, export, send, message, reply, react, pin, cli, bot]
+    tags: [discord, channel-ids, thread-ids, search, archive, export, send, message, reply, react, pin, review, cli, bot]
 ---
 
 # discord-tools
@@ -149,6 +149,16 @@ fine when the user asked for that specific thing: `reply`, `react`, `pin`,
 message. Every one is a visible act in a real server (rule 1), and every one
 shows the message it acts on before it asks.
 
+**14. Never run `review approve` or `review accept`.** They are the two
+human gates on downloads: `approve` fetches bytes from a host onto the user's
+machine, `accept` moves a fetched file out of quarantine into the user's media
+store. Both ask `y/N` at a prompt no agent can answer and have no `--yes`;
+under `--json` with no terminal they exit 3 with `APPROVAL_REQUIRED` and fetch
+nothing, which is the design, not a failure to retry. `review list` and
+`review status` are reads and fine: they show what is waiting and what a fetch
+found, and contact no host. `review reject` only deletes quarantined bytes and
+is fine when the user asked for that candidate gone.
+
 ## Commands
 
 | The ask | Run |
@@ -172,6 +182,10 @@ shows the message it acts on before it asks.
 | "run a poll there" (allowlisted) | `discord-tools message poll --channel <id> --question "..." --option a --option b --yes` |
 | "remember that message for me" | `discord-tools message bookmark --channel <id> --id <message id> --label "..." --yes` — local; `--list` reads them back |
 | "delete those messages" | hand them `discord-tools message delete --channel <id> --ids ... ` (the dry-run), then `--execute` — rule 13, they run it |
+| "what attachments / links are waiting?" | `discord-tools review list` — from the archive, contacts no host |
+| "what did that download find?" | `discord-tools review status --ids <manifest id>` — redirects, refreshes, sha256, verdict |
+| "download / accept that file" | hand them `discord-tools review approve --ids <manifest id>` then `review accept --ids ...` — rule 14, they run it |
+| "throw that candidate away" | `discord-tools review reject --ids <manifest id>` |
 | a long or multi-line message | pipe it: `... \| discord-tools send --channel <id> --text - --yes` |
 | "send them that file" (allowlisted) | `discord-tools send --channel <id> --file /path --text "caption" --yes` |
 | "make a channel/thread" (they asked) | `discord-tools create channel --server <id> --name "..." --yes` |
@@ -241,6 +255,14 @@ shows the message it acts on before it asks.
   error says why (read state belongs to a user account; drafts live in the
   client). `edit` of a message the bot did not write is the same code:
   Discord lets a bot edit only its own. Relay the reason and stop.
+- **The review queue is where attachments and links wait.** `archive sync`
+  records every attachment and link it sees as a candidate and fetches
+  nothing; `review list` shows them with the URL as written and `review
+  status` shows what an approved fetch found. A verdict of `UNSCANNED` means
+  no scanner is installed, not that the file is clean — say it as `UNSCANNED`.
+  `BLOCKED` names the check that refused the file; `INFECTED` names the
+  signature. Relay the verdict verbatim; the decision to accept is the user's
+  (rule 14).
 - **`bookmark` is local.** Discord gives a bot no bookmark API, so it is a row
   in the user's archive file on this machine, and the envelope says `local`.
   Say so when you report it; nothing in Discord shows it.
@@ -282,6 +304,10 @@ shows the message it acts on before it asks.
   agent can supply. Hand the user the dry-run command instead.
 - **`--mention everyone`** on any posting verb — it always prompts, and the
   ping is the user's decision.
+- **`review approve` and `review accept`** — rule 14. A download onto the
+  user's machine and a file leaving quarantine are the user's two decisions;
+  both refuse to run unattended by construction. `review list` and `status`
+  are reads and fine.
 - **A bare `discord-tools`** — no subcommand opens the interactive menu, which
   waits for a human. With no terminal attached it prints help instead, so it
   will not hang in a pipe, but it answers nothing either.

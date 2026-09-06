@@ -33,12 +33,13 @@ scripts pass a subcommand.
 | Command | What it does |
 |---|---|
 | `auth` | Guided Developer Portal setup; verifies the token and the message-content intent, stores the token as a named profile, prints the invite URL |
-| `doctor` | Checks Python, config, token, which bot the profile was set up as, the proxy, the file modes, the intent, joined servers; `--channel <id>` adds per-channel permission checks and a message-visibility probe |
+| `doctor` | Checks Python, config, token, which bot the profile was set up as, the proxy, the file modes, the archive, the scanner, quarantine, the intent, joined servers; `--channel <id>` adds per-channel permission checks and a message-visibility probe |
 | `profiles` | Lists every stored bot by name and by the label `auth` recorded; `profiles remove --name <name>` drops one after you type its name back. Neither needs a working token |
 | `discover` | Prints the server → channel → thread tree with every ID; `--server <id>` narrows, `--json <path>` writes a file |
 | `members` | Lists a server's members (ID, username, display name, bot flag); `--output <name>` exports JSON/CSV. Needs the privileged **Server Members** intent enabled in the portal |
 | `search` | Searches a channel/thread's history locally (Discord gives bots no search API): `--keyword`, `--from-user`, `--since`, `--until`, `--limit`; `--output <name>` exports JSON, CSV, JSONL, Markdown or HTML (`--format`). `--archive` searches the local archive instead of fetching. The printed table previews long bodies at 70 characters — exports carry them whole |
 | `archive` | The local archive: `sync` fetches new history from everything the bot can read and resumes where it stopped; `status` shows scopes, rows and coverage; `search --query` is ranked full-text search with `--regex`, `--from`, `--since`, `--until`, `--context`; `export --format json/csv/jsonl/markdown/html --output` writes the same result; `retention --scope --keep 90d` and `forget --scope` prune it, dry-run by default and behind the scope's exact name. See [The archive](#the-archive) |
+| `review` | The review queue: attachments and links the archive saw, waiting. `list` shows them without contacting a host; `approve` asks y/N and fetches into quarantine (no `--yes`); `status` shows redirects, refreshes, sha256 and the verdict; `accept` shows the verdict and asks before moving a file into `media/`; `reject` deletes the bytes; `retry` resumes a failed fetch. See [The review queue](#the-review-queue) |
 | `send` | Posts as the bot after a full-message preview + y/N; `--yes` skips the prompt only for channels in `DISCORD_SEND_ALLOWLIST`. `--reply-to <message id>` answers a message; `--mention users/roles/everyone` lets it ping (nobody by default, and `everyone` always asks) |
 | `message` | What you do to a message once it exists: `reply`, `edit` (the bot's own only), `delete` (dry-run, then `--execute` + typed `DELETE`, bounded by `--limit`), `forward`, `copy`, `react`/`unreact`, `pin`/`unpin`, `poll`, `typing`, `bookmark` (local). Each shows the channel and the message first. `read`, `unread` and `draft` say a bot cannot. See [Message operations](#message-operations) |
 | `create` | `channel` (`--type text/news/voice/stage_voice/forum/media`) / `category` / `thread` (`--private`), each behind a confirmation. Every type `delete` can remove, `create` can make again |
@@ -66,9 +67,9 @@ discord-tools
 0. Exit
 ```
 
-Rows 6 and 7 are the two whose commands have not shipped yet; they say so and step
-back. They are printed anyway so that these numbers are learned once rather than
-shifted again when those commands arrive.
+Row 6 has not shipped yet; it says so and steps back. Row 7 holds the review queue,
+and its rules row says the same. Both are printed as section 14 numbers them so that
+the numbers are learned once rather than shifted again when those commands arrive.
 
 `0` always steps back one screen — inside a picker or on a flow's own screen alike —
 and exits once you're back at the root; on a text prompt a blank line does the same.
@@ -94,12 +95,14 @@ Every flag has a row: `members`, `doctor --channel`, `bot --invite`, `bot --json
 manual category ID for `create channel`, the four archive rows under *Read* (sync,
 search and export, status, prune), the message verbs under *Write* (send with a
 mentions row, reply, edit, delete, forward, copy, react, pin, poll, typing, bookmark),
-and, under *Identity*, listing the stored profiles, switching the one the rest of the
-session acts as, and removing one. The exceptions are deliberate — `send`, `create`,
-`bot` and the message verbs never get `--yes` from the menu, `clear-messages` and
-*Delete messages* always dry-run first and still ask you to type `DELETE`, and
-`delete`, *Leave a server* and an archive prune dry-run first and still ask you to
-type the target's own name. The menu is never a shorter path past a gate.
+the review queue under *Watch* (what is waiting, approve and fetch, accept, reject,
+status, retry), and, under *Identity*, listing the stored profiles, switching the one
+the rest of the session acts as, and removing one. The exceptions are deliberate —
+`send`, `create`, `bot` and the message verbs never get `--yes` from the menu,
+`clear-messages` and *Delete messages* always dry-run first and still ask you to type
+`DELETE`, `delete`, *Leave a server* and an archive prune dry-run first and still ask
+you to type the target's own name, and a review approve or accept asks its `y/N`
+inside the command. The menu is never a shorter path past a gate.
 
 *Delete* lists categories, channels and threads nested the way Discord shows them and
 works out what kind of thing you picked, so you confirm the thing you saw rather than a
@@ -264,6 +267,65 @@ destination in `DISCORD_SEND_ALLOWLIST`. `edit`, `react`, `pin`, `typing` and
 the way `create --yes` does. Every verb builds a plan, names the permission it
 needs and holds, re-checks the target after you answer, reads the result back
 and writes an audit line.
+
+## The review queue
+
+The tool never downloads anything on its own. Every attachment and every link
+`archive sync` sees becomes a candidate in one queue, and a candidate is fetched
+only after you approve it, into quarantine, where it is checked before you
+accept it:
+
+```bash
+discord-tools review list                        # what is waiting; contacts no host
+discord-tools review list --kind link --state queued
+discord-tools review approve                     # pick from the list, y/N, fetch
+discord-tools review approve --ids 3f9a1c2e7b4d6a08
+discord-tools review status --ids 3f9a1c2e7b4d6a08
+discord-tools review accept --ids 3f9a1c2e7b4d6a08 # shows the verdict, asks, moves it into media/
+discord-tools review reject --ids 3f9a1c2e7b4d6a08 # deletes the quarantined bytes
+discord-tools review retry --ids 3f9a1c2e7b4d6a08  # a failed fetch, from the bytes on disk
+```
+
+**Nothing is fetched without a human.** `list` reads the archive and makes no
+request, so a link's redirect chain is never resolved before someone said yes
+— resolving it would hand your address to an unknown host. `approve` asks
+`y/N` and has no `--yes`; with no terminal it exits 3 with `APPROVAL_REQUIRED`
+before anything is contacted, so a script or a schedule cannot approve.
+
+**Fetches resume.** A download that dies partway keeps its bytes and is
+`failed`; `retry` asks the server for the rest with `Range` and the sha256 is
+computed over the whole file, so a killed download resumed is byte-identical
+to one that was not. Discord signs every attachment URL with an expiry: when
+it has passed, or the CDN refuses the URL, the fetcher re-reads the message as
+the bot, takes the current URL and records the refresh, which `status` lists.
+
+**Every fetch is checked, in order, and the first failure is `BLOCKED` with
+the check named.** An attachment is fetched from Discord's CDN and nowhere
+else. A link goes through: scheme (`https`/`http` only), redirects (walked by
+`HEAD` only after approval, at most five, each hop re-checked), private
+network (loopback, link-local, RFC 1918, cloud metadata addresses refused by
+name, and the connection pinned to the address that was checked so a second
+DNS answer cannot rebind it), path (the file is named by its manifest id,
+never by the URL), size (`download_max_bytes`, 256 MiB, and the quarantine
+budget), time (ten minutes, or a minute without a byte), archive expansion
+(zip, tar, gzip, bzip2 and xz inspected without extraction; 7z, rar and
+anything it cannot open refused by name), type against extension against
+magic bytes, a supplied checksum, and a duplicate already in `media/`.
+
+**The scanner is ClamAV, if you have it.** `clamdscan` or `clamscan` from
+PATH: `CLEAN`, `INFECTED` with the signature, or `UNSCANNED` with the reason.
+No scanner means `UNSCANNED`, never a silent pass, and `doctor` says which
+binaries it looked for. `accept` prints the verdict before it asks; `BLOCKED`
+and `INFECTED` cannot be accepted (`UNSAFE_BLOCKED`) and `reject` clears them.
+No file is ever uploaded to a reputation or sandbox service.
+
+Accepted files live in `~/.discord-tools/media/<sha2>/<sha256>`, quarantined
+ones in `~/.discord-tools/quarantine/<download-id>/` beside a `manifest.json`
+of everything the fetch learned; both directories are `0700`, the budgets are
+`media_max_bytes` (5 GiB) and `quarantine_max_bytes` (1 GiB) in
+`config.json`. `list`, `status`, `accept` and `reject` never log in; `approve`
+and `retry` act as the bot, because refreshing an attachment URL means reading
+its message. The bot token appears in no request and no manifest.
 
 ## Exports stay out of your repos
 

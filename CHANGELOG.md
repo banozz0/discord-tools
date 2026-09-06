@@ -1,5 +1,75 @@
 # Changelog
 
+## 0.11.0 — 2026-09-06
+
+The review queue. Until now the tool never downloaded anything; now every
+attachment and link the archive sees waits in one queue, nothing is fetched
+until you say so, and what is fetched lands in quarantine, checked, before you
+accept it.
+
+### The queue
+
+- **`archive sync` fills it.** Every attachment becomes a media candidate and
+  every link in a message or its embeds becomes a link candidate — recorded,
+  never fetched. `archive sync` ends by saying how many are new.
+- **`review list`** shows what is waiting: id, kind, state, size, who posted
+  it, where, and the URL exactly as the message wrote it. It reads the archive
+  and contacts no host, so a link's redirect is never resolved before a human
+  has approved it. `--kind media|link` and `--state` narrow it.
+- **`review approve`** — pick from the list or pass `--ids` — asks `y/N` and
+  then fetches into `~/.discord-tools/quarantine/`. There is no `--yes`, and
+  with no terminal it exits 3 with `APPROVAL_REQUIRED` before anything is
+  contacted. A rule, a schedule or a script cannot approve.
+- **`review status`** is everything a fetch learned: the redirect chain, the
+  final URL, bytes, sha256, the verdict and why, and every URL refresh.
+- **`review accept --ids`** shows each file's verdict and asks `y/N` before
+  moving it into `~/.discord-tools/media/<sha2>/<sha256>`. `BLOCKED` and
+  `INFECTED` cannot be accepted (`UNSAFE_BLOCKED`); `UNSCANNED` can, and the
+  prompt says so. **`review reject --ids`** works from any state and deletes
+  the quarantined bytes. **`review retry --ids`** re-runs a failed fetch from
+  the bytes already on disk.
+- `list`, `status`, `accept` and `reject` never log in; `approve` and
+  `retry` act as the bot.
+
+### The fetch
+
+- **Resumable.** A download that dies partway is `failed` with its bytes kept;
+  `retry` asks for the rest with `Range` and the sha256 is taken over the
+  whole file, so a killed download resumed is byte-identical to one that was
+  not.
+- **Attachment URLs expire, and the tool knows.** Discord signs every
+  attachment URL with an expiry. When it has passed, or the CDN refuses the
+  URL anyway, the fetcher re-reads the message as the bot, takes the current
+  URL, records the refresh on the manifest (`review status` lists it) and
+  fetches that. An attachment no longer on its message is a failed download
+  with the reason, not a loop.
+- **Only Discord's CDN.** An attachment is fetched from `cdn.discordapp.com`
+  or `media.discordapp.net` and nowhere else; a link goes through the shared
+  checks in order — scheme, redirects walked by `HEAD` after approval, private
+  and cloud-metadata addresses refused with the connection pinned to the
+  address that was checked, path, size (256 MiB and the quarantine budget),
+  time, archive-bomb inspection without extraction, type against extension
+  against magic bytes, checksum, duplicates — and the first failure is
+  `BLOCKED` with the check named.
+- **The scanner is ClamAV if you have it.** `clamdscan` or `clamscan` from
+  PATH; `CLEAN`, `INFECTED` with the signature, or `UNSCANNED` with the
+  reason. No scanner is `UNSCANNED`, never a silent pass. No file is uploaded
+  anywhere.
+- The bot token appears in no request and no manifest: the CDN URL is public
+  by its signature, and the one authenticated call is the message read the
+  seam already makes.
+
+### Elsewhere
+
+- **`doctor`** reports the scanner it would run (and which binaries it looked
+  for when there is none) and how full quarantine is against its budget
+  (`quarantine_max_bytes` in `config.json`, 1 GiB by default).
+- **The menu's Watch row is a group now:** the review queue's six rows — what
+  is waiting, approve and fetch, accept, reject, status, retry — and a rules
+  row that still says not built. The gate stays inside every command: the
+  menu asks for ids, the command asks `y/N`.
+- The vendored core is v0.8.
+
 ## 0.10.0 — 2026-09-06
 
 The message commands. Until now the tool stopped at `send`; now there is one

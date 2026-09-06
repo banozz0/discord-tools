@@ -211,4 +211,38 @@ The terms this codebase uses, and the boundaries they imply.
   Messages in 2025 and discord.py 2.7.1 carries. `pin`/`unpin` preflight it,
   not `manage_messages`, so a bot that can pin is not refused by name.
 
+- **Review queue** — the shared core's `manifests` and `downloads` rows
+  (`_core.review.ReviewQueue`, opened through `review.py`): every attachment
+  and link a sync saw, as a candidate, never fetched. Seven states; the two
+  human moves (`queued → approved`, `quarantined → accepted`) need a
+  `prompt_y` approval built from the run's own tty test, and there is no
+  `--yes`. `review.py` is the Discord rim: the queue over the archive, the
+  pipeline with this tool's fetchers, and how the queue and a verdict print.
+- **Candidate** — what one message puts in the queue
+  (`adapters/archive.py::candidates_of`): an attachment is a media candidate
+  keyed by Discord's attachment id (the `locator`), with the signed CDN URL
+  written beside the row in `platform_json` (`cdn_url`); a link in the text
+  or an embed's URL is a link candidate carrying the URL exactly as written.
+  The sync's `sink` hands them to the queue as each row is read.
+- **Media fetcher** — `adapters/media.py::DiscordMediaFetcher`, the
+  `MediaFetcher` Protocol: the bytes of one attachment from the CDN and only
+  the CDN, with `Range` from the byte count the pipeline already holds.
+- **Refresh** — what the fetcher does when an attachment URL's `ex` stamp has
+  passed or the CDN answers 403/404: re-read the source message through the
+  seam, take the current URL, record it on the manifest (`refreshed`, with
+  the reason and the unsigned old and new URLs). Once per fetch; an attachment
+  gone from its message is a failed download, not a loop.
+- **Quarantine** — `~/.discord-tools/quarantine/<download-id>/payload` beside
+  `manifest.json`, 0700, where fetched bytes wait for a verdict and a human.
+  `accept` renames the payload into `media/<sha2>/<sha256>`; `reject` deletes
+  the directory. Budgeted by `quarantine_max_bytes`.
+- **Verdict** — `BLOCKED` (a built-in check failed, the check named), `CLEAN`
+  or `INFECTED` (the scanner said so), `UNSCANNED` (no scanner gave a word).
+  `BLOCKED` and `INFECTED` are `UNSAFE_BLOCKED` on accept; `UNSCANNED` is
+  accepted only with the verdict shown. Never "clean" without a scanner.
+- **Offline review command** — `review list`, `status`, `accept` and
+  `reject`: they read and move local files and never log in. `approve` and
+  `retry` fetch, and an attachment fetch may need the seam to refresh its URL,
+  so those two act as the bot.
+
 Architecture decisions with more context than fits here go to `docs/adr/`.

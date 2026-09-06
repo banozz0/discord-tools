@@ -164,6 +164,41 @@ def check_archive(*, home: Path | None = None) -> DoctorCheck:
     return DoctorCheck("WARN" if budget["over"] else "OK", message)
 
 
+def check_scanner(adapter=None) -> DoctorCheck:
+    """Which scanner `review approve` would run on a fetched file, or the honest lack of one."""
+    from discord_tools._core.scanner import ClamAVAdapter
+
+    report = (adapter or ClamAVAdapter()).report()
+    looked_for = ", ".join(report["looked_for"])
+    if report["binary"]:
+        return DoctorCheck("OK", f"Scanner: {report['command']} at {report['binary']} (a fetched file is scanned before you accept it)")
+    return DoctorCheck(
+        "WARN",
+        f"No scanner on PATH (looked for {looked_for}): a fetched file is UNSCANNED until ClamAV is installed, "
+        "and `review accept` says so",
+    )
+
+
+def check_quarantine(*, home: Path | None = None) -> DoctorCheck:
+    """Bytes waiting in quarantine against their budget. Read-only, like the archive check."""
+    from discord_tools import archive as archive_store
+    from discord_tools._core.config import human_bytes
+    from discord_tools._core.review import directory_bytes
+
+    paths = archive_store.tool_paths(home)
+    budget = archive_store.budgets(home)
+    limit = budget.limit("quarantine_max_bytes")
+    used = directory_bytes(paths.quarantine)
+    held = 0
+    if paths.quarantine.exists():
+        held = sum(1 for entry in paths.quarantine.iterdir() if entry.is_dir() and not entry.is_symlink())
+    percent = int(used * 100 / limit) if limit else 0
+    message = f"Quarantine holds {held} download(s), {human_bytes(used)} of the {human_bytes(limit)} budget ({percent}%)"
+    if held:
+        message += "; `review accept` or `review reject` clears them"
+    return DoctorCheck("WARN" if used > limit else "OK", message)
+
+
 def check_send_allowlist(allowlist: tuple[int, ...]) -> DoctorCheck:
     if not allowlist:
         # Counts only, never the destinations.
@@ -284,6 +319,8 @@ async def collect_checks(
     checks.append(check_file_modes(loose_entries(home=home), config_dir(home)))
     checks.append(check_fts5())
     checks.append(check_archive(home=home))
+    checks.append(check_scanner())
+    checks.append(check_quarantine(home=home))
 
     if config is not None:
         checks.append(check_token_shape(config.token))

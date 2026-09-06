@@ -1769,6 +1769,114 @@ async def _flow_archive_prune(*, session, runner, read, write) -> bool:
             return result is not EXIT
 
 
+# -- the review queue --------------------------------------------------------
+
+
+_REVIEW_EMPTY = "There is no archive yet - run Archive: sync first; it fills the review queue."
+
+
+def _ask_manifest_ids(*, read, write, label: str = "Manifest IDs (space-separated, from the list)") -> Any:
+    """Several manifest ids, or BACK. Sixteen hex characters each, as `review list` prints them."""
+    while True:
+        typed = ask_text(label, read=read, write=write)
+        if typed is BACK:
+            return BACK
+        parts = typed.split()
+        if parts and all(len(part) == 16 and all(c in "0123456789abcdef" for c in part) for part in parts):
+            return parts
+        write("A manifest id is the 16-character id in the first column of the review list.")
+
+
+async def _flow_review_list(*, session, runner, read, write) -> bool:
+    # Read from disk, no login: a listing contacts no host, by construction.
+    trail = crumb(MAIN, "Review queue", "List")
+    kind = choose(["Everything waiting", "Attachments only", "Links only", "Everything, whatever its state"], title=trail, read=read, write=write)
+    if kind is BACK:
+        return True
+    await _call(
+        _namespace(
+            command="review",
+            review_kind="list",
+            kind=("media", "link")[kind - 1] if kind in (1, 2) else None,
+            state=None if kind == 3 else "queued",
+            identity=None,
+            profile=session.profile,
+        ),
+        session=None,
+        runner=runner,
+        write=write,
+    )
+    return after_action(read=read, write=write)
+
+
+async def _flow_review_approve(*, session, runner, read, write) -> bool:
+    """Approve and fetch: the y/N is asked inside the command, exactly as the flags ask it."""
+    trail = crumb(MAIN, "Review queue", "Approve")
+    while True:
+        session.target = None
+        how = choose(["Pick from the list (the command shows it)", "Type manifest IDs"], title=trail, read=read, write=write)
+        if how is BACK:
+            return True
+        ids = None
+        if how == 1:
+            ids = _ask_manifest_ids(read=read, write=write)
+            if ids is BACK:
+                continue
+        args = _namespace(command="review", review_kind="approve", ids=ids)
+        result = await _act(args, session=session, runner=runner, read=read, write=write, trail=trail, rows=(RUN_AGAIN,))
+        return result is not EXIT
+
+
+def _review_by_ids(kind: str, *, title: str, offline: bool):
+    """A review row that takes manifest ids and runs one verb on them; the gate stays inside."""
+
+    async def flow(*, session, runner, read, write) -> bool:
+        trail = crumb(MAIN, "Review queue", title)
+        while True:
+            session.target = None
+            ids = _ask_manifest_ids(read=read, write=write)
+            if ids is BACK:
+                return True
+            args = _namespace(command="review", review_kind=kind, ids=ids, profile=session.profile)
+            result = await _act(
+                args,
+                session=None if offline else session,
+                runner=runner,
+                read=read,
+                write=write,
+                trail=trail,
+                rows=((STAY, "Another"),),
+            )
+            if result is not STAY:
+                return result is not EXIT
+
+    return flow
+
+
+async def _flow_review_status(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Review queue", "Status")
+    which = choose(["Every download", "Certain manifest IDs"], title=trail, read=read, write=write)
+    if which is BACK:
+        return True
+    ids = None
+    if which == 1:
+        ids = _ask_manifest_ids(read=read, write=write)
+        if ids is BACK:
+            return True
+    await _call(
+        _namespace(command="review", review_kind="status", ids=ids, profile=session.profile),
+        session=None,
+        runner=runner,
+        write=write,
+    )
+    return after_action(read=read, write=write)
+
+
+_flow_review_accept = _review_by_ids("accept", title="Accept", offline=True)
+_flow_review_reject = _review_by_ids("reject", title="Reject", offline=True)
+_flow_review_retry = _review_by_ids("retry", title="Retry", offline=False)
+
+
 BOT_FIELDS = (
     ("name", "Username"),
     ("description", "Description"),
@@ -2154,7 +2262,21 @@ async def run_menu(*, read=None, write=None, session=None, runner=None, profile:
         ),
         (_flow_clear, True),
         (_later("roles, members, invites and webhooks"), False),
-        (_later("rules, the runner and the review queue"), False),
+        (
+            _group(
+                "Watch",
+                (
+                    ("Review queue: what is waiting (attachments, links)", _flow_review_list),
+                    ("Review queue: approve and fetch into quarantine", _flow_review_approve),
+                    ("Review queue: accept a checked file into media", _flow_review_accept),
+                    ("Review queue: reject (deletes the quarantined bytes)", _flow_review_reject),
+                    ("Review queue: status of a download", _flow_review_status),
+                    ("Review queue: retry a failed fetch", _flow_review_retry),
+                    ("Rules and the runner", _later("rules and the runner")),
+                ),
+            ),
+            False,
+        ),
         (
             _group(
                 "Identity",

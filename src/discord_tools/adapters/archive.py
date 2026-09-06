@@ -31,11 +31,13 @@ same row is never fetched twice on purpose.
 
 from __future__ import annotations
 
-from typing import Any, AsyncIterator, Mapping
+import re
+from typing import Any, AsyncIterator, Callable, Mapping
 
 from discord_tools._core import rid as _rid
 from discord_tools._core.archive import ScopeListing
 from discord_tools._core.identity import Target
+from discord_tools._core.review import Candidate
 from discord_tools.models import ChannelInfo, ThreadInfo
 from discord_tools.records import message_date, parse_date_bound
 
@@ -48,6 +50,15 @@ THREAD_CONTAINER_TYPES = ("text", "news", "forum", "media")
 READ_RIGHTS = ("read_messages", "read_message_history")
 # How many messages the content probe reads per channel: the doctor's number.
 PROBE_SAMPLE = 5
+# A link as a message writes it: the scheme and everything up to whitespace or
+# the angle bracket Discord uses to suppress a preview. Trailing punctuation a
+# sentence adds is not part of the URL.
+LINK = re.compile(r"https?://[^\s<>]+")
+LINK_TRAIL = ".,;:!?)'\"]"
+# What a sync hands the queue for one message: the candidate, and for media the
+# CDN URL Discord served it at right now, which expires and rides beside the
+# manifest rather than in it.
+CandidateSink = Callable[[Candidate, str | None], None]
 
 
 def channel_rid(channel_id: int, kind: str = "channel") -> str:
@@ -92,6 +103,76 @@ def author_of(message: Any) -> Mapping[str, Any] | None:
     }
 
 
+def links_in(text: str) -> list[str]:
+    """Every http(s) URL in `text`, as written, in order, once each."""
+    found: list[str] = []
+    for match in LINK.finditer(text or ""):
+        url = match.group(0).rstrip(LINK_TRAIL)
+        if url and url not in found:
+            found.append(url)
+    return found
+
+
+def candidates_of(message: Any, *, rid: str, author_rid: str | None) -> list[tuple[Candidate, str | None]]:
+    """What one message puts in the review queue, never fetched (spec section 9.1).
+
+    Each attachment is a media candidate keyed by Discord's own attachment id,
+    the one thing about it that does not change when the CDN re-signs its URL;
+    the URL the API served rides beside it so the fetcher has somewhere to
+    start. Every link in the text and every embed's URL is a link candidate
+    carrying the URL exactly as written, so the full link pipeline (redirects
+    walked after approval, the private-network pin) runs on it: an embed is
+    Discord's preview of a URL somebody else chose, not platform media.
+    """
+    message_id = str(int(getattr(message, "id")))
+    out: list[tuple[Candidate, str | None]] = []
+    for attachment in getattr(message, "attachments", None) or ():
+        url = getattr(attachment, "url", None)
+        attachment_id = getattr(attachment, "id", None) or attachment_id_of(url)
+        if attachment_id is None:
+            # Nothing to find it by again: not a candidate the fetcher could serve.
+            continue
+        size = getattr(attachment, "size", None)
+        out.append(
+            (
+                Candidate(
+                    kind="media",
+                    source_rid=rid,
+                    source_message_id=message_id,
+                    sender_rid=author_rid,
+                    claimed_type=getattr(attachment, "content_type", None) or None,
+                    claimed_size=int(size) if isinstance(size, int) and not isinstance(size, bool) and size >= 0 else None,
+                    locator=str(attachment_id),
+                    display_name=getattr(attachment, "filename", None) or None,
+                ),
+                str(url) if url else None,
+            )
+        )
+    links = links_in(getattr(message, "content", "") or "")
+    for embed in getattr(message, "embeds", None) or ():
+        url = getattr(embed, "url", None)
+        if url and str(url) not in links and LINK.fullmatch(str(url)):
+            links.append(str(url))
+    for url in links:
+        out.append((Candidate(kind="link", source_rid=rid, source_message_id=message_id, sender_rid=author_rid, url=url), None))
+    return out
+
+
+def attachment_id_of(url: str | None) -> str | None:
+    """The attachment id in a CDN URL, `/attachments/<channel>/<attachment>/<name>`, or None."""
+    if not url:
+        return None
+    path = str(url).split("?", 1)[0].split("#", 1)[0]
+    parts = [part for part in path.split("/") if part]
+    try:
+        marker = parts.index("attachments")
+    except ValueError:
+        return None
+    if len(parts) > marker + 2 and parts[marker + 2].isdecimal():
+        return parts[marker + 2]
+    return None
+
+
 def message_record(message: Any, *, channel_id: int, cursor: str) -> dict[str, Any]:
     """One history row in the shape the shared archive stores."""
     when = message_date(message)
@@ -128,10 +209,13 @@ class DiscordArchiveSource:
     whether text can be read at all before a channel is walked.
     """
 
-    def __init__(self, client, *, server_id: int | None = None) -> None:
+    def __init__(self, client, *, server_id: int | None = None, sink: CandidateSink | None = None) -> None:
         self._client = client
         self._server_id = server_id
         self._intent: str | None = None
+        # Where each message's attachments and links go as candidates, called
+        # as the row is yielded. None means the sync keeps no queue.
+        self._sink = sink
 
     async def _intent_status(self) -> str:
         if self._intent is None:
@@ -253,7 +337,7 @@ class DiscordArchiveSource:
             if newest is None:
                 newest = message_id
             oldest = message_id
-            yield message_record(message, channel_id=channel_id, cursor=make_cursor(newest, oldest))
+            yield self._row(message, scope, channel_id=channel_id, cursor=make_cursor(newest, oldest))
 
         # Newer than what was held before this run, oldest first, so an
         # interruption here leaves the newest committed id contiguous with
@@ -262,6 +346,11 @@ class DiscordArchiveSource:
             async for message in self._client.iter_history(channel_id, after=newest, oldest_first=True):
                 message_id = int(getattr(message, "id"))
                 newest = max(newest or message_id, message_id)
-                yield message_record(
-                    message, channel_id=channel_id, cursor=make_cursor(newest, oldest or message_id)
-                )
+                yield self._row(message, scope, channel_id=channel_id, cursor=make_cursor(newest, oldest or message_id))
+
+    def _row(self, message: Any, scope: Target, *, channel_id: int, cursor: str) -> dict[str, Any]:
+        record = message_record(message, channel_id=channel_id, cursor=cursor)
+        if self._sink is not None:
+            for candidate, url in candidates_of(message, rid=scope.rid, author_rid=record["author_rid"]):
+                self._sink(candidate, url)
+        return record

@@ -185,18 +185,26 @@ def test_the_root_is_section_14s_nine_rows():
     assert ROOT_ITEMS[8] == "Check setup"
 
 
-@pytest.mark.parametrize("row,what", [("6", "roles"), ("7", "rules")], ids=["manage", "watch"])
-def test_a_row_whose_pack_has_not_landed_says_so_and_steps_back(row, what):
-    printed = walk([row, "0"])
+def test_a_row_whose_pack_has_not_landed_says_so_and_steps_back():
+    printed = walk(["6", "0"])
     notice = next(index for index, text in enumerate(printed) if "Not built yet" in text)
-    assert what in printed[notice]
+    assert "roles" in printed[notice]
     # Straight back to the root, with no prompt in between: an Enter-to-continue
     # on a screen with nothing to decide eats the number you meant to press next.
     assert printed[notice + 1].split("\n")[0] == "discord-tools"
 
 
+def test_the_watch_row_is_a_group_whose_rules_row_says_so_and_steps_back_to_it():
+    # The review queue landed under Watch; rules and the runner have not, and
+    # their row says so inside the group rather than hiding the queue behind it.
+    printed = walk(["7", "7", "0", "0"])
+    notice = next(index for index, text in enumerate(printed) if "Not built yet" in text)
+    assert "rules" in printed[notice]
+    assert printed[notice + 1].split("\n")[0].endswith("Watch")
+
+
 def test_a_number_typed_after_that_notice_reaches_the_row_it_names():
-    printed = walk(["6", "7"])
+    printed = walk(["6", "7", "7"])
     assert sum("Not built yet" in text for text in printed) == 2
 
 

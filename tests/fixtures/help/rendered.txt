@@ -2,10 +2,10 @@
 discord-tools --help
 ========================================================================
 usage: discord-tools [-h] [--profile PROFILE] [--json] [--jsonl]
-                     {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,message,bot} ...
+                     {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,review,message,bot} ...
 
 positional arguments:
-  {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,message,bot}
+  {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,review,message,bot}
     auth                Guided bot setup: Developer Portal walkthrough, token check, invite URL
     doctor              Check token, message-content intent, servers, and channel permissions
     discover            List the server -> channel -> thread tree with IDs
@@ -19,6 +19,8 @@ positional arguments:
     leave-server        Make the bot leave a server (nothing in it is deleted; dry-run by default)
     profiles            List the stored bot profiles, or remove one (no token is ever printed)
     archive             The local archive: sync history into it, search it, export it, prune it
+    review              The review queue: attachments and links the archive saw, fetched into
+                        quarantine only after you approve
     message             Act on messages a channel holds: reply, edit, delete, forward, copy,
                         react, pin, poll, typing, bookmark
     bot                 Show or edit the active profile's bot settings and invite URL

@@ -9,6 +9,7 @@ from typing import Sequence
 
 from discord_tools import archive as archive_store
 from discord_tools import plans
+from discord_tools import review as review_store
 from discord_tools._core import rid as _rid
 from discord_tools._core.archive import SearchError
 from discord_tools._core.contract import CodedError, Error
@@ -16,6 +17,7 @@ from discord_tools._core.export import ExportError, FORMATS as ARCHIVE_FORMATS, 
 from discord_tools._core.identity import Identity, banner
 from discord_tools._core.paths import write_private
 from discord_tools._core.plan import Evidence, Mutation, drift
+from discord_tools._core.review import KINDS as REVIEW_KINDS, STATES as REVIEW_STATES, ReviewError
 from discord_tools.adapters import (
     DiscordArchiveSource,
     DiscordIdentityProvider,
@@ -308,6 +310,38 @@ def build_parser() -> argparse.ArgumentParser:
     forget_what.add_argument("--identity", help="The bot identity whose rows all go (a dc:bot rid)")
     archive_forget.add_argument("--execute", action="store_true", help="Actually remove after typing the target's exact name")
 
+    review_parser = subparsers.add_parser(
+        "review",
+        help="The review queue: attachments and links the archive saw, fetched into quarantine only after you approve",
+    )
+    review_kinds = review_parser.add_subparsers(dest="review_kind")
+
+    def manifest_ids(parser, *, required: bool, help: str):
+        parser.add_argument("--ids", nargs="+", required=required, metavar="MANIFEST_ID", help=help)
+
+    review_list = review_kinds.add_parser(
+        "list", help="What is waiting, as the messages wrote it; reads the archive and contacts no host"
+    )
+    review_list.add_argument("--kind", choices=REVIEW_KINDS, help="Only attachments (media) or only links")
+    review_list.add_argument("--state", choices=REVIEW_STATES, help="Only candidates in this state")
+    review_list.add_argument("--identity", help="Only candidates archived by this bot identity (a dc:bot rid)")
+    review_approve = review_kinds.add_parser(
+        "approve", help="Approve queued candidates and fetch them into quarantine (asks y/N; there is no --yes)"
+    )
+    manifest_ids(review_approve, required=False, help="Manifest IDs from `review list`; without them, pick from the list")
+    review_accept = review_kinds.add_parser(
+        "accept", help="Move checked files out of quarantine into the media store, after showing each verdict (asks y/N)"
+    )
+    manifest_ids(review_accept, required=True, help="Manifest IDs of quarantined candidates")
+    review_reject = review_kinds.add_parser("reject", help="Reject candidates in any state and delete their quarantined bytes")
+    manifest_ids(review_reject, required=True, help="Manifest IDs to reject")
+    review_retry = review_kinds.add_parser("retry", help="Run a failed fetch again, resuming from the bytes already on disk")
+    manifest_ids(review_retry, required=True, help="Manifest IDs of failed candidates")
+    review_status = review_kinds.add_parser(
+        "status", help="Everything known about candidates: state, redirects, refreshes, sha256, verdict, detail"
+    )
+    manifest_ids(review_status, required=False, help="Manifest IDs; without them, every candidate that has a download")
+
     message_parser = subparsers.add_parser(
         "message",
         help="Act on messages a channel holds: reply, edit, delete, forward, copy, react, pin, poll, typing, bookmark",
@@ -479,6 +513,8 @@ def _as_outcome(exc: Exception) -> Outcome | None:
         return Outcome(status="refused", error=exc.error)
     if isinstance(exc, (SearchError, ExportError)):
         return _refused("CONFIG_INVALID", str(exc))
+    if isinstance(exc, ReviewError):
+        return _refused("TARGET_NOT_FOUND" if "no candidate" in str(exc) or "no download" in str(exc) else "TARGET_KIND_MISMATCH", str(exc))
     if isinstance(exc, SendNotAllowedError):
         return _refused("NOT_ALLOWLISTED", str(exc))
     if isinstance(exc, ConfigError):
@@ -705,17 +741,25 @@ async def _run_archive_sync(client, args, out) -> Outcome:
             wanted.append((await resolver.resolve(text)).rid if text.isdecimal() else text)
 
     identity = out.identity
-    source = DiscordArchiveSource(client, server_id=args.server)
     with archive_store.open_archive() as archive:
+        # Every attachment, embed URL and link the walk sees becomes a queued
+        # manifest as the row is read, never fetched: the queue is what a
+        # human approves from, and a sync makes no request beyond the history.
+        queue = review_store.open_queue(archive)
+        before = len(queue.list())
+        source = DiscordArchiveSource(client, server_id=args.server, sink=review_store.sink_into(queue, identity.id))
         report = await archive.sync(
             source, identity, scopes=wanted, since=args.since, full=args.full, batch=SYNC_BATCH, progress=out.progress
         )
         coverage = [row.to_dict() for row in archive.coverage(identity.id)]
+        queued = len(queue.list()) - before
     if not out.machine:
         print(archive_store.format_sync_report(report))
+        if queued:
+            print(f"{queued} new candidate(s) in the review queue; `discord-tools review list` shows them.")
     return Outcome(
         status=report.status,
-        result={**report.to_dict(), "coverage": coverage},
+        result={**report.to_dict(), "coverage": coverage, "queued": queued},
         warnings=tuple(f"{scope.rid}: {scope.error}" for scope in report.failed),
     )
 
@@ -724,11 +768,18 @@ async def _run_archive_sync(client, args, out) -> Outcome:
 
 
 OFFLINE_ARCHIVE = ("status", "search", "export", "retention", "forget")
+# The review commands that never touch a host: a listing, a status, an accept
+# (a rename inside ~/.discord-tools) and a reject (a delete there). Approve
+# and retry fetch, and fetching an attachment may need the seam to refresh
+# its URL, so those two log in.
+OFFLINE_REVIEW = ("list", "status", "accept", "reject")
 
 
 def _is_offline_archive(args) -> bool:
     if args.command == "archive":
         return args.archive_kind in OFFLINE_ARCHIVE
+    if args.command == "review":
+        return args.review_kind in OFFLINE_REVIEW
     return args.command == "search" and getattr(args, "archive", False)
 
 
@@ -740,6 +791,8 @@ async def _dispatch_offline(args, config, out) -> int:
             out.frame(banner(out.identity))
         if args.command == "message":
             outcome = await _run_bookmark_list(args, out)
+        elif args.command == "review":
+            outcome = await OFFLINE_REVIEW_RUNNERS[args.review_kind](args, out)
         elif args.command == "search":
             outcome = await _run_archive_search(_archive_args_from_search(args), out)
         elif args.archive_kind == "status":
@@ -969,6 +1022,190 @@ async def _run_archive_forget(args, out) -> Outcome:
         result={**result, "remaining": left, "cancelled": False},
         evidence=Evidence.verified(f"{target.rid} now holds {left} message(s)"),
     )
+
+
+# -- the review queue ----------------------------------------------------------
+
+
+def _no_archive(verb: str) -> Outcome:
+    return Outcome(
+        status="refused",
+        error=Error(
+            code="ARCHIVE_UNAVAILABLE",
+            message=f"There is no archive, so there is no review queue to {verb}.",
+            hint="Run `discord-tools archive sync` first: it fills the queue with what it sees.",
+        ),
+    )
+
+
+def _review_rows(queue, ids, *, verb: str):
+    """The rows `ids` name, each checked to exist before any of them moves."""
+    return [queue.get(manifest_id) for manifest_id in dict.fromkeys(ids or ())]
+
+
+async def _run_review_list(args, out) -> Outcome:
+    if not archive_store.archive_exists():
+        return _no_archive("list")
+    with archive_store.open_archive() as archive:
+        rows = review_store.open_queue(archive).list(kind=args.kind, state=args.state, identity=args.identity)
+    dicts = [row.to_dict() for row in rows]
+    if not out.machine:
+        out.say(review_store.format_queue(rows))
+    for row in dicts:
+        out.record("candidate", row)
+    return Outcome(status="ok" if rows else "empty", result={"matched": len(rows), "candidates": [] if out.jsonl else dicts})
+
+
+async def _run_review_status(args, out) -> Outcome:
+    if not archive_store.archive_exists():
+        return _no_archive("show")
+    with archive_store.open_archive() as archive:
+        queue = review_store.open_queue(archive)
+        if args.ids:
+            rows = _review_rows(queue, args.ids, verb="show")
+        else:
+            rows = [row for row in queue.list() if row.download_id is not None]
+        usage = review_store.quarantine_usage(archive)
+    if not out.machine:
+        out.say(review_store.format_status(rows))
+        out.say(
+            f"Quarantine: {usage['downloads']} download(s), {usage['used']} of the {usage['limit']} budget ({usage['percent']}%)."
+        )
+    return Outcome(
+        status="ok" if rows else "empty",
+        result={"candidates": [row.to_dict() for row in rows], "quarantine": usage},
+    )
+
+
+def _approval(out):
+    """The queue's gate, honest about the terminal the way every other gate here is."""
+    return review_store.approval(interactive=not out.machine or out.tty)
+
+
+async def _run_review_accept(args, out) -> Outcome:
+    if not archive_store.archive_exists():
+        return _no_archive("accept from")
+    require_private_store()
+    with archive_store.open_archive() as archive:
+        queue = review_store.open_queue(archive)
+        rows = _review_rows(queue, args.ids, verb="accept")
+        for row in rows:
+            if row.state != "quarantined":
+                return _refused("TARGET_KIND_MISMATCH", f"{row.manifest_id} is {row.state}, not quarantined; only a checked file can be accepted.")
+        unsafe = [row for row in rows if row.verdict in ("BLOCKED", "INFECTED")]
+        out.say(review_store.format_verdicts(rows))
+        if unsafe:
+            first = unsafe[0]
+            return _refused(
+                "UNSAFE_BLOCKED",
+                f"{first.manifest_id} is {first.verdict}: {first.last_error or 'a built-in check failed'}. It cannot be accepted.",
+                hint=f"discord-tools review reject --ids {' '.join(row.manifest_id for row in unsafe)}",
+            )
+        refusal = out.approval_unavailable(
+            "Run `discord-tools review accept --ids ...` in a terminal: it shows each verdict and asks y/N, and there is no --yes."
+        )
+        if refusal is not None:
+            return Outcome(status="refused", error=refusal)
+        if not review_store.confirm(f"Accept {len(rows)} file(s) into ~/.discord-tools/media", write=out.say):
+            return Outcome(status="cancelled", result={"cancelled": True, "ids": [row.manifest_id for row in rows]})
+        results = queue.accept([row.manifest_id for row in rows], _approval(out))
+    out.say(review_store.format_accepted(results))
+    return Outcome(
+        status="ok",
+        result={"accepted": results, "cancelled": False},
+        evidence=Evidence.verified(f"{len(results)} file(s) now in the media store"),
+    )
+
+
+async def _run_review_reject(args, out) -> Outcome:
+    if not archive_store.archive_exists():
+        return _no_archive("reject from")
+    with archive_store.open_archive() as archive:
+        queue = review_store.open_queue(archive)
+        rows = _review_rows(queue, args.ids, verb="reject")
+        results = queue.reject([row.manifest_id for row in rows])
+    out.say(review_store.format_rejected(results))
+    return Outcome(status="ok", result={"rejected": results}, evidence=Evidence.verified(f"{len(results)} candidate(s) rejected"))
+
+
+async def _fetch_all(queue, client, download_ids, out) -> Outcome:
+    pipe = review_store.pipeline(queue, client)
+    reports = []
+    for download_id in download_ids:
+        report = await pipe.run(download_id)
+        reports.append(report)
+        out.say(review_store.format_reports([report]))
+    ended = [report.state for report in reports]
+    failed = [report for report in reports if report.state == "failed"]
+    status = "ok" if not failed else ("failed" if len(failed) == len(reports) else "partial")
+    error = None
+    if status == "failed":
+        error = Error(
+            code="PLATFORM_ERROR",
+            message="; ".join(f"{report.manifest_id}: {report.error}" for report in failed),
+            hint=f"discord-tools review retry --ids {' '.join(report.manifest_id for report in failed)} resumes from the bytes on disk",
+        )
+    return Outcome(
+        status=status,
+        result={"fetched": [report.to_dict() for report in reports], "cancelled": False},
+        evidence=Evidence.verified(f"{ended.count('quarantined')} of {len(ended)} download(s) in quarantine"),
+        warnings=tuple(f"{report.manifest_id}: {report.error}" for report in failed) if status == "partial" else (),
+        error=error,
+    )
+
+
+async def _run_review_approve(client, args, out) -> Outcome:
+    if not archive_store.archive_exists():
+        return _no_archive("approve from")
+    require_private_store()
+    with archive_store.open_archive() as archive:
+        queue = review_store.open_queue(archive)
+        refusal = out.approval_unavailable(
+            "Run `discord-tools review approve` in a terminal: it lists the queue and asks y/N before anything is fetched, "
+            "and there is deliberately no --yes."
+        )
+        if refusal is not None:
+            return Outcome(status="refused", error=refusal)
+        if args.ids:
+            rows = _review_rows(queue, args.ids, verb="approve")
+        else:
+            queued = queue.list(state="queued")
+            rows = _review_rows(queue, review_store.pick_queued(queued, write=out.say), verb="approve")
+            if not rows:
+                return Outcome(status="cancelled", result={"cancelled": True, "ids": []})
+        for row in rows:
+            if row.state != "queued":
+                return _refused("TARGET_KIND_MISMATCH", f"{row.manifest_id} is {row.state}, not queued.", hint="`review retry` re-runs a failed fetch; `review status` shows the rest.")
+        out.say(review_store.format_queue(rows))
+        if not review_store.confirm(f"Approve and fetch {len(rows)} candidate(s) into quarantine", write=out.say):
+            return Outcome(status="cancelled", result={"cancelled": True, "ids": [row.manifest_id for row in rows]})
+        download_ids = queue.approve([row.manifest_id for row in rows], _approval(out), out.identity)
+        return await _fetch_all(queue, client, download_ids, out)
+
+
+async def _run_review_retry(client, args, out) -> Outcome:
+    if not archive_store.archive_exists():
+        return _no_archive("retry from")
+    require_private_store()
+    with archive_store.open_archive() as archive:
+        queue = review_store.open_queue(archive)
+        rows = _review_rows(queue, args.ids, verb="retry")
+        download_ids = queue.retry([row.manifest_id for row in rows])
+        return await _fetch_all(queue, client, download_ids, out)
+
+
+OFFLINE_REVIEW_RUNNERS = {
+    "list": _run_review_list,
+    "status": _run_review_status,
+    "accept": _run_review_accept,
+    "reject": _run_review_reject,
+}
+
+
+async def _run_review(client, args, out) -> Outcome:
+    if args.review_kind == "approve":
+        return await _run_review_approve(client, args, out)
+    return await _run_review_retry(client, args, out)
 
 
 # -- writing commands -----------------------------------------------------
@@ -2180,6 +2417,7 @@ READING = {
     "search": _run_search,
     "members": _run_members,
     "archive": _run_archive_sync,
+    "review": _run_review,
 }
 WRITING = {
     "send": _run_send,

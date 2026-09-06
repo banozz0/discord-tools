@@ -263,3 +263,42 @@ def test_a_failed_login_hands_out_no_identity(home_is_a_tmp_dir):
     checks = run(collect_checks(env=TOKEN_ENV, open_client=refuses, identity_seen=seen.append))
     assert seen == []
     assert any(check.failed for check in checks)
+
+
+# -- the review queue -------------------------------------------------------------
+
+
+class _Scanner:
+    def __init__(self, binary):
+        self.binary = binary
+
+    def report(self):
+        return {"scanner": "clamav", "binary": self.binary, "command": "clamdscan" if self.binary else None, "looked_for": ["clamdscan", "clamscan"]}
+
+
+def test_the_scanner_check_names_the_binary_it_found():
+    from discord_tools.doctor import check_scanner
+
+    check = check_scanner(_Scanner("/opt/bin/clamdscan"))
+    assert check.status == "OK" and "clamdscan at /opt/bin/clamdscan" in check.message
+
+
+def test_the_scanner_check_names_what_it_looked_for_and_says_unscanned():
+    from discord_tools.doctor import check_scanner
+
+    check = check_scanner(_Scanner(None))
+    assert check.status == "WARN"
+    assert "clamdscan, clamscan" in check.message and "UNSCANNED" in check.message
+
+
+def test_the_quarantine_check_reports_bytes_against_the_budget(home_is_a_tmp_dir):
+    from discord_tools import archive as archive_store
+    from discord_tools.doctor import check_quarantine
+
+    check = check_quarantine(home=home_is_a_tmp_dir)
+    assert check.status == "OK" and "0 download(s)" in check.message
+    paths = archive_store.tool_paths(home_is_a_tmp_dir)
+    (paths.quarantine / "abc").mkdir(parents=True)
+    (paths.quarantine / "abc" / "payload").write_bytes(b"x" * 2048)
+    check = check_quarantine(home=home_is_a_tmp_dir)
+    assert "1 download(s)" in check.message and "2.0 KiB" in check.message and "review accept" in check.message

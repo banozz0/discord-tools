@@ -5,8 +5,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from discord_tools import archive as archive_store
 from discord_tools import cli, ui
 from discord_tools._core import rid as _rid
+from discord_tools._core.contract import CodedError
 from discord_tools.client import API_ERRORS, ClientError, start_client
 from discord_tools.plans import PlanDriftError
 from discord_tools._core.columns import cell
@@ -35,7 +37,7 @@ from discord_tools.ui import crumb
 
 # What the menu turns into a printed line instead of an exit. Anything not
 # named here is a bug and should still be loud.
-MENU_ERRORS = (ConfigError, ClientError, PlanDriftError, ValueError, OSError) + API_ERRORS
+MENU_ERRORS = (ConfigError, ClientError, PlanDriftError, CodedError, ValueError, OSError) + API_ERRORS
 
 ROOT_TITLE = "discord-tools"
 MAIN = "Main"
@@ -44,7 +46,7 @@ MAIN = "Main"
 # whole point of regrouping now is that these numbers are learned once.
 ROOT_ITEMS = (
     "Find IDs (servers, channels, threads)",
-    "Read (search, export, members)",
+    "Read (search live, archive, export, members)",
     "Write (send)",
     "Build (create, delete, leave a server)",
     "Clear messages",
@@ -1049,6 +1051,324 @@ async def _flow_clear(*, session, runner, read, write) -> bool:
         scanned = None
 
 
+# -- the archive ----------------------------------------------------------
+
+# Where a flow's Discord ids come from: an id typed or picked is handed to the
+# command as `--scope <id>`, and the command resolves it, so the menu builds
+# exactly the arguments the flags take.
+_ARCHIVE_EMPTY = "The archive is empty - run Archive: sync first."
+
+
+def _archive_scopes() -> list[dict[str, Any]]:
+    """Every scope the archive holds, read from disk; nothing when there is no archive."""
+    if not archive_store.archive_exists():
+        return []
+    with archive_store.open_archive() as archive:
+        return archive_store.list_scopes(archive)
+
+
+def _pick_archived_scope(*, read, write, trail: str) -> Any:
+    """A scope out of the archive itself, or a typed id, or BACK.
+
+    Offline: the rows come from the archive's own scope table, so this works
+    with no login and lists exactly what a search can reach.
+    """
+    scopes = _archive_scopes()
+    if not scopes:
+        write(_ARCHIVE_EMPTY)
+        return _ask_id("Channel or thread ID", read=read, write=write)
+    chosen = pick(
+        scopes,
+        title=crumb(trail, "Pick an archived channel or thread"),
+        label=lambda scope: f"{cell(' › '.join(scope['path'][1:]) or scope['title'], 30)}  {_rid.parse(scope['rid']).id}",
+        read=read,
+        write=write,
+        extras=(Extra("manual", _TYPE_AN_ID),),
+    )
+    if chosen is BACK:
+        return BACK
+    if chosen == "manual":
+        return _ask_id("Channel or thread ID", read=read, write=write)
+    return chosen["rid"]
+
+
+async def _flow_archive_sync(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Archive", "Sync")
+    while True:
+        session.target = None
+        scope = choose(
+            ["Everything the bot can read", "One server", "One channel or thread"],
+            title=trail,
+            read=read,
+            write=write,
+        )
+        if scope is BACK:
+            return True
+
+        server_id = None
+        scopes = None
+        where = trail
+        if scope == 1:
+            server = await _pick_server(session=session, read=read, write=write, trail=trail)
+            if server is BACK:
+                continue
+            server_id = server.id
+            where = crumb(trail, server.name)
+        elif scope == 2:
+            picked = await _pick_channel(session=session, read=read, write=write, trail=trail)
+            if picked is BACK:
+                continue
+            scopes = [str(picked.id)]
+            where = crumb(trail, picked.title)
+
+        walk = choose(
+            [
+                "Only what the archive does not have yet",
+                "Back to a date (--since), then only what is new",
+                "Walk everything again (--full)",
+            ],
+            title=crumb(where, "How far"),
+            read=read,
+            write=write,
+        )
+        if walk is BACK:
+            continue
+        since = None
+        if walk == 1:
+            since = ask_text("Since (ISO date)", read=read, write=write)
+            if since is BACK:
+                continue
+
+        args = _namespace(
+            command="archive",
+            archive_kind="sync",
+            server=server_id,
+            scope=scopes,
+            since=since,
+            full=walk == 2,
+        )
+        result = await _act(args, session=session, runner=runner, read=read, write=write, trail=where, rows=(RUN_AGAIN,))
+        return result is not EXIT
+
+
+async def _flow_archive_status(*, session, runner, read, write) -> bool:
+    # Read from disk: no login, so the status is there while a token is being
+    # rotated, and no after-run screen because running it again says nothing new.
+    await _call(
+        _namespace(command="archive", archive_kind="status", profile=session.profile),
+        session=None,
+        runner=runner,
+        write=write,
+    )
+    return after_action(read=read, write=write)
+
+
+_ARCHIVE_FORMATS = (
+    ("json", "JSON"),
+    ("csv", "CSV"),
+    ("jsonl", "JSON Lines"),
+    ("markdown", "Markdown"),
+    ("html", "HTML (one self-contained file)"),
+)
+
+
+async def _flow_archive_search(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Archive", "Search")
+    staged: dict[str, Any] = {
+        "query": None,
+        "regex": None,
+        "scope": None,
+        "author": None,
+        "since": None,
+        "until": None,
+        "context": None,
+        "limit": None,
+        "include_deleted": False,
+    }
+    while True:
+        rows = [
+            ("query", f"Query          [{_shown(staged['query'], '(required)')}]"),
+            ("regex", f"Regex          [{_shown(staged['regex'], '(none)')}]"),
+            ("scope", f"Where          [{_shown(staged['scope'], '(every archived scope)')}]"),
+            ("author", f"From           [{_shown(staged['author'], '(anyone)')}]"),
+            ("since", f"Since          [{_shown(staged['since'], '(any date)')}]"),
+            ("until", f"Until          [{_shown(staged['until'], '(any date)')}]"),
+            ("context", f"Context        [{_shown(staged['context'], '(no neighbours)')}]"),
+            ("limit", f"Limit          [{_shown(staged['limit'], '(50)')}]"),
+            ("include_deleted", f"Deleted too    [{'yes' if staged['include_deleted'] else 'no'}]"),
+            ("run", "Run it (print here)"),
+            ("export", "Export to a file"),
+        ]
+        choice = choose(
+            [label for _key, label in rows],
+            title=trail,
+            read=read,
+            write=write,
+            back_label="Back (discards)",
+        )
+        if choice is BACK:
+            count = sum(1 for key, value in staged.items() if value not in (None, False))
+            if count and not _confirm_discard(
+                trail,
+                title=_staged_changes(count),
+                said=f"Discarded {_staged_changes(count)}.",
+                read=read,
+                write=write,
+            ):
+                continue
+            return True
+        key = rows[choice][0]
+
+        if key in ("run", "export"):
+            if not staged["query"]:
+                write("Type a query first.")
+                continue
+            output_path = None
+            output_format = "json"
+            if key == "export":
+                output_path = ask_text("Export file name (lands in ~/.discord-tools/exports/)", read=read, write=write)
+                if output_path is BACK:
+                    continue
+                fmt = choose([label for _name, label in _ARCHIVE_FORMATS], title=crumb(trail, "Format"), read=read, write=write)
+                if fmt is BACK:
+                    continue
+                output_format = _ARCHIVE_FORMATS[fmt][0]
+            args = _namespace(
+                command="archive",
+                archive_kind="export" if output_path else "search",
+                query=staged["query"],
+                regex=staged["regex"],
+                scope=[staged["scope"]] if staged["scope"] else None,
+                identity=None,
+                author=staged["author"],
+                since=staged["since"],
+                until=staged["until"],
+                context=staged["context"] or 0,
+                limit=staged["limit"] or 50,
+                include_deleted=staged["include_deleted"],
+                format=output_format,
+                output=output_path,
+            )
+            result = await _act(args, session=session, runner=runner, read=read, write=write, trail=trail)
+            if result is not STAY:
+                return result is not EXIT
+            continue
+
+        if key == "include_deleted":
+            staged["include_deleted"] = not staged["include_deleted"]
+            continue
+        if key == "scope":
+            picked = _pick_archived_scope(read=read, write=write, trail=trail)
+            if picked is not BACK:
+                staged["scope"] = str(picked)
+            continue
+        if key in ("context", "limit"):
+            label = "Neighbours on each side" if key == "context" else "Maximum hits"
+            answer = edit_field(
+                crumb(trail, label),
+                _shown(staged[key], "(none)" if key == "context" else "(50)"),
+                read=read,
+                write=write,
+                ask=lambda: ask_int(label, read=read, write=write),
+                allow_clear=True,
+                is_set=staged[key] is not None,
+            )
+        else:
+            labels = {
+                "query": ("Query (words, quotes, AND, OR, NOT)", "(required)"),
+                "regex": ("Regex the text must also match", "(none)"),
+                "author": ("From (username or ID)", "(anyone)"),
+                "since": ("Since", "(any date)"),
+                "until": ("Until", "(any date)"),
+            }
+            title, empty = labels[key]
+            answer = edit_field(
+                crumb(trail, title),
+                _shown(staged[key], empty),
+                read=read,
+                write=write,
+                ask=lambda: ask_text(title, read=read, write=write),
+                allow_clear=True,
+                is_set=staged[key] is not None,
+            )
+        if answer is BACK:
+            continue
+        staged[key] = None if answer is CLEAR else answer
+
+
+_PRUNE_KINDS = (
+    ("retention", "Prune old messages in one channel or thread (keep a window)"),
+    ("forget-scope", "Forget one channel or thread entirely"),
+    ("forget-identity", "Forget everything this bot archived"),
+)
+
+
+async def _flow_archive_prune(*, session, runner, read, write) -> bool:
+    """Retention and forget: dry-run first, then the typed-name gate inside the command."""
+    trail = crumb(MAIN, "Archive", "Prune")
+    while True:
+        session.target = None
+        choice = choose([label for _kind, label in _PRUNE_KINDS], title=trail, read=read, write=write)
+        if choice is BACK:
+            return True
+        kind, label = _PRUNE_KINDS[choice]
+
+        scope = None
+        keep = None
+        identity = None
+        if kind == "forget-identity":
+            identity = (await session.identity()).id
+            where = crumb(trail, "This bot")
+        else:
+            scope = _pick_archived_scope(read=read, write=write, trail=trail)
+            if scope is BACK:
+                continue
+            where = crumb(trail, str(scope))
+            if kind == "retention":
+                keep = ask_text("Keep (a window like 90d, or a count of newest messages)", read=read, write=write)
+                if keep is BACK:
+                    continue
+
+        # No session: the command reads the archive from disk and needs no
+        # login, but it does need to know which profile's rows it is pruning.
+        dry_run = _namespace(
+            command="archive",
+            archive_kind="retention" if kind == "retention" else "forget",
+            scope=str(scope) if scope is not None else None,
+            keep=keep,
+            identity=identity,
+            execute=False,
+            profile=session.profile,
+        )
+        # The dry-run always runs first: the menu is never a shorter path to
+        # a removal than the flags are.
+        if await _call(dry_run, session=None, runner=runner, write=write) is None:
+            return after_action(read=read, write=write)
+
+        go = choose(
+            ["Do it for real - the next screen asks for the exact name"],
+            title=crumb(where, "Dry-run done"),
+            read=read,
+            write=write,
+            back_label="Back to the list",
+        )
+        if go is BACK:
+            continue
+
+        for_real = _namespace(**{**vars(dry_run), "execute": True})
+        result = await _act(
+            for_real,
+            session=None,
+            runner=runner,
+            read=read,
+            write=write,
+            trail=where,
+            rows=((STAY, "Prune something else"),),
+        )
+        if result is not STAY:
+            return result is not EXIT
+
+
 BOT_FIELDS = (
     ("name", "Username"),
     ("description", "Description"),
@@ -1387,7 +1707,20 @@ async def run_menu(*, read=None, write=None, session=None, runner=None, profile:
     # with no token at all, which is exactly when they are reached for.
     flows = (
         (_flow_discover, True),
-        (_group("Read", (("Search / export messages", _flow_search), ("Server members (names and IDs)", _flow_members))), True),
+        (
+            _group(
+                "Read",
+                (
+                    ("Search / export messages (live, one channel)", _flow_search),
+                    ("Server members (names and IDs)", _flow_members),
+                    ("Archive: sync history into the local archive", _flow_archive_sync),
+                    ("Archive: search / export the archive", _flow_archive_search),
+                    ("Archive: status (scopes, coverage, size)", _flow_archive_status),
+                    ("Archive: prune (retention, forget)", _flow_archive_prune),
+                ),
+            ),
+            True,
+        ),
         (_flow_send, True),
         (
             _group(

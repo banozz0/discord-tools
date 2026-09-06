@@ -37,6 +37,7 @@ SURFACE = json.loads((FIXTURES / "surface-0.6.2.json").read_text(encoding="utf-8
 ALLOWED_CHANGES: dict[tuple[str, str], str] = {
     ("discover", "--json"): "the path became optional; with none, the envelope goes to stdout",
     ("bot", "--json"): "the path became optional; with none, the envelope goes to stdout",
+    ("search", "--format"): "gained jsonl, markdown and html; json and csv are written exactly as before",
 }
 
 FIELDS = ("option_strings", "help", "required", "choices", "nargs")

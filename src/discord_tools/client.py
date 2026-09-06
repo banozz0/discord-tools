@@ -212,12 +212,30 @@ class DiscordClient:
     # -- messages ---------------------------------------------------------
 
     async def iter_history(
-        self, channel_id: int, *, limit: int | None = None, oldest_first: bool = False
+        self,
+        channel_id: int,
+        *,
+        limit: int | None = None,
+        oldest_first: bool = False,
+        before: int | None = None,
+        after: int | None = None,
     ) -> AsyncIterator[Any]:
+        """The channel's messages, newest first unless asked otherwise.
+
+        `before` and `after` are message ids and bound the walk on either side,
+        which is what lets an archive resume: older than the oldest it holds,
+        then newer than the newest. A bare id is enough for Discord; nothing
+        is fetched to build the bound.
+        """
         channel = await self._fetch_channel(channel_id)
         if not hasattr(channel, "history"):
             raise ClientError(f"Channel {channel_id} ({_channel_type_name(channel)}) has no message history.")
-        async for message in channel.history(limit=limit, oldest_first=oldest_first):
+        bounds: dict[str, Any] = {}
+        if before is not None:
+            bounds["before"] = discord.Object(id=before)
+        if after is not None:
+            bounds["after"] = discord.Object(id=after)
+        async for message in channel.history(limit=limit, oldest_first=oldest_first, **bounds):
             yield message
 
     async def send_message(self, channel_id: int, text: str | None, *, files: Sequence[str] = ()) -> int:

@@ -33,6 +33,8 @@ COMMANDS = [
     ("clear-messages",), ("delete",), ("delete", "channel"), ("delete", "category"),
     ("delete", "thread"), ("leave-server",), ("bot",),
     ("profiles",), ("profiles", "remove"),
+    ("archive",), ("archive", "sync"), ("archive", "status"), ("archive", "search"),
+    ("archive", "export"), ("archive", "retention"), ("archive", "forget"),
 ]
 
 BANNER = "=" * 72

@@ -117,6 +117,14 @@ class Run:
         """
         print(text, file=self.stderr)
 
+    def progress(self, text: str) -> None:
+        """One line of progress while a long read runs. Always stderr.
+
+        A sync prints one of these per scope; they are for the person watching,
+        never for the parser, and they arrive before the result does.
+        """
+        print(text, file=self.stderr)
+
     def payload(self, obj: Any) -> None:
         """The command's own data, printed only when nothing else will carry it.
 
@@ -235,7 +243,7 @@ def command_name(args) -> str:
     what the plan hashes, and it is what Discord's audit log will show.
     """
     parts = [args.command or ""]
-    for attribute in ("create_kind", "delete_kind", "profiles_kind"):
+    for attribute in ("create_kind", "delete_kind", "profiles_kind", "archive_kind"):
         kind = getattr(args, attribute, None)
         if kind:
             parts.append(kind)
@@ -250,7 +258,7 @@ def echoed_args(args, *, drop: Sequence[str] = ()) -> dict[str, Any]:
     way into the envelope, so a secret passed as a flag value cannot ride out
     in the echo.
     """
-    skip = {"command", "create_kind", "delete_kind", "profiles_kind", "json_envelope", "jsonl", *drop}
+    skip = {"command", "create_kind", "delete_kind", "profiles_kind", "archive_kind", "json_envelope", "jsonl", *drop}
     return {
         key: value
         for key, value in sorted(vars(args).items())

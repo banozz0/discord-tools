@@ -152,9 +152,16 @@ class FakeClient:
             info = ChannelInfo(id=channel_id, name=f"channel-{channel_id}", type="text")
         return info
 
-    async def iter_history(self, channel_id, *, limit=None, oldest_first=False):
+    async def iter_history(self, channel_id, *, limit=None, oldest_first=False, before=None, after=None):
         self.history_reads.append(channel_id)
-        messages = self.history.get(channel_id, [])
+        # In the order a test handed them over, newest first by convention;
+        # `before` and `after` are the id bounds the seam accepts, exclusive on
+        # both sides, and only a test that passes one needs ids on its rows.
+        messages = list(self.history.get(channel_id, []))
+        if before is not None:
+            messages = [m for m in messages if int(m.id) < int(before)]
+        if after is not None:
+            messages = [m for m in messages if int(m.id) > int(after)]
         if oldest_first:
             messages = list(reversed(messages))
         for index, message in enumerate(messages):

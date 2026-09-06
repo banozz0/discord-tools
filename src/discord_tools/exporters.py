@@ -32,6 +32,38 @@ def resolve_export_path(output: str | Path, *, home: Path | None = None) -> Path
     return exports_dir(home) / path
 
 
+# Every format `search` and `archive export` write. The first two are this
+# tool's own writers and have not changed a byte; the last three go through
+# the shared writers, which is also what `archive export` uses for all five.
+FORMATS = ("json", "csv", "jsonl", "markdown", "html")
+SHARED_FORMATS = ("jsonl", "markdown", "html")
+
+
+def archive_row(record: dict[str, Any]) -> dict[str, Any]:
+    """A live search record in the shape the shared writers read.
+
+    The markdown and html writers key on the archive's row - a rid, a
+    message id, a sender label, a media count - so a record fetched live is
+    mapped once here rather than teaching the writers a second shape. The
+    record itself is unchanged: `json` and `csv` still write it as is.
+    """
+    from discord_tools._core import rid as _rid
+
+    author_id = record.get("author_id")
+    return {
+        "rid": str(_rid.make("dc", "channel", int(record["channel_id"]))) if record.get("channel_id") else "",
+        "message_id": record["id"],
+        "scope_title": "",
+        "author_rid": str(_rid.make("dc", "user", int(author_id))) if author_id else None,
+        "author": record.get("author_name") or "",
+        "media": 1 if record.get("has_media") else 0,
+        "date": record.get("date"),
+        "text": record.get("text") or "",
+        "highlight": "",
+        "reply_to": record.get("reply_to_msg_id"),
+    }
+
+
 def write_records(records: Iterable[dict[str, Any]], output: str | Path, fmt: str, *, home: Path | None = None) -> Path:
     rows = list(records)
     path = resolve_export_path(output, home=home)
@@ -42,6 +74,15 @@ def write_records(records: Iterable[dict[str, Any]], output: str | Path, fmt: st
         # would raise on a machine whose locale is not UTF-8, where the old
         # ASCII-escaped output could not fail.
         path.write_text(json_text(rows) + "\n", encoding="utf-8")
+        return path
+
+    if fmt in SHARED_FORMATS:
+        from discord_tools._core.export import render
+
+        # jsonl is the record itself, one per line; the two human formats
+        # read the archive's row shape, so the record is mapped for them.
+        shaped = rows if fmt == "jsonl" else [archive_row(row) for row in rows]
+        path.write_text(render(shaped, fmt, title="discord-tools export"), encoding="utf-8")
         return path
 
     if fmt != "csv":

@@ -7,19 +7,25 @@ from functools import partial
 from pathlib import Path
 from typing import Sequence
 
+from discord_tools import archive as archive_store
 from discord_tools import plans
 from discord_tools._core import rid as _rid
-from discord_tools._core.contract import Error
+from discord_tools._core.archive import SearchError
+from discord_tools._core.contract import CodedError, Error
+from discord_tools._core.export import ExportError, FORMATS as ARCHIVE_FORMATS, render as render_export, resolve_output
 from discord_tools._core.identity import Identity, banner
-from discord_tools._core.plan import Evidence, Mutation
+from discord_tools._core.paths import write_private
+from discord_tools._core.plan import Evidence, Mutation, drift
 from discord_tools.adapters import (
+    DiscordArchiveSource,
     DiscordIdentityProvider,
     DiscordPermissionProbe,
     DiscordTargetResolver,
 )
 from discord_tools.adapters.targets import TargetError
 from discord_tools.client import ClientError
-from discord_tools.envelope import CountingClient, Outcome, Run, command_name, echoed_args
+from discord_tools import __version__
+from discord_tools.envelope import TOOL, CountingClient, Outcome, Run, command_name, echoed_args
 from discord_tools.portal import invite_url, run_auth
 from discord_tools import profiles as profile_store
 from discord_tools.profiles import confirm_removal
@@ -58,7 +64,7 @@ from discord_tools.create import (
     create_thread,
     format_create_preview,
 )
-from discord_tools.exporters import json_text, write_records
+from discord_tools.exporters import FORMATS as EXPORT_FORMATS, json_text, write_records
 from discord_tools.models import GUILD_CHANNEL_TYPES
 from discord_tools.members import format_member_records, list_server_members
 from discord_tools.search import all_content_empty, format_message_records, search_messages
@@ -123,10 +129,15 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument("--since", help="Inclusive ISO date or datetime lower bound")
     search.add_argument("--until", help="Inclusive ISO date or datetime upper bound")
     search.add_argument("--limit", type=positive_int, help="Maximum exported messages")
-    search.add_argument("--format", choices=("json", "csv"), default="json", help="Export format")
+    search.add_argument("--format", choices=EXPORT_FORMATS, default="json", help="Export format")
     search.add_argument(
         "--output",
         help="Output file; relative names land in ~/.discord-tools/exports/. Prints a readable table when omitted",
+    )
+    search.add_argument(
+        "--archive",
+        action="store_true",
+        help="Search the local archive instead of fetching history (an alias of `archive search`; --keyword is the query)",
     )
 
     members = subparsers.add_parser("members", help="List a server's members with usernames and IDs")
@@ -226,6 +237,60 @@ def build_parser() -> argparse.ArgumentParser:
     )
     profiles_remove.add_argument("--name", required=True, help="Profile name to remove")
 
+    archive_parser = subparsers.add_parser(
+        "archive", help="The local archive: sync history into it, search it, export it, prune it"
+    )
+    archive_kinds = archive_parser.add_subparsers(dest="archive_kind")
+
+    archive_sync = archive_kinds.add_parser(
+        "sync", help="Fetch new history from every channel and thread the bot can read into ~/.discord-tools/archive.sqlite"
+    )
+    archive_sync.add_argument("--server", type=snowflake, help="Only this server ID")
+    archive_sync.add_argument(
+        "--scope", action="append", metavar="RID_OR_ID", help="Only this channel or thread (a rid or a numeric ID); repeatable"
+    )
+    archive_sync.add_argument("--since", help="Stop walking back at this ISO date; later runs still resume from the checkpoint")
+    archive_sync.add_argument("--full", action="store_true", help="Ignore the checkpoints and walk every scope from the newest message again")
+
+    archive_kinds.add_parser("status", help="Scopes, rows, dates, coverage, size against the budget")
+
+    def query_flags(parser, *, require_query: bool) -> None:
+        parser.add_argument("--query", required=require_query, help="Full-text query (FTS5 syntax: words, quotes, AND, OR, NOT)")
+        parser.add_argument("--regex", help="A Python regular expression the matched text must also satisfy")
+        parser.add_argument("--scope", action="append", metavar="RID_OR_ID", help="Only this channel or thread (a rid or a numeric ID); repeatable")
+        parser.add_argument("--identity", help="Only rows archived by this bot identity (a dc:bot rid)")
+        parser.add_argument("--from", dest="author", help="Only messages from this author: a numeric ID, a username, or a rid")
+        parser.add_argument("--since", help="Inclusive ISO date or datetime lower bound")
+        parser.add_argument("--until", help="Inclusive ISO date or datetime upper bound")
+        parser.add_argument("--context", type=int, default=0, metavar="N", help="Also show N neighbouring messages on each side of a hit")
+        parser.add_argument("--limit", type=positive_int, default=50, help="Maximum hits (default: 50)")
+        parser.add_argument("--include-deleted", action="store_true", help="Also show messages marked deleted on a later sync")
+
+    archive_search = archive_kinds.add_parser("search", help="Full-text search over the archive, ranked, with an optional regex and context")
+    query_flags(archive_search, require_query=True)
+
+    archive_export = archive_kinds.add_parser("export", help="Write the same result set a search prints, in one of five formats")
+    query_flags(archive_export, require_query=True)
+    archive_export.add_argument("--format", choices=ARCHIVE_FORMATS, default="json", help="Export format (default: json)")
+    archive_export.add_argument(
+        "--output", required=True, help="Output file; relative names land in ~/.discord-tools/exports/"
+    )
+
+    archive_retention = archive_kinds.add_parser(
+        "retention", help="Prune one scope's archived messages older than a window (dry-run by default)"
+    )
+    archive_retention.add_argument("--scope", required=True, metavar="RID_OR_ID", help="The channel or thread to prune (a rid or a numeric ID)")
+    archive_retention.add_argument("--keep", required=True, help="What to keep: a window like 90d, or a count of newest messages")
+    archive_retention.add_argument("--execute", action="store_true", help="Actually prune after typing the scope's exact name")
+
+    archive_forget = archive_kinds.add_parser(
+        "forget", help="Remove everything archived for one scope or one bot identity (dry-run by default)"
+    )
+    forget_what = archive_forget.add_mutually_exclusive_group(required=True)
+    forget_what.add_argument("--scope", metavar="RID_OR_ID", help="The channel or thread to forget (a rid or a numeric ID)")
+    forget_what.add_argument("--identity", help="The bot identity whose rows all go (a dc:bot rid)")
+    archive_forget.add_argument("--execute", action="store_true", help="Actually remove after typing the target's exact name")
+
     bot_parser = subparsers.add_parser("bot", help="Show or edit the active profile's bot settings and invite URL")
     bot_parser.add_argument("--invite", action="store_true", help="Print only the invite URL")
     bot_parser.add_argument(
@@ -284,6 +349,10 @@ def _as_outcome(exc: Exception) -> Outcome | None:
     """
     if isinstance(exc, TargetError):
         return _refused(exc.code, str(exc), hint=exc.hint)
+    if isinstance(exc, CodedError):
+        return Outcome(status="refused", error=exc.error)
+    if isinstance(exc, (SearchError, ExportError)):
+        return _refused("CONFIG_INVALID", str(exc))
     if isinstance(exc, SendNotAllowedError):
         return _refused("NOT_ALLOWLISTED", str(exc))
     if isinstance(exc, ConfigError):
@@ -322,6 +391,12 @@ async def run(args, *, client=None, config=None, out=None) -> int:
 
     if config is None:
         config = load_config(profile=args.profile)
+
+    if _is_offline_archive(args):
+        # The rows are on disk and the identity comes from the profile record:
+        # no login, so a search works while the token is being rotated, and a
+        # prune never waits on Discord to answer.
+        return await _dispatch_offline(args, config, out)
 
     if client is not None:
         return await _dispatch(CountingClient(client), args, config, out)
@@ -410,10 +485,10 @@ async def _run_discover(client, args, out) -> Outcome:
 
 
 async def _run_search(client, args, out) -> Outcome:
-    if args.format == "csv" and not args.output:
+    if args.format != "json" and not args.output:
         # Checked before the fetch: on a big channel the history walk is the
         # expensive part, and a usage mistake should fail before it, not after.
-        raise ValueError("--output is required for CSV export")
+        raise ValueError(f"--output is required for {args.format} export")
 
     records = await search_messages(
         client,
@@ -475,6 +550,289 @@ async def _run_members(client, args, out) -> Outcome:
             "members": [] if out.jsonl else records,
             "output": written,
         },
+    )
+
+
+# Rows per committed batch: each batch lands with its checkpoint in one
+# transaction, so this is also how much a killed sync fetches again.
+SYNC_BATCH = 200
+
+
+async def _run_archive_sync(client, args, out) -> Outcome:
+    """Walk what the bot can read into the archive, from each scope's checkpoint."""
+    require_private_store()
+    wanted = None
+    if args.scope:
+        resolver = DiscordTargetResolver(client)
+        wanted = []
+        for reference in args.scope:
+            text = str(reference).strip()
+            # A numeric id is resolved once, so the sync can say what it is
+            # and the filter matches the rid the source will list it under.
+            wanted.append((await resolver.resolve(text)).rid if text.isdecimal() else text)
+
+    identity = out.identity
+    source = DiscordArchiveSource(client, server_id=args.server)
+    with archive_store.open_archive() as archive:
+        report = await archive.sync(
+            source, identity, scopes=wanted, since=args.since, full=args.full, batch=SYNC_BATCH, progress=out.progress
+        )
+        coverage = [row.to_dict() for row in archive.coverage(identity.id)]
+    if not out.machine:
+        print(archive_store.format_sync_report(report))
+    return Outcome(
+        status=report.status,
+        result={**report.to_dict(), "coverage": coverage},
+        warnings=tuple(f"{scope.rid}: {scope.error}" for scope in report.failed),
+    )
+
+
+# -- the archive without a login -------------------------------------------
+
+
+OFFLINE_ARCHIVE = ("status", "search", "export", "retention", "forget")
+
+
+def _is_offline_archive(args) -> bool:
+    if args.command == "archive":
+        return args.archive_kind in OFFLINE_ARCHIVE
+    return args.command == "search" and getattr(args, "archive", False)
+
+
+async def _dispatch_offline(args, config, out) -> int:
+    """The archive commands that read and prune the local file: no seam, no login."""
+    try:
+        out.identity = archive_store.local_identity(config)
+        if out.presents:
+            out.frame(banner(out.identity))
+        if args.command == "search":
+            outcome = await _run_archive_search(_archive_args_from_search(args), out)
+        elif args.archive_kind == "status":
+            outcome = await _run_archive_status(args, out)
+        elif args.archive_kind in ("search", "export"):
+            outcome = await _run_archive_search(args, out)
+        elif args.archive_kind == "retention":
+            outcome = await _run_archive_retention(args, out)
+        else:
+            outcome = await _run_archive_forget(args, out)
+    except Exception as exc:  # noqa: BLE001 - narrowed by _as_outcome, re-raised otherwise
+        refusal = _as_outcome(exc) if out.presents else None
+        if refusal is None:
+            raise
+        outcome = refusal
+
+    if outcome.plan is not None and out.identity is not None:
+        plans.record(
+            outcome,
+            plan=outcome.plan,
+            identity=out.identity,
+            command=out.command,
+            targets=[outcome.target] if outcome.target else [],
+        )
+    return out.finish(outcome)
+
+
+def _archive_args_from_search(args) -> argparse.Namespace:
+    """`search --archive` as the `archive search` (or `export`) it is an alias of."""
+    if not args.keyword:
+        raise ValueError("search --archive needs --keyword: it is the full-text query.")
+    return argparse.Namespace(
+        command="archive",
+        archive_kind="export" if args.output else "search",
+        query=args.keyword,
+        regex=None,
+        scope=[str(args.channel)],
+        identity=None,
+        author=args.from_user,
+        since=args.since,
+        until=args.until,
+        context=0,
+        limit=args.limit or 50,
+        include_deleted=False,
+        format=args.format,
+        output=args.output,
+        profile=args.profile,
+    )
+
+
+async def _run_archive_status(args, out) -> Outcome:
+    if not archive_store.archive_exists():
+        notice = "No archive yet: run `discord-tools archive sync` to build one."
+        out.say(notice)
+        return Outcome(
+            status="empty",
+            result={"path": str(archive_store.archive_path()), "messages": 0, "scopes": 0, "coverage": []},
+            warnings=(notice,),
+        )
+    with archive_store.open_archive() as archive:
+        status = archive.status()
+        scopes = archive_store.list_scopes(archive)
+    if not out.machine:
+        print(archive_store.format_status(status, scopes))
+    return Outcome(
+        status="ok" if status["messages"] else "empty",
+        result={**status, "scope_list": [{**scope, "path": list(scope["path"])} for scope in scopes]},
+    )
+
+
+async def _run_archive_search(args, out) -> Outcome:
+    if not archive_store.archive_exists():
+        return Outcome(
+            status="refused",
+            error=Error(
+                code="ARCHIVE_UNAVAILABLE",
+                message="There is no archive to search yet.",
+                hint="Run `discord-tools archive sync` first.",
+            ),
+        )
+    exporting = args.archive_kind == "export"
+    with archive_store.open_archive() as archive:
+        scopes = [archive_store.scope_rid(archive, reference) for reference in (args.scope or [])] or None
+        author = archive_store.author_rid(archive, args.author) if args.author else None
+        hits = archive.search(
+            args.query,
+            regex=args.regex,
+            scope=scopes,
+            identity=args.identity,
+            author=author,
+            since=archive_store.date_bound(args.since, end_of_day=False),
+            until=archive_store.date_bound(args.until, end_of_day=True),
+            context=args.context,
+            limit=args.limit,
+            include_deleted=args.include_deleted,
+        )
+
+    rows = [hit.to_dict() for hit in hits]
+    written = None
+    if exporting:
+        target = resolve_output(args.output, archive_store.tool_paths())
+        target.parent.mkdir(parents=True, exist_ok=True)
+        # The file is 0600 like everything the tool writes; the directory is
+        # left as the user keeps it, because exports are theirs to share.
+        write_private(target, render_export(rows, args.format, query=args.query, title="discord-tools archive export"))
+        written = str(target)
+        out.say(f"Exported {len(rows)} hit(s) to {written}")
+    elif not out.machine:
+        print(archive_store.format_hits(hits, query=args.query))
+    for row in rows:
+        out.record("hit", row)
+    return Outcome(
+        status="ok" if rows else "empty",
+        result={"query": args.query, "matched": len(rows), "hits": [] if out.jsonl else rows, "output": written},
+    )
+
+
+async def _run_archive_retention(args, out) -> Outcome:
+    if not archive_store.archive_exists():
+        raise CodedError("TARGET_NOT_FOUND", "There is no archive to prune yet.", hint="Run `discord-tools archive sync` first.")
+    with archive_store.open_archive() as archive:
+        scope = archive_store.scope_rid(archive, args.scope)
+
+        def build():
+            return archive.retention_plan(
+                tool=TOOL, version=__version__, identity=out.identity, scope=scope, keep=args.keep
+            )
+
+        plan = build()
+        target = plan.targets[0]
+        params = plan.mutations[0].params
+        out.say(archive_store.format_retention_preview(plan))
+        out.say(plans.format_preflight(plan))
+        if not args.execute:
+            return Outcome(status="dry_run", target=target, plan=plan, result={**params, "scope": scope, "dry_run": True})
+
+        require_private_store()
+        refusal = out.approval_unavailable(
+            "Run `discord-tools archive retention --execute` in a terminal: it asks for the scope's exact name, "
+            "and there is deliberately no flag that answers for you."
+        )
+        if refusal is not None:
+            return Outcome(status="refused", target=target, plan=plan, error=refusal)
+        typed = archive_store.confirm_archive_plan("", target.title, write=out.say)
+        if not archive_store.names_match(typed, target.title):
+            out.say("Names do not match - nothing was pruned.")
+            return Outcome(status="cancelled", target=target, plan=plan, result={**params, "scope": scope, "cancelled": True})
+
+        differences = drift(plan, build())
+        if differences:
+            return Outcome(
+                status="refused",
+                target=target,
+                plan=plan,
+                error=Error(
+                    code="PLAN_DRIFT",
+                    message="The archive changed between the preview and the answer: " + "; ".join(differences),
+                    hint="Run the command again to see the scope as it is now.",
+                ),
+            )
+        result = archive.retention(plan)
+        left = archive_store.messages_in(archive, scope)
+    out.say(f"Pruned {result['messages']} message(s) from {target.display}; {left} remain.")
+    return Outcome(
+        status="ok",
+        target=target,
+        plan=plan,
+        result={**result, "remaining": left, "cancelled": False},
+        evidence=Evidence.verified(f"{scope} now holds {left} message(s)"),
+    )
+
+
+async def _run_archive_forget(args, out) -> Outcome:
+    if not archive_store.archive_exists():
+        raise CodedError("TARGET_NOT_FOUND", "There is no archive to forget from yet.", hint="Run `discord-tools archive sync` first.")
+    with archive_store.open_archive() as archive:
+        scope = archive_store.scope_rid(archive, args.scope) if args.scope else None
+
+        def build():
+            return archive.forget_plan(
+                tool=TOOL, version=__version__, identity=out.identity, scope=scope, identity_id=args.identity
+            )
+
+        plan = build()
+        target = plan.targets[0]
+        params = plan.mutations[0].params
+        out.say(archive_store.format_forget_preview(plan))
+        out.say(plans.format_preflight(plan))
+        if not args.execute:
+            return Outcome(status="dry_run", target=target, plan=plan, result={**params, "dry_run": True})
+
+        require_private_store()
+        refusal = out.approval_unavailable(
+            "Run `discord-tools archive forget --execute` in a terminal: it asks for the target's exact name, "
+            "and there is deliberately no flag that answers for you."
+        )
+        if refusal is not None:
+            return Outcome(status="refused", target=target, plan=plan, error=refusal)
+        typed = archive_store.confirm_archive_plan("", target.title, write=out.say)
+        if not archive_store.names_match(typed, target.title):
+            out.say("Names do not match - nothing was forgotten.")
+            return Outcome(status="cancelled", target=target, plan=plan, result={**params, "cancelled": True})
+
+        differences = drift(plan, build())
+        if differences:
+            return Outcome(
+                status="refused",
+                target=target,
+                plan=plan,
+                error=Error(
+                    code="PLAN_DRIFT",
+                    message="The archive changed between the preview and the answer: " + "; ".join(differences),
+                    hint="Run the command again to see the target as it is now.",
+                ),
+            )
+        result = archive.forget(plan)
+        left = (
+            archive_store.messages_in(archive, scope)
+            if scope is not None
+            else archive_store.messages_of(archive, args.identity)
+        )
+    out.say(f"Forgot {result['messages']} message(s) for {target.display}.")
+    return Outcome(
+        status="ok",
+        target=target,
+        plan=plan,
+        result={**result, "remaining": left, "cancelled": False},
+        evidence=Evidence.verified(f"{target.rid} now holds {left} message(s)"),
     )
 
 
@@ -997,6 +1355,7 @@ READING = {
     "discover": _run_discover,
     "search": _run_search,
     "members": _run_members,
+    "archive": _run_archive_sync,
 }
 WRITING = {
     "send": _run_send,
@@ -1100,6 +1459,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         if out.machine:
             return out.finish(_as_outcome(exc))
         parser.error(str(exc))
+    except CodedError as exc:
+        # The core's own refusals: a crossed budget, a database newer than
+        # the code, a SQLite without FTS5. Coded already, so the envelope
+        # carries them as they are and a person reads the hint.
+        return out.finish(_as_outcome(exc))
     except ValueError as exc:
         # A usage mistake, which argparse owns: it prints the usage text and
         # exits 2, the same way it does for a flag it never heard of. There is

@@ -2,10 +2,10 @@
 discord-tools --help
 ========================================================================
 usage: discord-tools [-h] [--profile PROFILE] [--json] [--jsonl]
-                     {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,bot} ...
+                     {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,bot} ...
 
 positional arguments:
-  {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,bot}
+  {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,bot}
     auth                Guided bot setup: Developer Portal walkthrough, token check, invite URL
     doctor              Check token, message-content intent, servers, and channel permissions
     discover            List the server -> channel -> thread tree with IDs
@@ -18,6 +18,7 @@ positional arguments:
                         server for servers)
     leave-server        Make the bot leave a server (nothing in it is deleted; dry-run by default)
     profiles            List the stored bot profiles, or remove one (no token is ever printed)
+    archive             The local archive: sync history into it, search it, export it, prune it
     bot                 Show or edit the active profile's bot settings and invite URL
 
 options:
@@ -60,8 +61,9 @@ options:
 discord-tools search --help
 ========================================================================
 usage: discord-tools search [-h] --channel CHANNEL [--keyword KEYWORD] [--from-user FROM_USER]
-                            [--since SINCE] [--until UNTIL] [--limit LIMIT] [--format {json,csv}]
-                            [--output OUTPUT]
+                            [--since SINCE] [--until UNTIL] [--limit LIMIT]
+                            [--format {json,csv,jsonl,markdown,html}] [--output OUTPUT]
+                            [--archive]
 
 options:
   -h, --help            show this help message and exit
@@ -73,9 +75,12 @@ options:
   --since SINCE         Inclusive ISO date or datetime lower bound
   --until UNTIL         Inclusive ISO date or datetime upper bound
   --limit LIMIT         Maximum exported messages
-  --format {json,csv}   Export format
+  --format {json,csv,jsonl,markdown,html}
+                        Export format
   --output OUTPUT       Output file; relative names land in ~/.discord-tools/exports/. Prints a
                         readable table when omitted
+  --archive             Search the local archive instead of fetching history (an alias of `archive
+                        search`; --keyword is the query)
 
 ========================================================================
 discord-tools members --help
@@ -258,3 +263,114 @@ usage: discord-tools profiles remove [-h] --name NAME
 options:
   -h, --help   show this help message and exit
   --name NAME  Profile name to remove
+
+========================================================================
+discord-tools archive --help
+========================================================================
+usage: discord-tools archive [-h] {sync,status,search,export,retention,forget} ...
+
+positional arguments:
+  {sync,status,search,export,retention,forget}
+    sync                Fetch new history from every channel and thread the bot can read into
+                        ~/.discord-tools/archive.sqlite
+    status              Scopes, rows, dates, coverage, size against the budget
+    search              Full-text search over the archive, ranked, with an optional regex and
+                        context
+    export              Write the same result set a search prints, in one of five formats
+    retention           Prune one scope's archived messages older than a window (dry-run by
+                        default)
+    forget              Remove everything archived for one scope or one bot identity (dry-run by
+                        default)
+
+options:
+  -h, --help            show this help message and exit
+
+========================================================================
+discord-tools archive sync --help
+========================================================================
+usage: discord-tools archive sync [-h] [--server SERVER] [--scope RID_OR_ID] [--since SINCE]
+                                  [--full]
+
+options:
+  -h, --help         show this help message and exit
+  --server SERVER    Only this server ID
+  --scope RID_OR_ID  Only this channel or thread (a rid or a numeric ID); repeatable
+  --since SINCE      Stop walking back at this ISO date; later runs still resume from the
+                     checkpoint
+  --full             Ignore the checkpoints and walk every scope from the newest message again
+
+========================================================================
+discord-tools archive status --help
+========================================================================
+usage: discord-tools archive status [-h]
+
+options:
+  -h, --help  show this help message and exit
+
+========================================================================
+discord-tools archive search --help
+========================================================================
+usage: discord-tools archive search [-h] --query QUERY [--regex REGEX] [--scope RID_OR_ID]
+                                    [--identity IDENTITY] [--from AUTHOR] [--since SINCE]
+                                    [--until UNTIL] [--context N] [--limit LIMIT]
+                                    [--include-deleted]
+
+options:
+  -h, --help           show this help message and exit
+  --query QUERY        Full-text query (FTS5 syntax: words, quotes, AND, OR, NOT)
+  --regex REGEX        A Python regular expression the matched text must also satisfy
+  --scope RID_OR_ID    Only this channel or thread (a rid or a numeric ID); repeatable
+  --identity IDENTITY  Only rows archived by this bot identity (a dc:bot rid)
+  --from AUTHOR        Only messages from this author: a numeric ID, a username, or a rid
+  --since SINCE        Inclusive ISO date or datetime lower bound
+  --until UNTIL        Inclusive ISO date or datetime upper bound
+  --context N          Also show N neighbouring messages on each side of a hit
+  --limit LIMIT        Maximum hits (default: 50)
+  --include-deleted    Also show messages marked deleted on a later sync
+
+========================================================================
+discord-tools archive export --help
+========================================================================
+usage: discord-tools archive export [-h] --query QUERY [--regex REGEX] [--scope RID_OR_ID]
+                                    [--identity IDENTITY] [--from AUTHOR] [--since SINCE]
+                                    [--until UNTIL] [--context N] [--limit LIMIT]
+                                    [--include-deleted] [--format {json,csv,jsonl,markdown,html}]
+                                    --output OUTPUT
+
+options:
+  -h, --help            show this help message and exit
+  --query QUERY         Full-text query (FTS5 syntax: words, quotes, AND, OR, NOT)
+  --regex REGEX         A Python regular expression the matched text must also satisfy
+  --scope RID_OR_ID     Only this channel or thread (a rid or a numeric ID); repeatable
+  --identity IDENTITY   Only rows archived by this bot identity (a dc:bot rid)
+  --from AUTHOR         Only messages from this author: a numeric ID, a username, or a rid
+  --since SINCE         Inclusive ISO date or datetime lower bound
+  --until UNTIL         Inclusive ISO date or datetime upper bound
+  --context N           Also show N neighbouring messages on each side of a hit
+  --limit LIMIT         Maximum hits (default: 50)
+  --include-deleted     Also show messages marked deleted on a later sync
+  --format {json,csv,jsonl,markdown,html}
+                        Export format (default: json)
+  --output OUTPUT       Output file; relative names land in ~/.discord-tools/exports/
+
+========================================================================
+discord-tools archive retention --help
+========================================================================
+usage: discord-tools archive retention [-h] --scope RID_OR_ID --keep KEEP [--execute]
+
+options:
+  -h, --help         show this help message and exit
+  --scope RID_OR_ID  The channel or thread to prune (a rid or a numeric ID)
+  --keep KEEP        What to keep: a window like 90d, or a count of newest messages
+  --execute          Actually prune after typing the scope's exact name
+
+========================================================================
+discord-tools archive forget --help
+========================================================================
+usage: discord-tools archive forget [-h] (--scope RID_OR_ID | --identity IDENTITY) [--execute]
+
+options:
+  -h, --help           show this help message and exit
+  --scope RID_OR_ID    The channel or thread to forget (a rid or a numeric ID)
+  --identity IDENTITY  The bot identity whose rows all go (a dc:bot rid)
+  --execute            Actually remove after typing the target's exact name

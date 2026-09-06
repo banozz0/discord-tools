@@ -116,6 +116,54 @@ def check_proxy(config) -> DoctorCheck:
     return DoctorCheck("OK", f"Proxy {config.proxy_url}{credentials}")
 
 
+def check_fts5() -> DoctorCheck:
+    """Whether the SQLite this Python links against can hold the archive at all."""
+    from discord_tools._core.archive import fts5_report
+
+    report = fts5_report()
+    if report["available"]:
+        return DoctorCheck("OK", f"Archive search is available ({report['detail']})")
+    return DoctorCheck(
+        "WARN",
+        f"{report['detail']}; `archive sync` and `archive search` refuse with ARCHIVE_UNAVAILABLE "
+        "until Python is linked against a SQLite built with FTS5",
+    )
+
+
+def check_archive(*, home: Path | None = None) -> DoctorCheck:
+    """What the local archive holds and how close it is to its budget. Read-only.
+
+    Opened without migrating, so `doctor` never changes the file it reports
+    on; a database newer than this build is described rather than touched.
+    """
+    from discord_tools import archive as archive_store
+    from discord_tools._core.archive import Archive, fts5_available
+    from discord_tools._core.contract import CodedError
+
+    path = archive_store.archive_path(home)
+    if not path.exists():
+        return DoctorCheck("OK", "No archive yet (run `discord-tools archive sync` to build one)")
+    if not fts5_available():
+        return DoctorCheck("WARN", f"{path} exists but this SQLite cannot open its full-text index")
+    import sqlite3
+
+    try:
+        with Archive.open(path, budgets=archive_store.budgets(home), migrate=False) as archive:
+            status = archive.status()
+    except (CodedError, OSError, sqlite3.Error) as exc:
+        return DoctorCheck("FAIL", f"{path} could not be read: {exc}")
+    budget = status["budgets"][0]
+    skipped = status["coverage"]["skipped"]
+    reasons = ", ".join(f"{reason} {count}" for reason, count in status["coverage"]["reasons"].items())
+    message = (
+        f"Archive holds {status['messages']} message(s) across {status['scopes']} scope(s), "
+        f"{budget['used']} of the {budget['limit']} budget ({budget['percent']}%)"
+    )
+    if skipped:
+        message += f"; {skipped} scope(s) skipped ({reasons})"
+    return DoctorCheck("WARN" if budget["over"] else "OK", message)
+
+
 def check_send_allowlist(allowlist: tuple[int, ...]) -> DoctorCheck:
     if not allowlist:
         # Counts only, never the destinations.
@@ -234,6 +282,8 @@ async def collect_checks(
     checks.append(check_config(config, config_error))
 
     checks.append(check_file_modes(loose_entries(home=home), config_dir(home)))
+    checks.append(check_fts5())
+    checks.append(check_archive(home=home))
 
     if config is not None:
         checks.append(check_token_shape(config.token))

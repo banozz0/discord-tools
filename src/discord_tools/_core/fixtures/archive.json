@@ -1,6 +1,6 @@
 {
   "schema": "cli-tools/archive/1",
-  "note": "The archive's outward shape: the tables version 1 defines, the named reasons a scope can be skipped, the migrations this build ships and the disk budgets of section 8.5. A new table, reason or budget is additive and lands here in the same commit as the constant; a rename or removal is schema /2 and a major version of both tools.",
+  "note": "The archive's outward shape: the tables version 1 defines, the named reasons a scope can be skipped, the migrations this build ships, the disk budgets of section 8.5, the per-fetch cap and the archive-expansion caps of section 9.3, the export formats, the review queue's states and verdicts, the eleven built-in checks in the order section 9.3 runs them (`checks`) with the ones this build registers (`registered_checks`, all eleven since 0.5.0), and the scanner binaries section 9.4 looks for. A new table, reason, budget, state or check is additive and lands here in the same commit as the constant; a rename or removal is schema /2 and a major version of both tools.",
   "tables": [
     "schema_version",
     "identities",
@@ -28,7 +28,9 @@
     "bot_live_only"
   ],
   "migrations": [
-    "0001_init"
+    "0001_init",
+    "0002_manifest_platform_json",
+    "0003_rule_fires_marker"
   ],
   "config_version": 1,
   "budgets": {
@@ -42,5 +44,56 @@
     "jsonl",
     "markdown",
     "html"
+  ],
+  "download_max_bytes": 268435456,
+  "expansion_caps": {
+    "expansion_max_entries": 10000,
+    "expansion_max_bytes": 1073741824,
+    "expansion_max_ratio": 100
+  },
+  "review_states": [
+    "queued",
+    "approved",
+    "fetching",
+    "quarantined",
+    "accepted",
+    "rejected",
+    "failed"
+  ],
+  "verdicts": [
+    "BLOCKED",
+    "CLEAN",
+    "INFECTED",
+    "UNSCANNED"
+  ],
+  "checks": [
+    "scheme",
+    "redirects",
+    "private_network",
+    "path",
+    "size",
+    "time",
+    "archive_expansion",
+    "signature",
+    "checksum",
+    "duplicate",
+    "scanner"
+  ],
+  "registered_checks": [
+    "scheme",
+    "redirects",
+    "private_network",
+    "path",
+    "size",
+    "time",
+    "archive_expansion",
+    "signature",
+    "checksum",
+    "duplicate",
+    "scanner"
+  ],
+  "scanner_binaries": [
+    "clamdscan",
+    "clamscan"
   ]
 }

@@ -5,18 +5,20 @@ Spec: section 4.3. A Protocol exists here only when both tools implement it
 its one SDK seam (law 4). An adapter receives an opened client, never a
 token, a phone number or a session path (law 6). Names are final.
 
-The first four are settled: the envelope cards implement the first three and
-the archive store card settles `ArchiveSource`. Both platforms reach the
-network through an async SDK, so every method that talks to a platform is a
-coroutine or an async iterator. `profiles()` stays synchronous because it
-reads local configuration. The remaining four are still provisional - nothing
-implements them yet, and the card that lands each one settles its signature
-and may change it freely.
+All eight are settled: the envelope cards implement the first three,
+the archive store card settles `ArchiveSource`, the download safety card
+settles `MediaFetcher`, the blueprint engine card settles `BlueprintPort`,
+and the runner card settles `EventSource` and `MessageSender`, the two it
+consumes. Both platforms reach the network through an async SDK, so every
+method that talks to a platform is a coroutine or an async iterator, except
+the two the runner drives: the runner is a synchronous step loop, so a
+tool's event source bridges its SDK's loop into plain iterators and its
+sender blocks until the send has read back. `profiles()` stays synchronous
+because it reads local configuration.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, AsyncIterator, Iterator, Mapping, Protocol, Sequence, runtime_checkable
 
 from .archive import ScopeListing
@@ -84,41 +86,93 @@ class ArchiveSource(Protocol):
 
 @runtime_checkable
 class MediaFetcher(Protocol):
-    """Stream the bytes of a manifest into quarantine, resuming. Lands on the download safety cards."""
+    """The bytes of one manifest from an offset, as they arrive. Settled on the download safety card.
 
-    def fetch(self, manifest: Mapping[str, Any], destination: Path, offset: int = 0) -> int:
-        """Append the bytes of `manifest` from `offset` to `destination`; the byte count written."""
+    An async generator: the pipeline in `download` writes each chunk into
+    quarantine itself, counts it, and runs the size and time checks on it, so
+    a fetcher never touches the disk and never decides a verdict. `manifest`
+    is the queue row as a dict (`review.QueueRow.to_dict()`), `platform_json`
+    keys included, which is where a media candidate's platform file key rides.
+    `offset` is how many bytes are already on disk; the fetcher starts there.
+    The platform fetcher serves kind `media`; `download.HttpFetcher` serves
+    kind `link` and is the one implementation that lives in core.
+    """
+
+    def stream(self, manifest: Mapping[str, Any], offset: int = 0) -> AsyncIterator[bytes]:
+        """Chunks of `manifest` from byte `offset` to the end, in order, nothing skipped."""
         ...
 
 
 @runtime_checkable
 class EventSource(Protocol):
-    """Live events for the runner. Lands on the watch cards."""
+    """Live events for the runner, and the replay that makes a restart lossless. Settled on the runner card.
 
-    def events(self) -> Iterator[Mapping[str, Any]]:
-        """Events as they arrive, each with a kind, a scope rid and the platform payload."""
+    Each event is a mapping `rules.Event.from_dict` reads (`platform`, `rid`,
+    `subject_id`, `kind`, `sender_rid`, `sender_is_bot`, `edit_version`,
+    `text`, `links`, `attachments`, `metadata`, `occurred_at`) plus a
+    `cursor`: the value `replay()` resumes from, which the runner stores per
+    scope after evaluating the event. A message-shaped event may omit
+    `cursor` and its message id is used.
+    """
+
+    def events(self) -> Iterator[Mapping[str, Any] | None]:
+        """Events as they arrive; `None` when nothing has arrived for a while, so the runner can tick.
+
+        Ends when the source is closed. The runner stops after the current
+        step when asked, so a source that never yields never lets it stop:
+        yield `None` at least every few seconds while idle.
+        """
+        ...
+
+    def replay(self, rid: str, cursor: str) -> Iterator[Mapping[str, Any]]:
+        """Every event of scope `rid` after `cursor` up to now, oldest first, each carrying its cursor.
+
+        What the runner walks on start with dedup on (section 10.5). A gap
+        beyond the platform's retention is the source's to report as coverage,
+        never to hide.
+        """
         ...
 
 
 @runtime_checkable
 class MessageSender(Protocol):
-    """Send text to a rid through the tool's own gated send path. Lands on the envelope cards; used by alerts."""
+    """Send text to a rid through the tool's own gated send path. Settled on the runner card.
+
+    The runner calls it with `approval="yes_allowlist"` for every alert and
+    every runner-held schedule, so the tool's allowlist is the gate for
+    unattended sends. A rid outside the list raises `CodedError`
+    `NOT_ALLOWLISTED`; a platform flood wait raises `runner.RateLimited`
+    with the seconds to wait, and the runner honours it and reports it.
+    """
 
     def send(self, rid: str, text: str, *, approval: str) -> Mapping[str, Any]:
-        """Post `text` to `rid` under `approval` (yes_allowlist for the unattended path); the readback record."""
+        """Post `text` to `rid` under `approval`, blocking until read back; the readback record."""
         ...
 
 
 @runtime_checkable
 class BlueprintPort(Protocol):
-    """Read a container into a blueprint and apply one plan step. Lands on the blueprint cards."""
+    """Read a container's structure and make one apply step. Settled on the blueprint engine card.
 
-    def read(self, container: Target) -> Mapping[str, Any]:
-        """The secret-free structure of `container`, in the platform's blueprint shape."""
+    `read()` returns the raw shape `blueprint.build()` filters: `{"container": {"rid",
+    "name", ...settings}, "objects": {section: [{"rid", "name", "position", ...fields}]}}`,
+    every reference to another object spelled as its rid. The engine, not the port,
+    decides what transfers: the port may read everything it can see and the allowlist
+    drops the rest, so a port never has to know the never-transferred list.
+
+    `apply()` receives one `blueprint.Step` as a dict (`op`, `handle`, `kind`,
+    `position`, `fields`, `target_rid` for an update, `container_rid`) with every
+    handle in `fields` already resolved to a target rid, performs it, and returns
+    `{"target_rid": <the rid made or updated>}`. It raises on failure; the engine
+    stops there and keeps the partial remap.
+    """
+
+    async def read(self, container: Target) -> Mapping[str, Any]:
+        """The structure of `container` as the platform shows it, references as rids."""
         ...
 
-    def apply(self, step: Mapping[str, Any]) -> Mapping[str, Any]:
-        """One mutation of a blueprint apply; the remap entry it produced."""
+    async def apply(self, step: Mapping[str, Any]) -> Mapping[str, Any]:
+        """One create or update; `{"target_rid": ...}` for the remap."""
         ...
 
 

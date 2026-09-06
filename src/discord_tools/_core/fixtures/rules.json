@@ -1,0 +1,28 @@
+{
+  "schema": "cli-tools/rule/1",
+  "note": "The rule engine's outward shape (spec section 10.2 and 10.3): the event kinds a trigger may name, the closed action set (a kind outside it is RULE_INVALID at load, and adding one here is the visible diff section 10.2 asks for), the two alert destination kinds, the filter and rule keys, the defaults, the per-destination rate cap, the origin marker's prefix and grammar, the reasons an event is dropped before any rule runs, and the kinds of mutation no rule may ever perform. A new event kind or filter key is additive; the action set is closed by decision, not by accident.",
+  "event_kinds": ["message", "edit", "reaction", "member_join", "member_leave", "link", "media"],
+  "action_kinds": ["alert", "tag", "bookmark", "capture_metadata", "archive", "queue_review"],
+  "never_actions": ["download", "send", "delete", "edit", "fetch", "approve", "accept"],
+  "destination_kinds": ["platform", "command"],
+  "filter_keys": ["identity", "scopes", "senders", "domains", "keywords", "regex", "media_types", "min_bytes", "max_bytes"],
+  "rule_keys": ["schema", "name", "enabled", "trigger", "filter", "actions", "cooldown_s", "dedup_window_s"],
+  "defaults": {"cooldown_s": 0, "dedup_window_s": 86400},
+  "rate_cap_per_minute": 20,
+  "marker_prefix": "⟂ cli-tools watch",
+  "marker_pattern": "^⟂ cli-tools watch (\\S+) ([0-9a-f]{8})$",
+  "drop_reasons": ["own_identity", "origin_marker"],
+  "runner": {
+    "note": "The runner's outward shape (spec sections 10.5, 10.6 and 17): the version key runner_state carries and a runner refuses to read newer, the two guarantees every schedule listing prints one of and the runner-held label verbatim, the backward wall jump that re-plans, how far past its wall time a fire is late, how many log lines watch status tails, the interval spelling of --every, the runner_state key prefixes, and the lock and log file names.",
+    "state_version": 1,
+    "guarantees": ["server-held", "runner-held"],
+    "runner_held": "runner-held: fires only while watch run is up on this machine",
+    "backward_jump_s": 60,
+    "late_tolerance_s": 60,
+    "status_log_lines": 20,
+    "interval_pattern": "^([1-9][0-9]*)([smhd])$",
+    "state_keys": ["runner_state_version", "baseline", "cursor:", "schedule:", "cooldown:"],
+    "lock_file": "runner.lock",
+    "log_file": "runner.log"
+  }
+}

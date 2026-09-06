@@ -192,3 +192,24 @@ class Evidence:
 
     def to_dict(self) -> dict[str, Any]:
         return {"readback": self.readback, "fetched_at": self.fetched_at}
+
+
+@dataclass(frozen=True)
+class Approval:
+    """A human's answer at one of the four gates, and whether a human could be asked.
+
+    `kind` is the gate that was passed. `interactive` is whether a terminal was
+    there to ask on: a tool sets it from its own tty check, and a transition that
+    needs a human refuses with APPROVAL_REQUIRED (exit 3) when it is false, so a
+    script under --json cannot pass a gate by constructing the object.
+    """
+
+    kind: str
+    interactive: bool = True
+
+    def __post_init__(self) -> None:
+        if self.kind not in APPROVALS:
+            raise PlanError(f"unknown approval {self.kind!r}; expected one of {', '.join(APPROVALS)}")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"kind": self.kind, "interactive": self.interactive}

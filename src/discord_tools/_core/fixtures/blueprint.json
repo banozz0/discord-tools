@@ -1,0 +1,21 @@
+{
+  "schema_prefix": "cli-tools/blueprint/",
+  "schema_version": 1,
+  "note": "The blueprint engine's outward shape (section 12): the schema id every platform's blueprint carries under its own name, the six categories no allowlist may ever allow and every generated never_transferred list contains, the handle grammar, the keys a blueprint, its container and each object carry, the step ops an apply performs (never a delete), the diff kinds and the apply statuses. Each platform pins its own allowed field set in its own fixture; this one pins what the engine refuses on every platform. Additive changes land here in the same commit as the constant.",
+  "never_transferred": [
+    "members",
+    "messages",
+    "authors",
+    "audit_history",
+    "secrets",
+    "integrations"
+  ],
+  "gate": "typed_name",
+  "handle_pattern": "^[a-z]+:[a-z0-9]+(?:-[a-z0-9]+)*$",
+  "blueprint_keys": ["schema", "container", "objects", "never_transferred"],
+  "container_keys": ["handle", "kind", "source_rid", "settings"],
+  "object_keys": ["handle", "kind", "source_rid", "position", "fields"],
+  "step_ops": ["create", "update"],
+  "diff_kinds": ["add", "change", "remove"],
+  "apply_statuses": ["ok", "PARTIAL_FAILURE", "failed"]
+}

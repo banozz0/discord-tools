@@ -1,6 +1,7 @@
 """The tool's `config.json`: the keys core owns and the disk budgets it holds.
 
-Spec: section 8.5 (the three budgets and their defaults) and section 17 (each
+Spec: section 8.5 (the three budgets and their defaults), section 9.3 (the
+per-fetch `download_max_bytes`) and section 17 (each
 tool owns the file, core owns the keys, `config_version` is additive). The file
 lives at `~/.<tool>/config.json`, is created with the defaults on first archive
 use and is read, never rewritten, afterwards: a key core does not know is kept
@@ -24,6 +25,7 @@ from .paths import write_private
 
 CONFIG_VERSION = 1
 GIB = 1024**3
+MIB = 1024**2
 
 # Section 8.5. Additive: a new key lands here with its default and in the fixture.
 DEFAULTS: dict[str, Any] = {
@@ -31,8 +33,18 @@ DEFAULTS: dict[str, Any] = {
     "archive_max_bytes": 2 * GIB,
     "media_max_bytes": 5 * GIB,
     "quarantine_max_bytes": 1 * GIB,
+    "download_max_bytes": 256 * MIB,
+    "expansion_max_entries": 10_000,
+    "expansion_max_bytes": 1 * GIB,
+    "expansion_max_ratio": 100,
 }
 BUDGET_KEYS = ("archive_max_bytes", "media_max_bytes", "quarantine_max_bytes")
+# Section 9.3 check 5, the ceiling on one fetch, and check 7, the caps an
+# archive inside it may declare (entries, uncompressed bytes, ratio). Not
+# budgets on a directory, so they are validated with them and reported
+# separately.
+LIMIT_KEYS = ("download_max_bytes", "expansion_max_entries", "expansion_max_bytes", "expansion_max_ratio")
+EXPANSION_KEYS = ("expansion_max_entries", "expansion_max_bytes", "expansion_max_ratio")
 
 
 def human_bytes(count: int) -> str:
@@ -64,7 +76,7 @@ def load(path: Path | str) -> dict[str, Any]:
     if not isinstance(stored, dict):
         raise CodedError("CONFIG_INVALID", f"{path.name} holds {type(stored).__name__}, not an object")
     merged = {**DEFAULTS, **stored}
-    for key in BUDGET_KEYS:
+    for key in BUDGET_KEYS + LIMIT_KEYS:
         value = merged[key]
         if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
             raise CodedError(

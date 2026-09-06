@@ -183,7 +183,7 @@ async def collect_checks(
 
             open_client = real_open_client
         try:
-            async with open_client(config.token) as client:
+            async with open_client(config.token, proxy=config.proxy_url, proxy_auth=config.proxy_auth) as client:
                 identity = await client.get_identity()
                 checks.append(check_identity(identity))
                 checks.append(check_message_content_intent(identity))

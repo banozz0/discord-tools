@@ -192,7 +192,7 @@ def fake_open_client(client: FakeClient):
     """An open_client stand-in yielding `client`, for code that opens its own."""
 
     @asynccontextmanager
-    async def opener(token):
+    async def opener(token, **_options):
         yield client
 
     return opener

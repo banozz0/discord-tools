@@ -4,6 +4,8 @@ import getpass
 from pathlib import Path
 from typing import Any, Callable
 
+from discord_tools import profiles as profile_store
+from discord_tools.adapters.identity import label_for
 from discord_tools.config import ConfigError, DEFAULT_PROFILE, bot_id_from_token, save_token
 from discord_tools.doctor import INTENT_FIX
 
@@ -123,7 +125,17 @@ async def run_auth(
             write("Message-content intent is enabled now.")
 
     path = save(chosen_profile, token, home=home)
+    # The token stays on the one DISCORD_BOT_TOKENS line; what lands beside it
+    # is the non-secret record of which bot this profile just proved to be, so
+    # a token later pasted into the wrong profile is caught before it acts.
+    record = profile_store.remember(
+        chosen_profile,
+        label=label_for(identity.username, profile=chosen_profile),
+        bot_id=identity.id,
+        home=home,
+    )
     write(f"Token saved for profile {chosen_profile!r} in {path} (mode 0600).")
+    write(f"Profile recorded as {record.label} in {profile_store.record_path(chosen_profile, home=home)}.")
 
     write("")
     write("Invite the bot to a server (opens the picker for servers you manage):")

@@ -163,3 +163,44 @@ def test_run_auth_intent_off_rechecks_until_enabled(tmp_path):
     text = "\n".join(output)
     assert "OFF" in text
     assert "enabled now" in text
+
+
+def test_auth_records_the_bot_it_verified(tmp_path):
+    """The record `load_config` later checks a token against is written here."""
+    from discord_tools import profiles as profile_store
+
+    output = []
+    paste = scripted([make_token()])
+    code = run(
+        run_auth(
+            read=scripted(["harry"]),
+            read_secret=paste,
+            write=output.append,
+            open_client=fake_open_client(FakeClient()),
+            save=lambda *args, **kwargs: tmp_path / ".env",
+            home=tmp_path,
+        )
+    )
+    assert code == 0
+    stored = profile_store.read("harry", home=tmp_path)
+    assert stored is not None
+    assert stored.bot_id == DEFAULT_IDENTITY.id
+    assert stored.label == f"{DEFAULT_IDENTITY.username} (profile harry)"
+    assert make_token() not in profile_store.record_path("harry", home=tmp_path).read_text(encoding="utf-8")
+
+
+def test_a_cancelled_auth_records_nothing(tmp_path):
+    from discord_tools import profiles as profile_store
+
+    quits = scripted([""])
+    run(
+        run_auth(
+            read=scripted(["harry"]),
+            read_secret=quits,
+            write=lambda _line: None,
+            open_client=fake_open_client(FakeClient()),
+            save=lambda *args, **kwargs: tmp_path / ".env",
+            home=tmp_path,
+        )
+    )
+    assert profile_store.read("harry", home=tmp_path) is None

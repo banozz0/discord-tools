@@ -222,3 +222,39 @@ def test_leave_server_leaves_rather_than_deletes(monkeypatch):
     monkeypatch.setattr(client, "_fetch_guild", fetch_guild)
     asyncio.run(client.leave_server(1))
     assert left == [True]
+
+
+# -- the proxy ------------------------------------------------------------
+
+
+def test_no_proxy_configured_passes_discord_py_nothing():
+    from discord_tools.client import _proxy_options
+
+    assert _proxy_options(None, None) == {}
+
+
+def test_a_proxy_reaches_discord_pys_own_parameter():
+    from discord_tools.client import _proxy_options
+
+    assert _proxy_options("http://proxy.local:3128", None) == {"proxy": "http://proxy.local:3128"}
+
+
+def test_proxy_credentials_travel_beside_the_url_not_inside_it():
+    from discord_tools.client import _proxy_options
+
+    options = _proxy_options("http://proxy.local:3128", ("sven", "hunter2"))
+    # The URL keeps no userinfo, so the one thing doctor prints cannot leak a
+    # password; the pair goes to aiohttp, which is where discord.py wants it.
+    assert options["proxy"] == "http://proxy.local:3128"
+    assert (options["proxy_auth"].login, options["proxy_auth"].password) == ("sven", "hunter2")
+
+
+def test_discord_py_takes_both_parameters():
+    """Section 5.3 names them as present in 2.7.1; this is that claim, checked."""
+    import inspect
+
+    import discord
+
+    # Client forwards **options straight to HTTPClient, which is where the two
+    # are declared. A discord.py that stopped taking them fails here.
+    assert {"proxy", "proxy_auth"} <= set(inspect.signature(discord.http.HTTPClient.__init__).parameters)

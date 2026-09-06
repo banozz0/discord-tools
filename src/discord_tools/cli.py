@@ -21,7 +21,8 @@ from discord_tools.adapters.targets import TargetError
 from discord_tools.client import ClientError
 from discord_tools.envelope import CountingClient, Outcome, Run, command_name, echoed_args
 from discord_tools.portal import invite_url, run_auth
-from discord_tools.config import ConfigError, load_config
+from discord_tools import profiles as profile_store
+from discord_tools.config import FROM_PROFILE, ConfigError, load_config
 from discord_tools.discovery import discover_servers, format_tree
 from discord_tools.delete import (
     clear_messages,
@@ -237,10 +238,18 @@ def _write_json(payload, path: str) -> None:
 
 
 async def _identity(run, client, config) -> Identity:
-    """Who this run acts as, fetched once and reused by everything after."""
+    """Who this run acts as, fetched once and reused by everything after.
+
+    Reaching here means the login worked, so this is also where the profile's
+    record learns that it did: `last_login` is the one field a run moves.
+    """
     if run.identity is None:
-        provider = DiscordIdentityProvider(client, profile=config.profile, profiles=tuple(config.tokens))
+        provider = DiscordIdentityProvider(
+            client, profile=config.profile, profiles=tuple(config.tokens), source=config.source
+        )
         run.identity = await provider.identity()
+        if config.source == FROM_PROFILE:
+            profile_store.note_login(config.profile)
     return run.identity
 
 
@@ -295,7 +304,7 @@ async def run(args, *, client=None, config=None, out=None) -> int:
         return await _dispatch(CountingClient(client), args, config, out)
     from discord_tools.client import open_client
 
-    async with open_client(config.token) as owned:
+    async with open_client(config.token, proxy=config.proxy_url, proxy_auth=config.proxy_auth) as owned:
         return await _dispatch(CountingClient(owned), args, config, out)
 
 

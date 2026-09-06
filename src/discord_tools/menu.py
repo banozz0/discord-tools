@@ -73,7 +73,9 @@ class MenuSession:
 
     async def client(self):
         if self._client is None:
-            self._client = await start_client(self.config.token)
+            self._client = await start_client(
+                self.config.token, proxy=self.config.proxy_url, proxy_auth=self.config.proxy_auth
+            )
         return self._client
 
     async def servers(self):

@@ -339,13 +339,35 @@ class DiscordClient:
             raise PermissionError(f"The bot cannot access channel {channel_id}.") from exc
 
 
-async def start_client(token: str) -> DiscordClient:
+def _proxy_options(proxy: str | None, proxy_auth: tuple[str, str] | None) -> dict[str, Any]:
+    """discord.py's proxy parameters, or nothing when no proxy is configured.
+
+    `proxy` and `proxy_auth` are discord.Client's own options (2.7.1), and the
+    credentials go in as aiohttp's BasicAuth rather than in the URL, which is
+    why `config.proxy_url` is safe to print.
+    """
+    if not proxy:
+        return {}
+    options: dict[str, Any] = {"proxy": proxy}
+    if proxy_auth is not None:
+        import aiohttp
+
+        # aiohttp 3.14 deprecates BasicAuth, and discord.py 2.7.1 still types
+        # `proxy_auth` as one. Not ours to change: the warning belongs to the
+        # dependency pair and goes when discord.py moves.
+        options["proxy_auth"] = aiohttp.BasicAuth(*proxy_auth)
+    return options
+
+
+async def start_client(
+    token: str, *, proxy: str | None = None, proxy_auth: tuple[str, str] | None = None
+) -> DiscordClient:
     """Log in and return the seam. The caller owns the logout (`aclose`).
 
     The menu holds one of these for its whole run; the one-shot CLI path uses
     `open_client` instead, which closes it automatically.
     """
-    client = discord.Client(intents=discord.Intents.none())
+    client = discord.Client(intents=discord.Intents.none(), **_proxy_options(proxy, proxy_auth))
     try:
         await client.login(token)
     except discord.LoginFailure as exc:
@@ -360,13 +382,13 @@ async def start_client(token: str) -> DiscordClient:
 
 
 @asynccontextmanager
-async def open_client(token: str):
+async def open_client(token: str, *, proxy: str | None = None, proxy_auth: tuple[str, str] | None = None):
     """Log in with `token` and yield a DiscordClient; always logs out after.
 
     Login-only: the gateway is never connected, so this works for a one-shot
     CLI without an event loop lifetime beyond the command.
     """
-    seam = await start_client(token)
+    seam = await start_client(token, proxy=proxy, proxy_auth=proxy_auth)
     try:
         yield seam
     except discord.Forbidden as exc:

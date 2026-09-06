@@ -14,7 +14,9 @@ from discord_tools.adapters import (
     DiscordPermissionProbe,
     DiscordTargetResolver,
 )
+from discord_tools import profiles as profile_store
 from discord_tools.adapters.targets import TargetError
+from discord_tools.config import FROM_ENVIRONMENT
 from discord_tools.models import ChannelInfo, ServerInfo
 
 
@@ -37,15 +39,34 @@ def test_the_identity_names_the_bot_and_carries_no_token():
     assert identity.via is None
     assert identity.id == f"dc:bot:{DEFAULT_IDENTITY.id}"
     assert identity.profile == "ops"
-    assert str(DEFAULT_IDENTITY.id) in identity.label
+    # Section 5.1: the label names the bot and the profile it came from; the
+    # id belongs to `id`, so a screen can print the label on its own.
+    assert identity.label == f"{DEFAULT_IDENTITY.username} (profile ops)"
+
+
+def test_a_token_named_in_the_environment_says_so_instead_of_a_profile():
+    provider = DiscordIdentityProvider(FakeClient(), profile="ops", source=FROM_ENVIRONMENT)
+    identity = run(provider.identity())
+
+    assert identity.label == f"{DEFAULT_IDENTITY.username} (token from environment)"
+    # The profile is still the one that was asked for; it just did not supply
+    # the token, and the label is where that is said out loud.
+    assert identity.profile == "ops"
 
 
 def test_profiles_lists_names_never_tokens():
-    provider = DiscordIdentityProvider(FakeClient(), profile="ops", profiles={"ops": "tokenA", "alt": "tokenB"})
+    provider = DiscordIdentityProvider(FakeClient(), profile="ops", profiles={"ops": "storedA", "alt": "storedB"})
     listed = provider.profiles()
 
     assert sorted(listed) == [("alt", "alt"), ("ops", "ops")]
-    assert "tokenA" not in str(listed) and "tokenB" not in str(listed)
+    assert "storedA" not in str(listed) and "storedB" not in str(listed)
+
+
+def test_a_recorded_profile_is_listed_by_the_label_auth_verified(home_is_a_tmp_dir):
+    profile_store.remember("alt", label="otherbot (profile alt)", bot_id=99)
+    provider = DiscordIdentityProvider(FakeClient(), profile="ops", profiles={"ops": "a", "alt": "b"})
+
+    assert sorted(provider.profiles()) == [("alt", "otherbot (profile alt)"), ("ops", "ops")]
 
 
 def test_it_satisfies_the_shared_protocol():

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import stat
+from pathlib import Path
 
 import pytest
 
@@ -190,3 +191,71 @@ def test_the_proxy_reaches_the_config_from_the_environment(home_is_a_tmp_dir):
         {"DISCORD_BOT_TOKENS": f"default:{BOT_42}", "DISCORD_PROXY": "http://proxy.local:3128"}
     )
     assert config.proxy_url == "http://proxy.local:3128"
+
+
+# -- the profiles command -------------------------------------------------
+
+
+def test_the_listing_joins_both_halves_of_the_store(home_is_a_tmp_dir):
+    profiles.remember("harry", label="harrybot (profile harry)", bot_id=42)
+    profiles.remember("ghost", label="ghostbot (profile ghost)", bot_id=99)
+    rows = profiles.listing(("harry", "dobby"), current="harry")
+
+    by_name = {row["name"]: row for row in rows}
+    assert set(by_name) == {"dobby", "ghost", "harry"}
+    assert by_name["harry"] == {
+        "name": "harry",
+        "label": "harrybot (profile harry)",
+        "bot_id": "42",
+        "has_token": True,
+        "current": True,
+    }
+    # A token with no record, and a record with no token: both visible.
+    assert by_name["dobby"]["bot_id"] is None and by_name["dobby"]["has_token"] is True
+    assert by_name["ghost"]["has_token"] is False
+
+
+def test_the_listing_prints_no_token(home_is_a_tmp_dir):
+    profiles.remember("harry", label="harrybot", bot_id=42)
+    text = profiles.format_listing(profiles.listing(("harry",), current="harry"))
+    assert "harrybot" in text and "current" in text
+    assert BOT_42 not in text
+
+
+def test_an_empty_store_says_what_to_run():
+    assert "auth" in profiles.format_listing([])
+
+
+def test_the_removal_preview_names_both_things_it_will_take(home_is_a_tmp_dir):
+    preview = profiles.format_removal_preview("harry", has_token=True, has_record=True)
+    assert "DISCORD_BOT_TOKENS" in preview
+    assert "profiles/harry" in preview
+    assert "not recoverable" in preview
+
+
+def test_remove_takes_the_token_and_the_record(home_is_a_tmp_dir):
+    save_token("harry", BOT_42)
+    save_token("dobby", BOT_99)
+    profiles.remember("harry", label="harrybot", bot_id=42)
+
+    result = profiles.remove("harry")
+    assert result == {"name": "harry", "token_removed": True, "record_removed": True}
+    assert profiles.names() == ()
+    assert "harry" not in (Path.home() / ".discord-tools" / ".env").read_text(encoding="utf-8")
+
+
+def test_remove_clears_a_record_whose_token_is_already_gone(home_is_a_tmp_dir):
+    profiles.remember("ghost", label="ghostbot", bot_id=42)
+    result = profiles.remove("ghost")
+    assert result == {"name": "ghost", "token_removed": False, "record_removed": True}
+
+
+def test_removing_something_that_is_not_there_is_an_error(home_is_a_tmp_dir):
+    with pytest.raises(ConfigError):
+        profiles.remove("nobody")
+
+
+def test_the_removal_gate_asks_for_the_profiles_own_name():
+    asked = []
+    profiles.confirm_removal("preview", "harry", read=lambda prompt: asked.append(prompt) or "harry", write=lambda _: None)
+    assert "harry" in asked[0]

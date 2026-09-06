@@ -235,7 +235,7 @@ def command_name(args) -> str:
     what the plan hashes, and it is what Discord's audit log will show.
     """
     parts = [args.command or ""]
-    for attribute in ("create_kind", "delete_kind"):
+    for attribute in ("create_kind", "delete_kind", "profiles_kind"):
         kind = getattr(args, attribute, None)
         if kind:
             parts.append(kind)
@@ -250,7 +250,7 @@ def echoed_args(args, *, drop: Sequence[str] = ()) -> dict[str, Any]:
     way into the envelope, so a secret passed as a flag value cannot ride out
     in the echo.
     """
-    skip = {"command", "create_kind", "delete_kind", "json_envelope", "jsonl", *drop}
+    skip = {"command", "create_kind", "delete_kind", "profiles_kind", "json_envelope", "jsonl", *drop}
     return {
         key: value
         for key, value in sorted(vars(args).items())

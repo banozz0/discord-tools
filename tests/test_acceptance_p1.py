@@ -122,6 +122,10 @@ def test_every_flag_the_tool_had_before_the_contract_is_still_there():
     from test_help_surface import COMMANDS, SURFACE, options_of, command_name as name_of, parser_for
 
     for path in COMMANDS:
+        # Later packs add commands; the guarantee is about the ones that
+        # existed when it was made, so a newer command has nothing to keep.
+        if name_of(path) not in SURFACE:
+            continue
         frozen = SURFACE[name_of(path)]["options"]
         current = options_of(parser_for(path))
         assert set(frozen) <= set(current), name_of(path)

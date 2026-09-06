@@ -22,7 +22,16 @@ from discord_tools.client import ClientError
 from discord_tools.envelope import CountingClient, Outcome, Run, command_name, echoed_args
 from discord_tools.portal import invite_url, run_auth
 from discord_tools import profiles as profile_store
-from discord_tools.config import FROM_PROFILE, ConfigError, load_config, require_private_store
+from discord_tools.profiles import confirm_removal
+from discord_tools.config import (
+    FROM_PROFILE,
+    ConfigError,
+    load_config,
+    load_environment,
+    require_private_store,
+    resolve_profile,
+    stored_profile_names,
+)
 from discord_tools.discovery import discover_servers, format_tree
 from discord_tools.delete import (
     clear_messages,
@@ -208,6 +217,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--execute", action="store_true", help="Actually leave after typing the server's exact name"
     )
 
+    profiles_parser = subparsers.add_parser(
+        "profiles", help="List the stored bot profiles, or remove one (no token is ever printed)"
+    )
+    profiles_kinds = profiles_parser.add_subparsers(dest="profiles_kind")
+    profiles_remove = profiles_kinds.add_parser(
+        "remove", help="Remove a profile's token and its record after typing the profile's exact name"
+    )
+    profiles_remove.add_argument("--name", required=True, help="Profile name to remove")
+
     bot_parser = subparsers.add_parser("bot", help="Show or edit the active profile's bot settings and invite URL")
     bot_parser.add_argument("--invite", action="store_true", help="Print only the invite URL")
     bot_parser.add_argument(
@@ -297,6 +315,11 @@ async def run(args, *, client=None, config=None, out=None) -> int:
     if args.command == "doctor":
         return await _run_doctor(args, out)
 
+    if args.command == "profiles":
+        # Local records and one line of a local file: no login, and no working
+        # token needed. Listing has to work after the last one was removed.
+        return await _run_profiles(args, out)
+
     if config is None:
         config = load_config(profile=args.profile)
 
@@ -328,6 +351,48 @@ async def _run_doctor(args, out) -> int:
             },
         )
     )
+
+
+async def _run_profiles(args, out) -> int:
+    """List the stored profiles, or remove one behind its typed name."""
+    stored = stored_profile_names()
+    current = resolve_profile(load_environment(), args.profile)
+
+    if args.profiles_kind is None:
+        rows = profile_store.listing(stored, current=current)
+        if not out.machine:
+            print(profile_store.format_listing(rows))
+        return out.finish(
+            Outcome(status="ok" if rows else "empty", result={"profiles": rows, "current": current})
+        )
+
+    name = args.name.strip().lower()
+    known = profile_store.listing(stored)
+    row = next((entry for entry in known if entry["name"] == name), None)
+    if row is None:
+        return out.finish(
+            _refused("CONFIG_MISSING", f"No profile named {name!r} is stored. Run `discord-tools profiles` to list them.")
+        )
+
+    refusal = out.approval_unavailable(
+        "Run `discord-tools profiles remove` in a terminal: it asks for the profile's exact name, "
+        "and there is deliberately no flag that answers for you."
+    )
+    if refusal is not None:
+        return out.finish(Outcome(status="refused", error=refusal))
+
+    preview = profile_store.format_removal_preview(
+        name, has_token=row["has_token"], has_record=row["bot_id"] is not None
+    )
+    typed = confirm_removal(preview, name, write=out.say)
+    if typed.strip().casefold() != name.casefold():
+        out.say("Names do not match - nothing was removed.")
+        return out.finish(Outcome(status="cancelled", result={"name": name, "cancelled": True}))
+
+    removed = profile_store.remove(name)
+    out.say(f"Profile {name} removed.")
+    out.payload(removed)
+    return out.finish(Outcome(status="ok", result={**removed, "cancelled": False}))
 
 
 # -- reading commands -----------------------------------------------------

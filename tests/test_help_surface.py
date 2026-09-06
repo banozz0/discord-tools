@@ -70,7 +70,9 @@ def subcommands_of(parser) -> list[str]:
 @pytest.mark.parametrize("path", COMMANDS, ids=command_name)
 def test_every_0_6_2_flag_survives(path):
     name = command_name(path)
-    frozen = SURFACE[name]
+    frozen = SURFACE.get(name)
+    if frozen is None:
+        pytest.skip(f"{name} is newer than 0.6.2; it has no compatibility record to keep")
     current = options_of(parser_for(path))
 
     for flag, before in frozen["options"].items():
@@ -89,6 +91,8 @@ def test_every_0_6_2_flag_survives(path):
 @pytest.mark.parametrize("path", COMMANDS, ids=command_name)
 def test_every_0_6_2_subcommand_survives(path):
     name = command_name(path)
+    if name not in SURFACE:
+        pytest.skip(f"{name} is newer than 0.6.2; it has no compatibility record to keep")
     for subcommand in SURFACE[name]["subcommands"]:
         assert subcommand in subcommands_of(parser_for(path)), f"{name} lost the {subcommand} subcommand"
 

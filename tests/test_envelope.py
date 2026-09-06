@@ -345,3 +345,86 @@ def test_nothing_reached_discord_before_the_refusal(home_is_a_tmp_dir):
     client = a_server()
     emit(["--json", "send", "--channel", "701", "--text", "hi", "--yes"], client=client)
     assert client.sent == []
+
+
+# -- the profiles command -------------------------------------------------
+
+
+def test_profiles_lists_what_is_stored_without_a_login():
+    from discord_tools import profiles as profile_store
+    from discord_tools.config import save_token
+
+    save_token("harry", "NDI.fake.sig")
+    profile_store.remember("harry", label="harrybot (profile harry)", bot_id=42)
+
+    code, stdout, _stderr = emit(["--json", "profiles"], client=None)
+    envelope = envelope_of(stdout)
+    assert_sound(envelope, stdout)
+    assert envelope["status"] == "ok"
+    assert envelope["result"]["profiles"][0]["label"] == "harrybot (profile harry)"
+    assert code == 0
+
+
+def test_profiles_still_lists_when_no_token_is_stored():
+    code, stdout, _stderr = emit(["--json", "profiles"], client=None)
+    assert envelope_of(stdout)["status"] == "empty"
+    assert code == 0
+
+
+def test_removing_a_profile_needs_its_own_name_typed(monkeypatch):
+    from discord_tools import profiles as profile_store
+    from discord_tools.config import save_token
+
+    save_token("harry", "NDI.fake.sig")
+    profile_store.remember("harry", label="harrybot", bot_id=42)
+    monkeypatch.setattr("discord_tools.cli.confirm_removal", lambda *a, **k: "dobby")
+
+    code, stdout, _stderr = emit(["--json", "profiles", "remove", "--name", "harry"], client=None)
+    assert envelope_of(stdout)["status"] == "cancelled"
+    assert code == 1
+    # Wrong name, nothing gone.
+    assert profile_store.read("harry") is not None
+
+
+def test_the_right_name_takes_the_token_and_the_record(monkeypatch):
+    from discord_tools import profiles as profile_store
+    from discord_tools.config import save_token
+
+    save_token("harry", "NDI.fake.sig")
+    profile_store.remember("harry", label="harrybot", bot_id=42)
+    monkeypatch.setattr("discord_tools.cli.confirm_removal", lambda *a, **k: "HARRY")
+
+    code, stdout, _stderr = emit(["--json", "profiles", "remove", "--name", "harry"], client=None)
+    envelope = envelope_of(stdout)
+    assert_sound(envelope, stdout)
+    assert envelope["result"] == {
+        "name": "harry",
+        "token_removed": True,
+        "record_removed": True,
+        "cancelled": False,
+    }
+    assert profile_store.read("harry") is None
+    assert code == 0
+
+
+def test_removing_a_profile_that_is_not_there_is_refused():
+    code, stdout, _stderr = emit(["--json", "profiles", "remove", "--name", "nobody"], client=None)
+    envelope = envelope_of(stdout)
+    assert envelope["error"]["code"] == "CONFIG_MISSING"
+    assert code == 2
+
+
+def test_removal_has_no_unattended_path():
+    from discord_tools import profiles as profile_store
+    from discord_tools.config import save_token
+
+    save_token("harry", "NDI.fake.sig")
+    profile_store.remember("harry", label="harrybot", bot_id=42)
+
+    code, stdout, _stderr = emit(
+        ["--json", "profiles", "remove", "--name", "harry"], client=None, isatty=False
+    )
+    envelope = envelope_of(stdout)
+    assert envelope["error"]["code"] == "APPROVAL_REQUIRED"
+    assert code == 3
+    assert profile_store.read("harry") is not None

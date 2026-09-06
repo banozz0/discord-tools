@@ -168,6 +168,31 @@ def resolve_profile(env: Mapping[str, str], profile: str | None) -> str:
     return (profile or env.get("DISCORD_TOOLS_PROFILE") or DEFAULT_PROFILE).strip().lower()
 
 
+def load_environment(
+    env: Mapping[str, str] | None = None, *, cwd: Path | None = None, home: Path | None = None
+) -> Mapping[str, str]:
+    """The environment as the tool reads it, or `env` when a caller supplied one."""
+    if env is not None:
+        return env
+    cwd = cwd or Path.cwd()
+    load_dotenv(dotenv_path=cwd / ".env", override=False)
+    load_dotenv(dotenv_path=config_dir(home) / ".env", override=False)
+    return os.environ
+
+
+def stored_profile_names(
+    env: Mapping[str, str] | None = None, *, cwd: Path | None = None, home: Path | None = None
+) -> tuple[str, ...]:
+    """Every profile with a token on the DISCORD_BOT_TOKENS line. Names only.
+
+    What `profiles` lists from. Separate from `load_config` because listing
+    must work when the active profile has no token — after removing the last
+    one, for instance, which is exactly when someone runs it.
+    """
+    raw = load_environment(env, cwd=cwd, home=home).get("DISCORD_BOT_TOKENS")
+    return tuple(sorted(parse_bot_tokens(raw)))
+
+
 def load_config(
     env: Mapping[str, str] | None = None,
     *,
@@ -175,11 +200,7 @@ def load_config(
     cwd: Path | None = None,
     home: Path | None = None,
 ) -> Config:
-    cwd = cwd or Path.cwd()
-    if env is None:
-        load_dotenv(dotenv_path=cwd / ".env", override=False)
-        load_dotenv(dotenv_path=config_dir(home) / ".env", override=False)
-        env = os.environ
+    env = load_environment(env, cwd=cwd, home=home)
 
     tokens = parse_bot_tokens(env.get("DISCORD_BOT_TOKENS"))
     allowlist = parse_send_allowlist(env.get("DISCORD_SEND_ALLOWLIST"))

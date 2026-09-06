@@ -32,6 +32,7 @@ COMMANDS = [
     ("create",), ("create", "channel"), ("create", "category"), ("create", "thread"),
     ("clear-messages",), ("delete",), ("delete", "channel"), ("delete", "category"),
     ("delete", "thread"), ("leave-server",), ("bot",),
+    ("profiles",), ("profiles", "remove"),
 ]
 
 BANNER = "=" * 72

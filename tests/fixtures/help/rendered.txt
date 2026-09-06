@@ -2,10 +2,10 @@
 discord-tools --help
 ========================================================================
 usage: discord-tools [-h] [--profile PROFILE] [--json] [--jsonl]
-                     {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,bot} ...
+                     {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,bot} ...
 
 positional arguments:
-  {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,bot}
+  {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,bot}
     auth                Guided bot setup: Developer Portal walkthrough, token check, invite URL
     doctor              Check token, message-content intent, servers, and channel permissions
     discover            List the server -> channel -> thread tree with IDs
@@ -17,6 +17,7 @@ positional arguments:
     delete              Delete a channel, category, or thread (dry-run by default; see leave-
                         server for servers)
     leave-server        Make the bot leave a server (nothing in it is deleted; dry-run by default)
+    profiles            List the stored bot profiles, or remove one (no token is ever printed)
     bot                 Show or edit the active profile's bot settings and invite URL
 
 options:
@@ -236,3 +237,24 @@ options:
                         Set the application description shown on the bot's profile
   --avatar AVATAR       Path to a new avatar image
   --yes                 Skip the confirmation prompt
+
+========================================================================
+discord-tools profiles --help
+========================================================================
+usage: discord-tools profiles [-h] {remove} ...
+
+positional arguments:
+  {remove}
+    remove    Remove a profile's token and its record after typing the profile's exact name
+
+options:
+  -h, --help  show this help message and exit
+
+========================================================================
+discord-tools profiles remove --help
+========================================================================
+usage: discord-tools profiles remove [-h] --name NAME
+
+options:
+  -h, --help   show this help message and exit
+  --name NAME  Profile name to remove

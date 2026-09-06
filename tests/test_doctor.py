@@ -153,7 +153,31 @@ def test_a_world_readable_env_fails_and_names_the_chmod(tmp_path):
     check = check_file_modes([(tmp_path / ".env", 0o644)], tmp_path)
     assert check.status == "FAIL"
     assert ".env 0644" in check.message
-    assert "chmod -R go-rwx" in check.message
+    assert "chmod go-rwx" in check.message
+    assert "exports/ is not checked" in check.message
+
+
+def test_an_export_left_world_readable_is_not_the_tools_business(home_is_a_tmp_dir):
+    """Exports are the user's own chat data, theirs to share; refusing every
+    write because one is 0644 would be a gate about the wrong file."""
+    from discord_tools.config import exports_dir, loose_entries, save_token
+
+    save_token("default", "NDI.fake.sig")
+    exports_dir().mkdir(parents=True, exist_ok=True)
+    exports_dir().chmod(0o755)
+    (exports_dir() / "chat.json").write_text("[]", encoding="utf-8")
+    (exports_dir() / "chat.json").chmod(0o644)
+    assert loose_entries() == []
+
+
+def test_a_loose_profile_record_is_the_tools_business(home_is_a_tmp_dir):
+    from discord_tools import profiles
+    from discord_tools.config import loose_entries, save_token
+
+    save_token("harry", "NDI.fake.sig")
+    profiles.remember("harry", label="harrybot", bot_id=42)
+    profiles.record_path("harry").chmod(0o644)
+    assert [path.name for path, _mode in loose_entries()] == ["profile.json"]
 
 
 def test_the_mode_check_runs_over_the_real_directory(home_is_a_tmp_dir):

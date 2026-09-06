@@ -325,7 +325,7 @@ def test_a_write_refuses_when_the_token_store_is_readable_by_others(home_is_a_tm
     envelope = envelope_of(stdout)
     assert envelope["status"] == "refused"
     assert envelope["error"]["code"] == "CONFIG_INVALID"
-    assert "chmod -R go-rwx" in envelope["error"]["message"]
+    assert "chmod go-rwx" in envelope["error"]["message"]
     assert code == 2
 
 

@@ -98,13 +98,13 @@ def check_file_modes(loose: list[tuple[Path, int]], directory: Path) -> DoctorCh
     the file next to the complaint holds the bot token.
     """
     if not loose:
-        return DoctorCheck("OK", f"{directory} and everything under it are private (0700/0600)")
+        return DoctorCheck("OK", f"{directory}, its .env and its profile records are private (0700/0600)")
     listed = ", ".join(f"{path.name} {mode:04o}" for path, mode in loose[:3])
     more = f", and {len(loose) - 3} more" if len(loose) > 3 else ""
     return DoctorCheck(
         "FAIL",
         f"Readable by group or others: {listed}{more}. Writes are refused until this is fixed - "
-        f"run `chmod -R go-rwx {directory}`",
+        f"run `chmod go-rwx` on each. (exports/ is not checked: those are yours to share)",
     )
 
 

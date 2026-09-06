@@ -117,10 +117,29 @@ def parse_send_allowlist(raw: str | None) -> tuple[int, ...]:
 
 
 def loose_entries(*, home: Path | None = None) -> list[tuple[Path, int]]:
-    """Everything under ~/.discord-tools readable by group or others, with its mode."""
-    from discord_tools._core.paths import ToolPaths
+    """The tool's own private files that are readable by group or others.
 
-    return ToolPaths.for_tool("discord-tools", home=home).loose_modes()
+    The token file, the directory it sits in, and the profile records beside
+    it. Deliberately not `exports/`: those are the user's own chat exports,
+    theirs to share, and refusing every write because an export is 0644 would
+    be a gate about the wrong file.
+    """
+    from discord_tools._core.paths import LOOSE_BITS, ToolPaths
+
+    paths = ToolPaths.for_tool("discord-tools", home=home)
+    candidates = [paths.root, paths.env]
+    if paths.profiles.is_dir():
+        candidates.append(paths.profiles)
+        candidates.extend(sorted(paths.profiles.rglob("*")))
+
+    loose = []
+    for path in candidates:
+        if path.is_symlink() or not path.exists():
+            continue
+        mode = path.stat().st_mode & 0o777
+        if mode & LOOSE_BITS:
+            loose.append((path, mode))
+    return loose
 
 
 def require_private_store(*, home: Path | None = None) -> None:
@@ -137,7 +156,7 @@ def require_private_store(*, home: Path | None = None) -> None:
     path, mode = loose[0]
     raise ConfigError(
         f"{path} is mode {mode:04o} - readable by group or others, and it sits beside the bot token. "
-        f"Run `chmod -R go-rwx {config_dir(home)}` and try again."
+        f"Run `chmod go-rwx {path}` and try again."
     )
 
 

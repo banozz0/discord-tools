@@ -35,11 +35,12 @@ regrouped once, into nine rows.
 
 ### The folder is yours alone
 
-- **`doctor` reports the modes** of `~/.discord-tools` and everything under it,
-  and **every command that writes to Discord refuses** with `CONFIG_INVALID`
-  while anything there is readable by group or others, naming the exact
-  `chmod`. The file beside everything else holds a bot token. Reads still run,
-  so you can find out what is wrong.
+- **`doctor` reports the modes** of `~/.discord-tools`, its `.env` and the
+  profile records, and **every command that writes to Discord refuses** with
+  `CONFIG_INVALID` while any of them is readable by group or others, naming the
+  exact `chmod`. That is where the bot token lives. Reads still run, so you can
+  find out what is wrong. `exports/` is deliberately not checked: those are
+  your own chat exports, yours to share.
 
 ### A proxy
 

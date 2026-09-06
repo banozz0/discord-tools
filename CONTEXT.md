@@ -25,6 +25,10 @@ The terms this codebase uses, and the boundaries they imply.
   `prompts.with_banner` at the one place every screen is written through, so
   no screen can go out without it. The root menu and the two screens reachable
   with no working bot — Identity, Check setup — deliberately carry none.
+- **Private store** — `~/.discord-tools`, its `.env` and `profiles/`: what
+  `config.loose_entries` checks and `require_private_store` refuses a write
+  over. `exports/` is out of scope on purpose — chat exports are the user's to
+  share, and a gate about them would be a gate about the wrong file.
 - **Identity mismatch** — a stored token whose own decoded bot id disagrees
   with the profile record. `load_config` refuses with `IDENTITY_MISMATCH`
   before anything opens a connection, so a token pasted into the wrong profile

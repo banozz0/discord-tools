@@ -137,10 +137,11 @@ recoverable from here.
 too, with an optional `user:password@`). `doctor` prints the host and never the
 credentials.
 
-`~/.discord-tools/` and everything under it is written 0700/0600, because the file
-next to everything else holds a bot token. If that stops being true, `doctor` names
+`~/.discord-tools/`, its `.env` and the profile records are written 0700/0600,
+because that is where the bot token lives. If that stops being true, `doctor` names
 the file and its mode, and every command that writes to Discord refuses until it is
-fixed; reads still run, so you can find out what is wrong.
+fixed; reads still run, so you can find out what is wrong. `exports/` is not part of
+that check — those are your own chat exports, yours to share.
 
 `DISCORD_SEND_ALLOWLIST` is a comma-separated list of channel/thread IDs that
 `send --yes` may post to. Unset means every unattended send is refused — each

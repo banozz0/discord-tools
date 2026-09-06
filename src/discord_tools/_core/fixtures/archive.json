@@ -1,0 +1,46 @@
+{
+  "schema": "cli-tools/archive/1",
+  "note": "The archive's outward shape: the tables version 1 defines, the named reasons a scope can be skipped, the migrations this build ships and the disk budgets of section 8.5. A new table, reason or budget is additive and lands here in the same commit as the constant; a rename or removal is schema /2 and a major version of both tools.",
+  "tables": [
+    "schema_version",
+    "identities",
+    "scopes",
+    "checkpoints",
+    "coverage",
+    "messages",
+    "messages_fts",
+    "authors",
+    "manifests",
+    "downloads",
+    "tags",
+    "bookmarks",
+    "remaps",
+    "rules_state",
+    "rule_fires",
+    "runner_state"
+  ],
+  "skipped_reasons": [
+    "no_access",
+    "intent_missing",
+    "not_admin",
+    "rate_limited",
+    "unsupported_kind",
+    "bot_live_only"
+  ],
+  "migrations": [
+    "0001_init"
+  ],
+  "config_version": 1,
+  "budgets": {
+    "archive_max_bytes": 2147483648,
+    "media_max_bytes": 5368709120,
+    "quarantine_max_bytes": 1073741824
+  },
+  "export_formats": [
+    "json",
+    "csv",
+    "jsonl",
+    "markdown",
+    "html"
+  ]
+}

@@ -1,8 +1,8 @@
 """The conformance fixtures and the checks that prove a copy of this tree matches them.
 
-Four fixtures live in `fixtures/` next to this module: the envelope schema, the
-redaction pattern set with its cases, the exit code table and the error code
-list. They are located through `importlib.resources` under whatever package
+Five fixtures live in `fixtures/` next to this module: the envelope schema, the
+redaction pattern set with its cases, the exit code table, the error code list
+and the archive's tables, skipped reasons, migrations and budgets. They are located through `importlib.resources` under whatever package
 name this tree was imported as, so the vendored copy inside a tool finds its
 own fixtures, never the workshop's. `run()` returns every mismatch it finds;
 the workshop's suite and each tool's `test_core_copy.py` both call it.
@@ -19,6 +19,7 @@ FIXTURES = (
     "redaction.json",
     "exit-codes.json",
     "error-codes.json",
+    "archive.json",
 )
 
 
@@ -31,7 +32,7 @@ def run() -> list[str]:
     """Every way the code and the fixtures disagree; empty means they agree."""
     # Imported here rather than at the top so `contract` and `redaction` can
     # import `load_fixture` without a cycle.
-    from . import contract, redaction
+    from . import archive, config, contract, export, migrations, redaction
 
     failures: list[str] = []
     loaded: dict[str, Any] = {}
@@ -87,6 +88,53 @@ def run() -> list[str]:
     for text in patterns["clean"]:
         if redaction.redact(text) != text or redaction.find(text):
             failures.append(f"redaction.json: clean sample changed or matched: {text!r}")
+
+    failures.extend(_archive_failures(loaded["archive.json"], archive, config, migrations))
+    if tuple(loaded["archive.json"].get("export_formats", ())) != export.FORMATS:
+        failures.append("archive.json: export formats differ from export.FORMATS")
+    return failures
+
+
+def _archive_failures(fixture: Any, archive: Any, config: Any, migrations: Any) -> list[str]:
+    """archive.json against the code, and against a schema built from the shipped migrations."""
+    failures: list[str] = []
+    if fixture.get("schema") != archive.SCHEMA:
+        failures.append(f"archive.json: schema {fixture.get('schema')!r} != {archive.SCHEMA!r}")
+    if tuple(fixture["tables"]) != archive.TABLES:
+        failures.append("archive.json: table list differs from archive.TABLES")
+    if tuple(fixture["skipped_reasons"]) != archive.SKIPPED_REASONS:
+        failures.append("archive.json: skipped reasons differ from archive.SKIPPED_REASONS")
+    if fixture["budgets"] != config.Budgets().to_dict():
+        failures.append("archive.json: budgets differ from the config defaults")
+    if fixture["config_version"] != config.CONFIG_VERSION:
+        failures.append("archive.json: config_version differs from config.CONFIG_VERSION")
+    shipped = [migration.name for migration in migrations.core_migrations()]
+    if list(fixture["migrations"]) != shipped:
+        failures.append(f"archive.json: migrations {fixture['migrations']} != the shipped {shipped}")
+
+    # The schema itself, built in memory from the files this copy ships. Skipped
+    # where SQLite has no FTS5: that build cannot hold an archive at all, and the
+    # tool's doctor is where a user is told so (ARCHIVE_UNAVAILABLE).
+    if not archive.fts5_available():
+        return failures
+    import sqlite3
+
+    connection = sqlite3.connect(":memory:")
+    connection.isolation_level = None
+    try:
+        migrations.migrate(connection, [migrations.core_migrations()])
+        built = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type IN ('table', 'view')")
+        }
+        missing = [table for table in archive.TABLES if table not in built]
+        if missing:
+            failures.append(f"the shipped migrations build no {', '.join(missing)}")
+        failures.extend(f"a freshly migrated archive: {problem}" for problem in archive.conformance_queries(connection))
+    except Exception as exc:  # noqa: BLE001 - a schema that will not build is the finding
+        failures.append(f"the shipped migrations do not build: {exc}")
+    finally:
+        connection.close()
     return failures
 
 

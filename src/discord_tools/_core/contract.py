@@ -127,6 +127,37 @@ class Error:
         }
 
 
+class CodedError(Exception):
+    """A failure that already knows the envelope error it becomes.
+
+    Core raises this wherever the spec names an error code (a disk budget
+    crossed, a database newer than the code, a missing SQLite feature); the
+    tool catches it at the command boundary, puts `error` in the envelope and
+    exits with `exit_code(status, error.code)`. Raising it keeps the code list
+    the single source it already is: an unknown code fails here, not in a
+    reviewer's head.
+    """
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        hint: str | None = None,
+        retryable: bool = False,
+        platform: str | None = None,
+    ) -> None:
+        self.error = Error(code=code, message=message, hint=hint, retryable=retryable, platform=platform)
+        super().__init__(f"{code}: {message}")
+
+    @property
+    def code(self) -> str:
+        return self.error.code
+
+    def to_dict(self) -> dict[str, Any]:
+        return self.error.to_dict()
+
+
 @dataclass(frozen=True)
 class Meta:
     """The `meta` object: when the run started and what it cost."""

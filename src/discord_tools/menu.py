@@ -6,11 +6,15 @@ from pathlib import Path
 from typing import Any
 
 from discord_tools import cli, ui
+from discord_tools._core import rid as _rid
 from discord_tools.client import API_ERRORS, ClientError, start_client
 from discord_tools.plans import PlanDriftError
 from discord_tools._core.columns import cell
+from discord_tools._core.identity import Target
+from discord_tools._core.identity import banner as identity_banner
 from discord_tools.config import ConfigError, load_config
-from discord_tools.models import kind_for_type
+from discord_tools.adapters import DiscordIdentityProvider
+from discord_tools.models import ThreadInfo, kind_for_type
 from discord_tools.prompts import (
     BACK,
     CLEAR,
@@ -24,6 +28,7 @@ from discord_tools.prompts import (
     choose,
     edit_field,
     pick,
+    with_banner,
 )
 from discord_tools.ui import crumb
 
@@ -33,19 +38,19 @@ MENU_ERRORS = (ConfigError, ClientError, PlanDriftError, ValueError, OSError) + 
 
 ROOT_TITLE = "discord-tools"
 MAIN = "Main"
+# Section 14's nine rows, landed once. Rows 6 and 7 have nothing under them
+# until the packs that fill them arrive; they are printed anyway, because the
+# whole point of regrouping now is that these numbers are learned once.
 ROOT_ITEMS = (
-    "Servers & channels (find IDs)",
-    "Server members (names and IDs)",
-    "Search / export messages",
-    "Send a message",
-    "Create a channel, category, or thread",
-    "Delete a channel, category, or thread",
+    "Find IDs (servers, channels, threads)",
+    "Read (search, export, members)",
+    "Write (send a message)",
+    "Build (create, delete, leave a server)",
     "Clear messages",
-    "Leave a server",
-    "My bot",
-    "Set up a bot (guided)",
+    "Manage (roles, members, invites, webhooks)",
+    "Watch (rules, runner, review queue)",
+    "Identity (profiles, my bot, set up a bot)",
     "Check setup",
-    "Switch profile",
 )
 
 
@@ -61,6 +66,11 @@ class MenuSession:
         self._config = config
         self.profile = profile
         self._client = None
+        self._identity = None
+        # What the current flow has resolved to act on, for the banner's second
+        # half. Cleared when a flow starts and when a picker re-opens, so a
+        # screen never names a target the user has already stepped away from.
+        self.target: Target | None = None
         self._servers: list[Any] | None = None
         self._channels: dict[int, list[Any]] = {}
         self._threads: dict[int, list[Any]] = {}
@@ -77,6 +87,32 @@ class MenuSession:
                 self.config.token, proxy=self.config.proxy_url, proxy_auth=self.config.proxy_auth
             )
         return self._client
+
+    async def identity(self):
+        """The bot this menu run acts as, fetched once and kept.
+
+        Every screen below the root prints it, so it is resolved before a flow
+        that acts draws its first screen rather than lazily inside one.
+        """
+        if self._identity is None:
+            provider = DiscordIdentityProvider(
+                await self.client(),
+                profile=self.config.profile,
+                profiles=tuple(self.config.tokens),
+                source=self.config.source,
+            )
+            self._identity = await provider.identity()
+        return self._identity
+
+    def banner(self) -> str | None:
+        """Section 5.1's line, or None before anything has logged in.
+
+        `doctor` and `auth` are reachable with no token at all, so a screen
+        under those says nothing rather than guessing at a bot.
+        """
+        if self._identity is None:
+            return None
+        return identity_banner(self._identity, self.target)
 
     async def servers(self):
         if self._servers is None:
@@ -105,6 +141,8 @@ class MenuSession:
         await self.close()
         self.profile = profile
         self._config = config
+        self._identity = None
+        self.target = None
         self._servers = None
         self._channels.clear()
         self._threads.clear()
@@ -200,20 +238,62 @@ async def _single_server(session) -> bool:
     return len(await session.servers()) == 1
 
 
+def _server_target(server) -> Target:
+    return Target(
+        rid=str(_rid.make("dc", "guild", server.id)),
+        kind="guild",
+        title=server.name,
+        path=(server.name,),
+        platform="discord",
+        ids={"guild": str(server.id)},
+    )
+
+
+def _channel_target(server, item) -> Target | None:
+    """The banner's target for something picked out of a listing.
+
+    Built from the row the picker already holds rather than resolved again:
+    the id, the name and the type are all there, and asking Discord a second
+    time for what is on screen would be a call that buys nothing. A channel of
+    a type this tool does not act on has no kind to be named by, so it gets no
+    target rather than a wrong one.
+    """
+    if isinstance(item, ThreadInfo):
+        kind = "thread"
+    else:
+        kind = kind_for_type(item.type)
+        if kind is None:
+            return None
+    return Target(
+        rid=str(_rid.make("dc", kind, item.id)),
+        kind=kind,
+        title=item.name,
+        path=(server.name, item.name),
+        platform="discord",
+        ids={"guild": str(server.id), kind: str(item.id)},
+        type=None if isinstance(item, ThreadInfo) else item.type,
+    )
+
+
 async def _pick_server(*, session, read, write, trail: str = MAIN) -> Any:
+    session.target = None
     servers = await session.servers()
     if not servers:
         write("The bot is in no servers yet. Pick 'My bot' for the invite URL.")
         return BACK
     if len(servers) == 1:
+        session.target = _server_target(servers[0])
         return servers[0]
-    return pick(
+    chosen = pick(
         servers,
         title=crumb(trail, "Pick a server"),
         label=lambda server: f"{cell(server.name, 32)}  {server.id}",
         read=read,
         write=write,
     )
+    if chosen is not BACK:
+        session.target = _server_target(chosen)
+    return chosen
 
 
 async def _pick_channel(*, session, read, write, messageable_only: bool = True, trail: str = MAIN) -> Any:
@@ -255,8 +335,11 @@ async def _pick_channel(*, session, read, write, messageable_only: bool = True, 
             typed = _ask_id("Channel or thread ID", read=read, write=write)
             if typed is BACK:
                 continue
+            # Nothing here knows what that ID is yet, so the banner names the
+            # server and stops rather than claiming a kind it has not checked.
             return ChannelPick(id=typed, title=str(typed))
         item = chosen[0]
+        session.target = _channel_target(server, item) or session.target
         return ChannelPick(id=item.id, title=item.name)
 
 
@@ -1022,6 +1105,9 @@ async def _flow_bot_edit(*, session, runner, read, write, trail: str) -> Any:
 
 async def _flow_bot(*, session, runner, read, write) -> bool:
     trail = crumb(MAIN, "My bot")
+    # This flow logs in whatever happens, so the screens under it can carry the
+    # banner even though the Identity group above them is reachable without one.
+    await session.identity()
     # Printed first because everything on this screen is about the bot it names.
     if await _call(_bot_namespace(), session=session, runner=runner, write=write) is None:
         return after_action(read=read, write=write)
@@ -1133,9 +1219,9 @@ async def _flow_doctor(*, session, runner, read, write) -> bool:
         return after_action(read=read, write=write)
 
 
-async def _flow_profile(*, session, runner, read, write) -> bool:
+async def _flow_switch_profile(*, session, runner, read, write) -> bool:
     """Switch the stored bot the rest of the session acts as."""
-    trail = crumb(MAIN, "Switch profile")
+    trail = crumb(MAIN, "Identity", "Profiles", "Switch")
     while True:
         current = session.config.profile
         names = sorted(session.config.tokens)
@@ -1166,6 +1252,90 @@ async def _flow_profile(*, session, runner, read, write) -> bool:
         return True
 
 
+async def _flow_profiles(*, session, runner, read, write) -> bool:
+    """List the stored profiles, switch to one, or remove one.
+
+    Listing and removing run the `profiles` command itself, so the typed-name
+    gate a removal meets here is the same one the command has — the menu is
+    never a shorter path past it.
+    """
+    trail = crumb(MAIN, "Identity", "Profiles")
+    while True:
+        choice = choose(
+            ["List them", "Switch profile", "Remove a profile"], title=trail, read=read, write=write
+        )
+        if choice is BACK:
+            return True
+        if choice == 0:
+            await _call(
+                _namespace(command="profiles", profiles_kind=None, profile=session.profile),
+                session=None,
+                runner=runner,
+                write=write,
+            )
+            if not after_action(read=read, write=write):
+                return False
+            continue
+        if choice == 1:
+            if not await _flow_switch_profile(session=session, runner=runner, read=read, write=write):
+                return False
+            continue
+
+        names = sorted(session.config.tokens)
+        if not names:
+            write("One token is loaded from DISCORD_TOKEN, so there is no stored profile to remove.")
+            if not after_action(read=read, write=write):
+                return False
+            continue
+        chosen = pick(names, title=crumb(trail, "Remove"), label=lambda name: name, read=read, write=write)
+        if chosen is BACK:
+            continue
+        await _call(
+            _namespace(command="profiles", profiles_kind="remove", name=chosen, profile=session.profile),
+            session=None,
+            runner=runner,
+            write=write,
+        )
+        if not after_action(read=read, write=write):
+            return False
+
+
+def _group(trail: str, rows):
+    """A root row that is a list of flows rather than one flow.
+
+    Rows keep their own numbers inside the group, and 0 steps back to the root,
+    which is the same shape every other screen has.
+    """
+
+    async def flow(*, session, runner, read, write) -> bool:
+        while True:
+            # Back on the group screen, whatever a flow was acting on is behind
+            # the user: the banner names the bot and stops.
+            session.target = None
+            choice = choose([label for label, _inner in rows], title=crumb(MAIN, trail), read=read, write=write)
+            if choice is BACK:
+                return True
+            if not await rows[choice][1](session=session, runner=runner, read=read, write=write):
+                return False
+
+    return flow
+
+
+def _later(what: str):
+    """A root row whose pack has not landed. It says so and steps back.
+
+    The numbers of section 14's nine rows are learned once, which means the two
+    rows nothing sits under yet are printed from the start rather than pushed in
+    later and shifting everything below them.
+    """
+
+    async def flow(*, session, runner, read, write) -> bool:
+        write(f"Not built yet - {what} arrive in a later version.")
+        return after_action(read=read, write=write)
+
+    return flow
+
+
 async def run_menu(*, read=None, write=None, session=None, runner=None, profile: str | None = None) -> int:
     """The looping menu. Returns 0 on a normal exit.
 
@@ -1178,31 +1348,63 @@ async def run_menu(*, read=None, write=None, session=None, runner=None, profile:
     gets plain text.
     """
     read = ui.reader() if read is None else read
-    write = ui.writer() if write is None else write
+    root_write = ui.writer() if write is None else write
     session = session if session is not None else MenuSession(profile=profile)
     runner = runner if runner is not None else cli.run
+
+    def write(text: str) -> None:
+        """Every screen below the root, with the acting identity under its trail."""
+        root_write(with_banner(str(text), session.banner()))
+
+    # Section 14's nine rows, each with whether it acts as the bot. The two
+    # that do not — checking a setup, and setting one up — must keep working
+    # with no token at all, which is exactly when they are reached for.
     flows = (
-        _flow_discover,
-        _flow_members,
-        _flow_search,
-        _flow_send,
-        _flow_create,
-        _flow_delete,
-        _flow_clear,
-        _flow_leave,
-        _flow_bot,
-        _flow_auth,
-        _flow_doctor,
-        _flow_profile,
+        (_flow_discover, True),
+        (_group("Read", (("Search / export messages", _flow_search), ("Server members (names and IDs)", _flow_members))), True),
+        (_flow_send, True),
+        (
+            _group(
+                "Build",
+                (
+                    ("Create a channel, category, or thread", _flow_create),
+                    ("Delete a channel, category, or thread", _flow_delete),
+                    ("Leave a server", _flow_leave),
+                ),
+            ),
+            True,
+        ),
+        (_flow_clear, True),
+        (_later("roles, members, invites and webhooks"), False),
+        (_later("rules, the runner and the review queue"), False),
+        (
+            _group(
+                "Identity",
+                (
+                    ("Profiles (list, switch, remove)", _flow_profiles),
+                    ("My bot", _flow_bot),
+                    ("Set up a bot (guided)", _flow_auth),
+                ),
+            ),
+            False,
+        ),
+        (_flow_doctor, False),
     )
 
     try:
         while True:
-            choice = choose(list(ROOT_ITEMS), title=ROOT_TITLE, read=read, write=write, back_label="Exit")
+            # The root itself carries no banner: it is drawn before anything has
+            # logged in, and forcing a login to print a line would put `doctor`
+            # and `auth` behind the very token they exist to fix.
+            choice = choose(list(ROOT_ITEMS), title=ROOT_TITLE, read=read, write=root_write, back_label="Exit")
             if choice is BACK:
                 return 0
+            flow, acts = flows[choice]
             try:
-                keep_going = await flows[choice](session=session, runner=runner, read=read, write=write)
+                session.target = None
+                if acts:
+                    await session.identity()
+                keep_going = await flow(session=session, runner=runner, read=read, write=write)
             except MENU_ERRORS as exc:
                 # A picker's own fetch can fail too: a rate limit, a revoked
                 # token, a server that vanished. The menu says so and stays open.

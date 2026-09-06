@@ -56,6 +56,23 @@ def _screen(
     return "\n".join([title, RULE, *rows, f"0. {back_label}"])
 
 
+def with_banner(text: str, banner: str | None) -> str:
+    """`text` with `banner` on its second line, when `text` is one of these screens.
+
+    Section 5.1 puts the acting identity under the trail, which here means
+    between the title and the rule. Recognising the screen at the one place
+    every screen is written through, rather than threading a parameter into
+    every `choose` and `pick` in the menu, is what makes it impossible for one
+    screen to go out without it.
+    """
+    if not banner:
+        return text
+    lines = text.split("\n")
+    if len(lines) < 2 or lines[1] != RULE:
+        return text
+    return "\n".join([lines[0], banner, *lines[1:]])
+
+
 def choose(labels: Sequence[str], *, title: str, read, write, back_label: str = "Back") -> Any:
     """Print a numbered list and return the chosen 0-based index, or BACK."""
     while True:

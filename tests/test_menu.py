@@ -9,12 +9,24 @@ from discord_tools.config import Config
 from discord_tools.menu import MenuSession, run_menu
 from discord_tools.models import ChannelInfo, MemberInfo, ServerInfo, ThreadInfo
 
-# Root rows, so a test says which screen it is on instead of a bare number.
-# fmt: off
-(
-    DISCOVER, MEMBERS, SEARCH, SEND, CREATE, DELETE, CLEAR, LEAVE, BOT, AUTH, DOCTOR, PROFILE,
-) = (str(number) for number in range(1, 13))
-# fmt: on
+# The keystrokes that reach each flow from the root, so a test says which
+# screen it is on instead of a bare number. Section 14 groups several flows
+# behind one root row, so some of these are two presses rather than one.
+DISCOVER = ("1",)
+SEARCH = ("2", "1")
+MEMBERS = ("2", "2")
+SEND = ("3",)
+CREATE = ("4", "1")
+DELETE = ("4", "2")
+LEAVE = ("4", "3")
+CLEAR = ("5",)
+MANAGE = ("6",)
+WATCH = ("7",)
+PROFILES = ("8", "1")
+SWITCH_PROFILE = ("8", "1", "2")
+BOT = ("8", "2")
+AUTH = ("8", "3")
+DOCTOR = ("9",)
 
 
 def make_client(**overrides):
@@ -44,6 +56,11 @@ def screens(output):
     return "\n".join(output)
 
 
+def keystrokes(answers):
+    """Flatten the root-row tuples above into the keys a person would press."""
+    return [key for answer in answers for key in ((answer,) if isinstance(answer, str) else tuple(answer))]
+
+
 def drive(answers, *, session=None, runner=None, result=0):
     calls = []
 
@@ -54,7 +71,7 @@ def drive(answers, *, session=None, runner=None, result=0):
     output = []
     code = asyncio.run(
         run_menu(
-            read=scripted(answers),
+            read=scripted(keystrokes(answers)),
             write=output.append,
             session=session or make_session(),
             runner=runner or default_runner,
@@ -103,7 +120,7 @@ def test_members_flow_exports_to_a_named_csv():
 def test_members_flow_backs_out_of_a_single_server_instead_of_looping():
     # With one server the picker answers itself, so 0 on the screen below it has
     # to leave the flow — otherwise it lands straight back on the same screen.
-    code, calls, _output = drive([MEMBERS, "0", "0"])
+    code, calls, _output = drive([MEMBERS, "0", "0", "0"])
     assert code == 0
     assert calls == []
 
@@ -125,7 +142,7 @@ def test_search_flow_runs_and_offers_a_tweak_back_to_the_filled_form():
 
 
 def test_search_flow_asks_before_discarding_staged_filters():
-    code, calls, output = drive([SEARCH, "1", "1", "deploy", "0", "0", "0", "0"])
+    code, calls, output = drive([SEARCH, "1", "1", "deploy", "0", "0", "0", "0", "0"])
     assert calls == []
     text = screens(output)
     assert "Discard it and go back" in text
@@ -237,7 +254,7 @@ def test_bot_flow_can_save_the_profile_as_json():
 
 
 def test_bot_flow_asks_before_discarding_staged_edits():
-    code, calls, output = drive([BOT, "1", "1", "newbot", "0", "0", "0", "0"])
+    code, calls, output = drive([BOT, "1", "1", "newbot", "0", "0", "0", "0", "0"])
     # Only the opening profile show ran.
     assert [args.command for args in calls] == ["bot"]
     assert "Discarded 1 staged change." in screens(output)
@@ -318,7 +335,7 @@ def test_doctor_falls_back_to_a_typed_id_when_the_picker_cannot_list():
     assert "error: 401 Unauthorized" in screens(output)
 
 
-def test_profile_flow_switches_the_session(monkeypatch):
+def test_switch_profile_flow_switches_the_session(monkeypatch):
     config = Config(token="a.b.c", profile="harry", tokens={"harry": "a.b.c", "dobby": "d.e.f"})
     switched = Config(token="d.e.f", profile="dobby", tokens=config.tokens)
     monkeypatch.setattr("discord_tools.menu.load_config", lambda profile=None: switched)
@@ -326,7 +343,7 @@ def test_profile_flow_switches_the_session(monkeypatch):
     session = make_session(config=config)
     client = session._client
     # Switch profile -> "dobby" (first alphabetically) -> exit
-    code, calls, output = drive([PROFILE, "1", "0"], session=session)
+    code, calls, output = drive([SWITCH_PROFILE, "1", "0", "0", "0"], session=session)
     assert code == 0
     assert calls == []
     assert session.profile == "dobby"
@@ -337,16 +354,16 @@ def test_profile_flow_switches_the_session(monkeypatch):
     assert "Now acting as profile dobby." in screens(output)
 
 
-def test_profile_flow_says_when_the_pick_is_already_current():
+def test_switch_profile_flow_says_when_the_pick_is_already_current():
     config = Config(token="a.b.c", profile="harry", tokens={"harry": "a.b.c", "dobby": "d.e.f"})
     session = make_session(config=config)
-    code, _calls, output = drive([PROFILE, "2", "0", "0"], session=session)
+    code, _calls, output = drive([SWITCH_PROFILE, "2", "0", "0", "0", "0"], session=session)
     assert session.profile == "harry"
     assert "Already on harry." in screens(output)
 
 
-def test_profile_flow_says_so_when_only_DISCORD_TOKEN_is_loaded():
-    code, _calls, output = drive([PROFILE, "0"])
+def test_switch_profile_flow_says_so_when_only_DISCORD_TOKEN_is_loaded():
+    code, _calls, output = drive([SWITCH_PROFILE, "0", "0", "0"])
     assert "no profiles to switch between" in screens(output)
 
 
@@ -416,7 +433,7 @@ def test_channel_picker_lines_up_ids_after_emoji_names():
             },
         )
     )
-    _code, _calls, output = drive([SEARCH, "0", "0"], session=session)
+    _code, _calls, output = drive([SEARCH, "0", "0", "0"], session=session)
     rows = [line for line in screens(output).split("\n") if "15426551" in line or "15426550" in line]
     assert len(rows) == 4
     starts = {width(row[: row.index("15426")]) for row in rows if row.lstrip().startswith(("1.", "2."))}
@@ -464,7 +481,7 @@ def test_delete_flow_knows_a_category_when_it_sees_one():
 
 
 def test_delete_flow_backing_out_never_executes():
-    code, calls, _output = drive([DELETE, "1", "0", "0", "0"])
+    code, calls, _output = drive([DELETE, "1", "0", "0", "0", "0"])
     executed = [args for args in calls if getattr(args, "execute", False)]
     assert executed == []
 

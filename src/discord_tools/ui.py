@@ -83,17 +83,22 @@ def paint(text: str) -> str:
 
     The screen shape from `prompts._screen` is what gets recognised: a write
     that opens with a title over the rule gets the title styled (its trail dim,
-    its last crumb bold in the accent), the rule and the paging line are dim,
-    numbered rows get an accent number with their hints dimmed, 0 is dim, an
-    error line is red. Anything else passes through untouched -- including a
-    rule further down a write, which is some command's own output, not a screen.
+    its last crumb bold in the accent), the identity banner between the two is
+    dim, the rule and the paging line are dim, numbered rows get an accent
+    number with their hints dimmed, 0 is dim, an error line is red. Anything
+    else passes through untouched -- including a rule further down a write,
+    which is some command's own output, not a screen.
     """
     lines = text.split("\n")
+    # Where the screen's rule sits: line 1 normally, line 2 when the identity
+    # banner is under the title. Anything further down is not a screen head.
+    rule_at = next((index for index in (1, 2) if index < len(lines) and lines[index] == RULE), None)
     painted = []
     for index, line in enumerate(lines):
-        following = lines[index + 1] if index + 1 < len(lines) else None
-        if index == 0 and following == RULE:
+        if rule_at is not None and index == 0:
             painted.append(_paint_title(line))
+        elif rule_at is not None and 0 < index < rule_at:
+            painted.append(_dim(line))
         elif line == RULE or _PAGER.match(line):
             painted.append(_dim(line))
         elif line.startswith("error: "):

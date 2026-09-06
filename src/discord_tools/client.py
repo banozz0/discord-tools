@@ -101,6 +101,90 @@ def _message_info(message: Any, channel_id: int) -> MessageInfo:
     )
 
 
+def _enum_name(value: Any) -> str | None:
+    return getattr(value, "name", None) if value is not None else None
+
+
+def _unicode_emoji(emoji: Any) -> str | None:
+    """A unicode emoji's text, or None: a custom emoji is a binary this tool never carries."""
+    if emoji is None or getattr(emoji, "id", None):
+        return None
+    name = getattr(emoji, "name", None)
+    return str(name) if name else None
+
+
+def _custom_emoji_name(emoji: Any) -> str | None:
+    if emoji is None or not getattr(emoji, "id", None):
+        return None
+    return str(getattr(emoji, "name", "") or "")
+
+
+def _automod_dict(rule: Any) -> dict[str, Any]:
+    trigger = rule.trigger
+    presets = getattr(trigger, "presets", None)
+    return {
+        "id": rule.id,
+        "name": rule.name,
+        "enabled": bool(rule.enabled),
+        "event_type": _enum_name(rule.event_type),
+        "trigger": {
+            "type": _enum_name(trigger.type),
+            "keyword_filter": list(trigger.keyword_filter or []),
+            "regex_patterns": list(trigger.regex_patterns or []),
+            "allow_list": list(trigger.allow_list or []),
+            "presets": sorted(name for name, on in (presets or ()) if on) if presets is not None else [],
+            "mention_limit": trigger.mention_limit,
+            "mention_raid_protection": bool(trigger.mention_raid_protection),
+        },
+        "actions": [
+            {
+                "type": _enum_name(action.type),
+                "channel_id": action.channel_id,
+                "duration_seconds": int(action.duration.total_seconds()) if action.duration else None,
+                "custom_message": action.custom_message,
+            }
+            for action in rule.actions
+        ],
+        "exempt_role_ids": [int(role_id) for role_id in rule.exempt_role_ids],
+        "exempt_channel_ids": [int(channel_id) for channel_id in rule.exempt_channel_ids],
+    }
+
+
+def _automod_kwargs(rule: dict[str, Any]) -> dict[str, Any]:
+    """discord.py's create/edit arguments from the dict shape `_automod_dict` reads."""
+    from datetime import timedelta
+
+    trigger = rule["trigger"]
+    presets = None
+    if trigger.get("presets"):
+        presets = discord.AutoModPresets(**{name: True for name in trigger["presets"]})
+    return {
+        "name": rule["name"],
+        "event_type": discord.AutoModRuleEventType[rule["event_type"]],
+        "trigger": discord.AutoModTrigger(
+            type=discord.AutoModRuleTriggerType[trigger["type"]],
+            keyword_filter=list(trigger.get("keyword_filter") or []) or None,
+            regex_patterns=list(trigger.get("regex_patterns") or []) or None,
+            allow_list=list(trigger.get("allow_list") or []) or None,
+            presets=presets,
+            mention_limit=trigger.get("mention_limit"),
+            mention_raid_protection=trigger.get("mention_raid_protection") or None,
+        ),
+        "actions": [
+            discord.AutoModRuleAction(
+                type=discord.AutoModRuleActionType[action["type"]],
+                channel_id=action.get("channel_id"),
+                duration=timedelta(seconds=action["duration_seconds"]) if action.get("duration_seconds") else None,
+                custom_message=action.get("custom_message"),
+            )
+            for action in rule["actions"]
+        ],
+        "enabled": bool(rule.get("enabled", False)),
+        "exempt_roles": [discord.Object(id=role_id) for role_id in rule.get("exempt_role_ids", [])],
+        "exempt_channels": [discord.Object(id=channel_id) for channel_id in rule.get("exempt_channel_ids", [])],
+    }
+
+
 def _intent_status(flags: Any) -> str:
     if getattr(flags, "gateway_message_content", False):
         return "enabled"
@@ -426,6 +510,225 @@ class DiscordClient:
         """
         guild = await self._fetch_guild(server_id)
         await guild.leave()
+
+    # -- structure (blueprints) --------------------------------------------
+    #
+    # The reads and writes a structure blueprint needs, as plain dicts: the
+    # blueprint engine speaks dicts, and every key below is one the Discord
+    # allowlist in adapters/blueprint.py names. Managed roles, other members'
+    # overwrites and custom-emoji ids are read and reported; the adapter, not
+    # the seam, decides they do not transfer.
+
+    async def get_guild_settings(self, server_id: int) -> dict[str, Any]:
+        guild = await self._fetch_guild(server_id)
+        locale = getattr(guild, "preferred_locale", None)
+        return {
+            "name": guild.name,
+            "description": guild.description,
+            "verification_level": _enum_name(guild.verification_level),
+            "default_notifications": _enum_name(guild.default_notifications),
+            "explicit_content_filter": _enum_name(guild.explicit_content_filter),
+            "afk_channel_id": getattr(guild, "_afk_channel_id", None),
+            "system_channel_id": getattr(guild, "_system_channel_id", None),
+            "preferred_locale": getattr(locale, "value", None) if locale is not None else None,
+        }
+
+    async def list_roles(self, server_id: int) -> list[dict[str, Any]]:
+        guild = await self._fetch_guild(server_id)
+        roles = await guild.fetch_roles()
+        return [
+            {
+                "id": role.id,
+                "name": role.name,
+                "colour": int(role.colour.value),
+                "hoist": bool(role.hoist),
+                "mentionable": bool(role.mentionable),
+                "permissions": str(role.permissions.value),
+                "position": int(role.position),
+                "managed": bool(role.managed),
+            }
+            for role in roles
+        ]
+
+    async def list_channel_structure(self, server_id: int) -> list[dict[str, Any]]:
+        """Every category and channel with the settings a blueprint carries. Threads are
+        not structure and are not listed."""
+        guild = await self._fetch_guild(server_id)
+        channels = await guild.fetch_channels()
+        rows = []
+        for channel in channels:
+            if isinstance(channel, discord.Thread):
+                continue
+            overwrites = []
+            for target, overwrite in channel.overwrites.items():
+                allow, deny = overwrite.pair()
+                is_role = isinstance(target, discord.Role) or getattr(target, "type", None) is discord.Role
+                overwrites.append(
+                    {
+                        "target_id": int(target.id),
+                        "target_type": "role" if is_role else "member",
+                        "allow": str(allow.value),
+                        "deny": str(deny.value),
+                    }
+                )
+            tags = [
+                {
+                    "name": tag.name,
+                    "moderated": bool(tag.moderated),
+                    "emoji": _unicode_emoji(tag.emoji),
+                    "custom_emoji": _custom_emoji_name(tag.emoji),
+                }
+                for tag in getattr(channel, "available_tags", None) or ()
+            ]
+            default_reaction = getattr(channel, "default_reaction_emoji", None)
+            rows.append(
+                {
+                    "id": channel.id,
+                    "name": channel.name,
+                    "type": _channel_type_name(channel),
+                    "position": int(getattr(channel, "position", 0) or 0),
+                    "parent_id": getattr(channel, "category_id", None),
+                    "topic": getattr(channel, "topic", None),
+                    "nsfw": bool(getattr(channel, "nsfw", False)),
+                    "slowmode": int(getattr(channel, "slowmode_delay", 0) or 0),
+                    "bitrate": getattr(channel, "bitrate", None),
+                    "user_limit": getattr(channel, "user_limit", None),
+                    "overwrites": overwrites,
+                    "tags": tags,
+                    "default_reaction": _unicode_emoji(default_reaction),
+                }
+            )
+        return rows
+
+    async def list_automod_rules(self, server_id: int) -> list[dict[str, Any]]:
+        """The server's AutoMod rules. Discord gates the read on Manage Server."""
+        guild = await self._fetch_guild(server_id)
+        try:
+            rules = await guild.fetch_automod_rules()
+        except discord.Forbidden as exc:
+            raise PermissionError(
+                f"Discord refused the AutoMod rules of server {server_id}: reading them needs Manage Server."
+            ) from exc
+        return [_automod_dict(rule) for rule in rules]
+
+    async def edit_guild(self, server_id: int, *, reason: str | None = None, **settings: Any) -> None:
+        guild = await self._fetch_guild(server_id)
+        kwargs: dict[str, Any] = {}
+        for key, value in settings.items():
+            if key == "verification_level":
+                kwargs[key] = discord.VerificationLevel[value]
+            elif key == "default_notifications":
+                kwargs[key] = discord.NotificationLevel[value]
+            elif key == "explicit_content_filter":
+                kwargs[key] = discord.ContentFilter[value]
+            elif key == "afk_channel_id":
+                kwargs["afk_channel"] = discord.Object(id=value) if value else None
+            elif key == "system_channel_id":
+                kwargs["system_channel"] = discord.Object(id=value) if value else None
+            elif key == "preferred_locale":
+                kwargs[key] = discord.Locale(value)
+            else:
+                kwargs[key] = value
+        if kwargs:
+            await guild.edit(reason=reason, **kwargs)
+
+    async def create_role(
+        self,
+        server_id: int,
+        name: str,
+        *,
+        colour: int = 0,
+        hoist: bool = False,
+        mentionable: bool = False,
+        permissions: str = "0",
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        guild = await self._fetch_guild(server_id)
+        role = await guild.create_role(
+            name=name,
+            colour=discord.Colour(int(colour)),
+            hoist=hoist,
+            mentionable=mentionable,
+            permissions=discord.Permissions(int(permissions)),
+            reason=reason,
+        )
+        return {"id": role.id, "name": role.name, "position": int(role.position)}
+
+    async def edit_role(self, server_id: int, role_id: int, *, reason: str | None = None, **fields: Any) -> None:
+        guild = await self._fetch_guild(server_id)
+        role = next((entry for entry in await guild.fetch_roles() if entry.id == role_id), None)
+        if role is None:
+            raise ClientError(f"No role with ID {role_id} in server {server_id}.")
+        kwargs: dict[str, Any] = {}
+        for key, value in fields.items():
+            if key == "colour":
+                kwargs[key] = discord.Colour(int(value))
+            elif key == "permissions":
+                kwargs[key] = discord.Permissions(int(value))
+            else:
+                kwargs[key] = value
+        if kwargs:
+            await role.edit(reason=reason, **kwargs)
+
+    async def edit_channel(self, channel_id: int, *, reason: str | None = None, **fields: Any) -> None:
+        """Edit a channel or category: name, topic, nsfw, slowmode, bitrate, user_limit,
+        position, parent_id, type (text and news only), overwrites (the whole set),
+        tags and default_reaction (forum and media)."""
+        channel = await self._fetch_channel(channel_id)
+        if not hasattr(channel, "edit"):
+            raise ClientError(f"Channel {channel_id} ({_channel_type_name(channel)}) cannot be edited.")
+        kwargs: dict[str, Any] = {}
+        for key, value in fields.items():
+            if key == "slowmode":
+                kwargs["slowmode_delay"] = value
+            elif key == "parent_id":
+                kwargs["category"] = discord.Object(id=value) if value else None
+            elif key == "type":
+                current = _channel_type_name(channel)
+                if value != current:
+                    if {current, value} != {"text", "news"}:
+                        raise ClientError(f"Discord cannot turn a {current} channel into a {value} one.")
+                    kwargs["type"] = discord.ChannelType[value]
+            elif key == "overwrites":
+                kwargs["overwrites"] = {
+                    discord.Object(
+                        id=int(entry["target_id"]),
+                        type=discord.Role if entry["target_type"] == "role" else discord.Member,
+                    ): discord.PermissionOverwrite.from_pair(
+                        discord.Permissions(int(entry["allow"])), discord.Permissions(int(entry["deny"]))
+                    )
+                    for entry in value
+                }
+            elif key == "tags":
+                kwargs["available_tags"] = [
+                    discord.ForumTag(
+                        name=tag["name"],
+                        moderated=bool(tag.get("moderated", False)),
+                        emoji=discord.PartialEmoji(name=tag["emoji"]) if tag.get("emoji") else None,
+                    )
+                    for tag in value
+                ]
+            elif key == "default_reaction":
+                kwargs["default_reaction_emoji"] = discord.PartialEmoji(name=value) if value else None
+            else:
+                kwargs[key] = value
+        if kwargs:
+            await channel.edit(reason=reason, **kwargs)
+
+    async def create_automod_rule(self, server_id: int, rule: dict[str, Any], *, reason: str | None = None) -> dict[str, Any]:
+        guild = await self._fetch_guild(server_id)
+        made = await guild.create_automod_rule(reason=reason, **_automod_kwargs(rule))
+        return {"id": made.id, "name": made.name}
+
+    async def edit_automod_rule(
+        self, server_id: int, rule_id: int, rule: dict[str, Any], *, reason: str | None = None
+    ) -> None:
+        guild = await self._fetch_guild(server_id)
+        try:
+            existing = await guild.fetch_automod_rule(rule_id)
+        except discord.NotFound as exc:
+            raise ClientError(f"No AutoMod rule with ID {rule_id} in server {server_id}.") from exc
+        await existing.edit(reason=reason, **_automod_kwargs(rule))
 
     # -- permissions ------------------------------------------------------
 

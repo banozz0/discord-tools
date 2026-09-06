@@ -10,20 +10,25 @@ from typing import Sequence
 from discord_tools import archive as archive_store
 from discord_tools import plans
 from discord_tools import review as review_store
+from discord_tools import structure as structure_store
+from discord_tools._core import blueprint as blueprint_engine
+from discord_tools._core.blueprint import BlueprintError
 from discord_tools._core import rid as _rid
 from discord_tools._core.archive import SearchError
 from discord_tools._core.contract import CodedError, Error
 from discord_tools._core.export import ExportError, FORMATS as ARCHIVE_FORMATS, render as render_export, resolve_output
-from discord_tools._core.identity import Identity, banner
+from discord_tools._core.identity import Identity, Target, banner
 from discord_tools._core.paths import write_private
 from discord_tools._core.plan import Evidence, Mutation, drift
 from discord_tools._core.review import KINDS as REVIEW_KINDS, STATES as REVIEW_STATES, ReviewError
 from discord_tools.adapters import (
     DiscordArchiveSource,
+    DiscordBlueprintPort,
     DiscordIdentityProvider,
     DiscordPermissionProbe,
     DiscordTargetResolver,
 )
+from discord_tools.adapters.blueprint import ALLOWLIST as BLUEPRINT_ALLOWLIST, APPLY_RIGHTS, EXPORT_RIGHTS
 from discord_tools.adapters.targets import TargetError
 from discord_tools.client import MENTION_KINDS, ClientError
 from discord_tools import __version__
@@ -342,6 +347,32 @@ def build_parser() -> argparse.ArgumentParser:
     )
     manifest_ids(review_status, required=False, help="Manifest IDs; without them, every candidate that has a download")
 
+    structure_parser = subparsers.add_parser(
+        "structure",
+        help="Structure blueprints: export a server's roles, categories, channels, overwrites, forum tags, AutoMod and settings; diff and apply them elsewhere with new IDs",
+    )
+    structure_kinds = structure_parser.add_subparsers(dest="structure_kind")
+    structure_export = structure_kinds.add_parser(
+        "export",
+        help="Write a server's structure as a deterministic blueprint (never members, messages, webhooks, invites, bans or emoji)",
+    )
+    structure_export.add_argument("--target", required=True, type=snowflake, help="Server ID to export")
+    structure_export.add_argument("--output", required=True, help="Blueprint file; a bare name lands in ~/.discord-tools/exports/")
+    structure_diff = structure_kinds.add_parser("diff", help="What a server would need to become the blueprint, object by object")
+    structure_diff.add_argument("--blueprint", required=True, help="A blueprint file from `structure export`")
+    structure_diff.add_argument("--target", required=True, type=snowflake, help="Server ID to compare against")
+    structure_apply = structure_kinds.add_parser(
+        "apply",
+        help="Make a server match a blueprint with new IDs (dry-run by default; --execute asks for the server's exact name; never deletes)",
+    )
+    structure_apply.add_argument("--blueprint", required=True, help="A blueprint file from `structure export`")
+    structure_apply.add_argument("--target", required=True, type=snowflake, help="Server ID to apply to")
+    structure_apply.add_argument(
+        "--execute", action="store_true", help="Apply for real: shows the steps, then asks you to type the server's exact name. There is no --yes"
+    )
+    structure_remap = structure_kinds.add_parser("remap", help="The source ID -> target ID table one apply recorded (reads the archive; no login)")
+    structure_remap.add_argument("--apply-id", required=True, dest="apply_id", help="The apply id `structure apply` printed")
+
     message_parser = subparsers.add_parser(
         "message",
         help="Act on messages a channel holds: reply, edit, delete, forward, copy, react, pin, poll, typing, bookmark",
@@ -511,7 +542,7 @@ def _as_outcome(exc: Exception) -> Outcome | None:
         return Outcome(status="refused", error=exc.error)
     if isinstance(exc, CodedError):
         return Outcome(status="refused", error=exc.error)
-    if isinstance(exc, (SearchError, ExportError)):
+    if isinstance(exc, (SearchError, ExportError, BlueprintError)):
         return _refused("CONFIG_INVALID", str(exc))
     if isinstance(exc, ReviewError):
         return _refused("TARGET_NOT_FOUND" if "no candidate" in str(exc) or "no download" in str(exc) else "TARGET_KIND_MISMATCH", str(exc))
@@ -778,6 +809,8 @@ OFFLINE_REVIEW = ("list", "status", "accept", "reject")
 def _is_offline_archive(args) -> bool:
     if args.command == "archive":
         return args.archive_kind in OFFLINE_ARCHIVE
+    if args.command == "structure":
+        return args.structure_kind == "remap"
     if args.command == "review":
         return args.review_kind in OFFLINE_REVIEW
     return args.command == "search" and getattr(args, "archive", False)
@@ -793,6 +826,8 @@ async def _dispatch_offline(args, config, out) -> int:
             outcome = await _run_bookmark_list(args, out)
         elif args.command == "review":
             outcome = await OFFLINE_REVIEW_RUNNERS[args.review_kind](args, out)
+        elif args.command == "structure":
+            outcome = await _run_structure_remap(args, out)
         elif args.command == "search":
             outcome = await _run_archive_search(_archive_args_from_search(args), out)
         elif args.archive_kind == "status":
@@ -1678,6 +1713,215 @@ async def _run_clear_messages(client, args, config, out) -> Outcome:
 
 
 
+# -- structure blueprints ---------------------------------------------------
+#
+# One command group over a server's structure. `export` and `diff` read;
+# `apply` is a write with the strongest gate the tool has - the target's exact
+# name typed inside the command, no --yes - and it never deletes anything on
+# the target. `remap` reads the archive and never logs in. The engine lives in
+# the shared core; the Discord shape lives in adapters/blueprint.py.
+
+
+def _bot_id_of(identity: Identity) -> int:
+    return int(_rid.parse(identity.id).ids[0])
+
+
+async def _structure_target(client, args) -> Target:
+    return await DiscordTargetResolver(client).resolve(args.target, kind="guild")
+
+
+async def _structure_preflight(client, *, out, identity, target, rights, approval="prompt_y", mutations=()):
+    return await _plan(
+        client,
+        command=out.command,
+        identity=identity,
+        targets=(target,),
+        mutations=mutations,
+        approval=approval,
+        rights=rights,
+    )
+
+
+async def _run_structure(client, args, config, out) -> Outcome:
+    if args.structure_kind is None:
+        raise ValueError("structure needs one of: export, diff, apply, remap.")
+    if args.structure_kind == "export":
+        return await _run_structure_export(client, args, config, out)
+    if args.structure_kind == "diff":
+        return await _run_structure_diff(client, args, config, out)
+    return await _run_structure_apply(client, args, config, out)
+
+
+async def _run_structure_export(client, args, config, out) -> Outcome:
+    identity = await _identity(out, client, config)
+    target = await _structure_target(client, args)
+    write = await _structure_preflight(client, out=out, identity=identity, target=target, rights=EXPORT_RIGHTS)
+    if write.refusal is not None:
+        return Outcome(status="refused", target=target, plan=write.plan, error=write.refusal)
+    port = DiscordBlueprintPort(client, bot_id=_bot_id_of(identity))
+    report = await blueprint_engine.export(port, target, BLUEPRINT_ALLOWLIST)
+    path = structure_store.write_blueprint(report.blueprint, args.output)
+    out.say(structure_store.format_banner())
+    manual = structure_store.format_manual(port.manual)
+    if manual:
+        out.say(manual)
+    out.say(f"Blueprint {report.hash}: {structure_store.format_summary(report.blueprint)} -> {path}")
+    return Outcome(
+        status="ok",
+        target=target,
+        result={
+            "path": str(path),
+            "blueprint_hash": report.hash,
+            "schema": report.blueprint["schema"],
+            "objects": structure_store.summary(report.blueprint),
+            "never_transferred": list(report.blueprint["never_transferred"]),
+            "manual": list(port.manual),
+            "dropped": list(report.dropped),
+        },
+    )
+
+
+async def _run_structure_diff(client, args, config, out) -> Outcome:
+    identity = await _identity(out, client, config)
+    blueprint = structure_store.read_blueprint(args.blueprint)
+    problems = blueprint_engine.validate(blueprint, BLUEPRINT_ALLOWLIST)
+    if problems:
+        return _refused("CONFIG_INVALID", "The blueprint cannot be used: " + "; ".join(problems))
+    target = await _structure_target(client, args)
+    write = await _structure_preflight(client, out=out, identity=identity, target=target, rights=EXPORT_RIGHTS)
+    if write.refusal is not None:
+        return Outcome(status="refused", target=target, plan=write.plan, error=write.refusal)
+    port = DiscordBlueprintPort(client, bot_id=_bot_id_of(identity))
+    current = (await blueprint_engine.export(port, target, BLUEPRINT_ALLOWLIST)).blueprint
+    changed = blueprint_engine.diff(blueprint, current)
+    out.say(structure_store.format_diff(changed))
+    return Outcome(
+        status="empty" if changed.empty else "ok",
+        target=target,
+        result={"blueprint_hash": blueprint_engine.blueprint_hash(blueprint), **changed.to_dict()},
+    )
+
+
+async def _run_structure_apply(client, args, config, out) -> Outcome:
+    identity = await _identity(out, client, config)
+    blueprint = structure_store.read_blueprint(args.blueprint)
+    problems = blueprint_engine.validate(blueprint, BLUEPRINT_ALLOWLIST)
+    if problems:
+        return _refused("CONFIG_INVALID", "The blueprint cannot be applied: " + "; ".join(problems))
+    resolver = DiscordTargetResolver(client)
+    target = await resolver.resolve(args.target, kind="guild")
+    port = DiscordBlueprintPort(client, bot_id=_bot_id_of(identity))
+    blueprint_hash = blueprint_engine.blueprint_hash(blueprint)
+
+    async def build():
+        live = await resolver.resolve(args.target, kind="guild")
+        current = (await blueprint_engine.export(port, live, BLUEPRINT_ALLOWLIST)).blueprint
+        steps = blueprint_engine.plan_steps(blueprint, current)
+        write = await _structure_preflight(
+            client,
+            out=out,
+            identity=identity,
+            target=live,
+            rights=APPLY_RIGHTS,
+            approval="typed_name",
+            mutations=structure_store.mutations_of(steps, live),
+        )
+        return write, steps, blueprint_engine.diff(blueprint, current)
+
+    write, steps, changed = await build()
+    if write.refusal is not None:
+        # Preflight names every missing right before the first step, and the
+        # plan is still shown so the person can see what those rights are for.
+        out.say(plans.format_preflight(write.plan))
+        return Outcome(status="refused", target=target, plan=write.plan, error=write.refusal)
+
+    out.say(plans.format_preflight(write.plan))
+    out.say(structure_store.format_plan(target, steps, changed, blueprint_hash=blueprint_hash))
+    plan_result = {
+        "blueprint_hash": blueprint_hash,
+        "steps": [step.to_dict() for step in steps],
+        "extras": [change.line for change in changed.of("remove")],
+    }
+    if not args.execute:
+        out.say("Dry-run. Add --execute to apply; it will ask for the server's exact name.")
+        return Outcome(status="dry_run", target=target, plan=write.plan, result=plan_result)
+
+    refusal = out.approval_unavailable(
+        "Run `discord-tools structure apply --execute` in a terminal: it asks for the server's exact name, "
+        "and there is deliberately no flag that answers for you."
+    )
+    if refusal is not None:
+        return Outcome(status="refused", target=target, plan=write.plan, error=refusal)
+    if not structure_store.confirm_apply(target.title, write=out.say):
+        out.say("Cancelled: the name did not match.")
+        return Outcome(status="cancelled", target=target, plan=write.plan, result=plan_result)
+
+    async def rebuild():
+        again, _steps, _diff = await build()
+        return again
+
+    drifted = await plans.drifted(write, rebuild)
+    if drifted is not None:
+        raise plans.PlanDriftError(drifted)
+
+    port.reason = write.reason
+    archive = archive_store.open_archive()
+    try:
+        report = await blueprint_engine.apply(
+            port,
+            blueprint,
+            target,
+            BLUEPRINT_ALLOWLIST,
+            approval=structure_store.approval(interactive=not out.machine or out.tty),
+            identity=identity,
+            archive=archive,
+        )
+    finally:
+        archive.close()
+    out.say(structure_store.format_report(report))
+    result = {**plan_result, **report.to_dict()}
+    if report.status == "ok":
+        evidence = Evidence.verified(
+            f"readback of {target.title} ({target.ids['guild']}) matches blueprint {blueprint_hash}; "
+            f"{len(report.made)} step(s) made, {len(report.extras)} extra(s) left alone"
+        )
+        return Outcome(status="ok", target=target, plan=write.plan, result=result, evidence=evidence)
+    if report.readback is not None:
+        evidence = Evidence.verified(f"readback still differs in {len(report.readback.pending)} place(s)")
+    else:
+        evidence = Evidence.unverified(report.error or "the apply stopped before the readback")
+    return Outcome(
+        status="partial",
+        target=target,
+        plan=write.plan,
+        result=result,
+        evidence=evidence,
+        error=Error(
+            code="PARTIAL_FAILURE",
+            message=(
+                f"Step {len(report.made) + 1} of {len(report.steps)} failed: {report.error}"
+                if report.failed is not None
+                else f"The apply ran but the server does not match the blueprint: {report.error or 'see the readback'}"
+            ),
+            hint=(
+                f"discord-tools structure diff --blueprint {args.blueprint} --target {args.target} shows the remainder; "
+                f"structure apply again finishes it, and structure remap --apply-id {report.apply_id} shows what was made"
+            ),
+            retryable=True,
+        ),
+    )
+
+
+async def _run_structure_remap(args, out) -> Outcome:
+    archive = archive_store.open_archive()
+    try:
+        rows = blueprint_engine.remap_table(archive, args.apply_id)
+    finally:
+        archive.close()
+    out.say(structure_store.format_remap(rows, args.apply_id))
+    return Outcome(status="ok" if rows else "empty", result={"apply_id": args.apply_id, "rows": rows})
+
+
 # -- message operations ----------------------------------------------------
 #
 # One command group over messages a channel already holds. Every verb is a
@@ -2427,6 +2671,7 @@ WRITING = {
     "clear-messages": _run_clear_messages,
     "bot": _run_bot,
     "message": lambda client, args, config, out: _run_message(client, args, config, out),
+    "structure": lambda client, args, config, out: _run_structure(client, args, config, out),
 }
 
 

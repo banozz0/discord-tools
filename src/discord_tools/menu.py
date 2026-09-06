@@ -48,7 +48,7 @@ ROOT_ITEMS = (
     "Find IDs (servers, channels, threads)",
     "Read (search live, archive, export, members)",
     "Write (send, reply, edit, delete, forward, react, pin, poll)",
-    "Build (create, delete, leave a server)",
+    "Build (create, delete, structure, leave a server)",
     "Clear messages",
     "Manage (roles, members, invites, webhooks)",
     "Watch (rules, runner, review queue)",
@@ -1363,6 +1363,99 @@ async def _flow_leave(*, session, runner, read, write) -> bool:
             return result is not EXIT
 
 
+# -- structure blueprints ------------------------------------------------------
+#
+# Four rows under Build. Export and diff read; apply dry-runs first and asks
+# for the server's exact name inside the command, so the menu is never a
+# shorter path past that gate; remap reads the archive and never logs in.
+
+_BLUEPRINT_FILE = "Blueprint file (a name in ~/.discord-tools/exports/, or a full path)"
+
+
+async def _flow_structure_export(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Structure: export")
+    while True:
+        server = await _pick_server(session=session, read=read, write=write, trail=trail)
+        if server is BACK:
+            return True
+        output = ask_text("Blueprint file name (lands in ~/.discord-tools/exports/)", read=read, write=write)
+        if output is BACK:
+            if await _single_server(session):
+                return True
+            continue
+        args = _namespace(command="structure", structure_kind="export", target=server.id, output=output)
+        result = await _act(args, session=session, runner=runner, read=read, write=write, trail=crumb(trail, server.name), rows=(RUN_AGAIN,))
+        return result is not EXIT
+
+
+async def _flow_structure_diff(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Structure: diff")
+    while True:
+        server = await _pick_server(session=session, read=read, write=write, trail=trail)
+        if server is BACK:
+            return True
+        blueprint = ask_text(_BLUEPRINT_FILE, read=read, write=write)
+        if blueprint is BACK:
+            if await _single_server(session):
+                return True
+            continue
+        args = _namespace(command="structure", structure_kind="diff", blueprint=blueprint, target=server.id)
+        result = await _act(args, session=session, runner=runner, read=read, write=write, trail=crumb(trail, server.name), rows=(RUN_AGAIN,))
+        return result is not EXIT
+
+
+async def _flow_structure_apply(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Structure: apply")
+    while True:
+        server = await _pick_server(session=session, read=read, write=write, trail=trail)
+        if server is BACK:
+            return True
+        blueprint = ask_text(_BLUEPRINT_FILE, read=read, write=write)
+        if blueprint is BACK:
+            if await _single_server(session):
+                return True
+            continue
+        where = crumb(trail, server.name)
+        dry_run = _namespace(command="structure", structure_kind="apply", blueprint=blueprint, target=server.id, execute=False)
+
+        # The dry-run always runs first: the steps and what is left alone are on
+        # the screen before anyone is offered the real thing.
+        if await _call(dry_run, session=session, runner=runner, write=write) is None:
+            return after_action(read=read, write=write)
+
+        choice = choose(
+            ["Apply it for real - the next screen asks for the server's exact name"],
+            title=crumb(where, "Dry-run done (nothing is deleted)"),
+            read=read,
+            write=write,
+            back_label="Back",
+        )
+        if choice is BACK:
+            # With one server the picker answers itself, so 0 has to leave the
+            # flow rather than land on the file prompt again.
+            if await _single_server(session):
+                return True
+            continue
+
+        for_real = _namespace(**{**vars(dry_run), "execute": True})
+        result = await _act(
+            for_real, session=session, runner=runner, read=read, write=write, trail=where, rows=((STAY, "Apply another"),)
+        )
+        if result is not STAY:
+            return result is not EXIT
+
+
+async def _flow_structure_remap(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Structure: remap")
+    while True:
+        apply_id = ask_text("Apply id (printed by structure apply)", read=read, write=write)
+        if apply_id is BACK:
+            return True
+        args = _namespace(command="structure", structure_kind="remap", apply_id=apply_id.strip(), profile=session.profile)
+        result = await _act(args, session=session, runner=runner, read=read, write=write, trail=trail, rows=(RUN_AGAIN,))
+        return result is not EXIT
+
+
 async def _flow_clear(*, session, runner, read, write) -> bool:
     # What the last dry-run scanned, so backing out of its screen and choosing
     # the same target again does not walk the whole history a second time.
@@ -2255,6 +2348,10 @@ async def run_menu(*, read=None, write=None, session=None, runner=None, profile:
                 (
                     ("Create a channel, category, or thread", _flow_create),
                     ("Delete a channel, category, or thread", _flow_delete),
+                    ("Structure: export a server's blueprint", _flow_structure_export),
+                    ("Structure: diff a blueprint against a server", _flow_structure_diff),
+                    ("Structure: apply a blueprint (dry-run, then typed name)", _flow_structure_apply),
+                    ("Structure: remap table of an apply", _flow_structure_remap),
                     ("Leave a server", _flow_leave),
                 ),
             ),

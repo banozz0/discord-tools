@@ -385,7 +385,10 @@ def test_the_seam_methods_that_take_a_reason_are_the_ones_that_get_one():
     from discord_tools.client import DiscordClient
 
     passed = {"create_channel", "create_category", "create_thread", "delete_channel",
-              "delete_message", "bulk_delete", "pin_message", "unpin_message"}
+              "delete_message", "bulk_delete", "pin_message", "unpin_message",
+              # The structure primitives: every step of a blueprint apply carries
+              # the plan's reason (tests/test_blueprint_adapter.py).
+              "create_role", "edit_role", "edit_channel", "edit_guild", "create_automod_rule", "edit_automod_rule"}
     accepts = {
         name
         for name, member in inspect.getmembers(DiscordClient, inspect.isfunction)

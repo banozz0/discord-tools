@@ -3,7 +3,7 @@
 [38;5;63m1.[0m Find IDs [2m(servers, channels, threads)[0m
 [38;5;63m2.[0m Read [2m(search live, archive, export, members)[0m
 [38;5;63m3.[0m Write [2m(send, reply, edit, delete, forward, react, pin, poll)[0m
-[38;5;63m4.[0m Build [2m(create, delete, leave a server)[0m
+[38;5;63m4.[0m Build [2m(create, delete, structure, leave a server)[0m
 [38;5;63m5.[0m Clear messages
 [38;5;63m6.[0m Manage [2m(roles, members, invites, webhooks)[0m
 [38;5;63m7.[0m Watch [2m(rules, runner, review queue)[0m
@@ -73,7 +73,7 @@ Choose [2m(Enter = main menu)[0m:
 [38;5;63m1.[0m Find IDs [2m(servers, channels, threads)[0m
 [38;5;63m2.[0m Read [2m(search live, archive, export, members)[0m
 [38;5;63m3.[0m Write [2m(send, reply, edit, delete, forward, react, pin, poll)[0m
-[38;5;63m4.[0m Build [2m(create, delete, leave a server)[0m
+[38;5;63m4.[0m Build [2m(create, delete, structure, leave a server)[0m
 [38;5;63m5.[0m Clear messages
 [38;5;63m6.[0m Manage [2m(roles, members, invites, webhooks)[0m
 [38;5;63m7.[0m Watch [2m(rules, runner, review queue)[0m
@@ -105,7 +105,7 @@ Enter = menu, 0 = exit:
 [38;5;63m1.[0m Find IDs [2m(servers, channels, threads)[0m
 [38;5;63m2.[0m Read [2m(search live, archive, export, members)[0m
 [38;5;63m3.[0m Write [2m(send, reply, edit, delete, forward, react, pin, poll)[0m
-[38;5;63m4.[0m Build [2m(create, delete, leave a server)[0m
+[38;5;63m4.[0m Build [2m(create, delete, structure, leave a server)[0m
 [38;5;63m5.[0m Clear messages
 [38;5;63m6.[0m Manage [2m(roles, members, invites, webhooks)[0m
 [38;5;63m7.[0m Watch [2m(rules, runner, review queue)[0m
@@ -118,7 +118,11 @@ Choose: 4
 [2m--------------------------------------------[0m
 [38;5;63m1.[0m Create a channel, category, or thread
 [38;5;63m2.[0m Delete a channel, category, or thread
-[38;5;63m3.[0m Leave a server
+[38;5;63m3.[0m Structure: export a server's blueprint
+[38;5;63m4.[0m Structure: diff a blueprint against a server
+[38;5;63m5.[0m Structure: apply a blueprint [2m(dry-run, then typed name)[0m
+[38;5;63m6.[0m Structure: remap table of an apply
+[38;5;63m7.[0m Leave a server
 [2m0. Back[0m
 Choose: 1
 [2mMain › [0m[1m[38;5;63mCreate[0m
@@ -177,7 +181,7 @@ Choose [2m(Enter = main menu)[0m:
 [38;5;63m1.[0m Find IDs [2m(servers, channels, threads)[0m
 [38;5;63m2.[0m Read [2m(search live, archive, export, members)[0m
 [38;5;63m3.[0m Write [2m(send, reply, edit, delete, forward, react, pin, poll)[0m
-[38;5;63m4.[0m Build [2m(create, delete, leave a server)[0m
+[38;5;63m4.[0m Build [2m(create, delete, structure, leave a server)[0m
 [38;5;63m5.[0m Clear messages
 [38;5;63m6.[0m Manage [2m(roles, members, invites, webhooks)[0m
 [38;5;63m7.[0m Watch [2m(rules, runner, review queue)[0m
@@ -230,7 +234,7 @@ Choose: 0
 [38;5;63m1.[0m Find IDs [2m(servers, channels, threads)[0m
 [38;5;63m2.[0m Read [2m(search live, archive, export, members)[0m
 [38;5;63m3.[0m Write [2m(send, reply, edit, delete, forward, react, pin, poll)[0m
-[38;5;63m4.[0m Build [2m(create, delete, leave a server)[0m
+[38;5;63m4.[0m Build [2m(create, delete, structure, leave a server)[0m
 [38;5;63m5.[0m Clear messages
 [38;5;63m6.[0m Manage [2m(roles, members, invites, webhooks)[0m
 [38;5;63m7.[0m Watch [2m(rules, runner, review queue)[0m

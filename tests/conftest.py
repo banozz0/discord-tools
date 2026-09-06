@@ -93,6 +93,10 @@ class FakeClient:
         default_permissions: dict[str, bool] | None = None,
         members: dict[int, list[MemberInfo]] | None = None,
         messages: dict[tuple[int, int], MessageInfo] | None = None,
+        guild_settings: dict[int, dict] | None = None,
+        roles: dict[int, list[dict]] | None = None,
+        structure: dict[int, list[dict]] | None = None,
+        automod: dict[int, list[dict]] | None = None,
     ) -> None:
         self.identity = identity
         self.servers = servers or []
@@ -129,6 +133,19 @@ class FakeClient:
         self.user_edits: list[dict] = []
         self.application_edits: list[dict] = []
         self.next_id = 900
+        # The structure a blueprint reads and writes, in the seam's dict shapes.
+        # A server named in `servers` but not here gets Discord's minimum: its
+        # settings from its name, an @everyone role whose id is the server's,
+        # and a structure row per ChannelInfo in `channels`.
+        self.guild_settings: dict[int, dict] = {k: dict(v) for k, v in (guild_settings or {}).items()}
+        self.roles: dict[int, list[dict]] = {k: [dict(r) for r in v] for k, v in (roles or {}).items()}
+        self.structure: dict[int, list[dict]] = {k: [dict(r) for r in v] for k, v in (structure or {}).items()}
+        self.automod: dict[int, list[dict]] = {k: [dict(r) for r in v] for k, v in (automod or {}).items()}
+        # Every structure write in call order: (method, id or name, fields).
+        self.structure_writes: list[tuple] = []
+        # A test's hook to make one write fail: called with (method, name_or_id),
+        # a true answer raises the way a rate limit would.
+        self.fail_on = None
         self.history_reads: list[int] = []
         # Every audit reason a write was handed, in call order: what Discord's
         # own audit log would show.
@@ -302,18 +319,154 @@ class FakeClient:
         self.history[channel_id] = [m for m in self.history.get(channel_id, []) if int(m.id) not in ids]
 
     async def create_channel(self, server_id, name, *, category_id=None, kind="text", reason=None):
+        self._maybe_fail("create_channel", name)
         self.next_id += 1
         self.created.append(
             {"kind": "channel", "server_id": server_id, "name": name, "category_id": category_id, "type": kind}
         )
         self.reasons.append(reason)
+        self._structure_rows(server_id).append(
+            self._structure_row(self.next_id, name, kind, parent_id=category_id, position=len(self._structure_rows(server_id)))
+        )
         return ChannelInfo(id=self.next_id, name=name, type=kind, parent_id=category_id)
 
     async def create_category(self, server_id, name, *, reason=None):
+        self._maybe_fail("create_category", name)
         self.next_id += 1
         self.created.append({"kind": "category", "server_id": server_id, "name": name})
         self.reasons.append(reason)
+        self._structure_rows(server_id).append(
+            self._structure_row(self.next_id, name, "category", position=len(self._structure_rows(server_id)))
+        )
         return ChannelInfo(id=self.next_id, name=name, type="category", parent_id=None)
+
+    # -- structure ---------------------------------------------------------
+
+    def _maybe_fail(self, method, what) -> None:
+        if self.fail_on is not None and self.fail_on(method, what):
+            from discord_tools.client import ClientError
+
+            raise ClientError(f"Discord API error: rate limited on {method} {what!r} (fake)")
+
+    @staticmethod
+    def _structure_row(channel_id, name, type_name, *, parent_id=None, position=0, **fields):
+        row = {
+            "id": channel_id,
+            "name": name,
+            "type": type_name,
+            "position": position,
+            "parent_id": parent_id,
+            "topic": None,
+            "nsfw": False,
+            "slowmode": 0,
+            "bitrate": 64000 if type_name in ("voice", "stage_voice") else None,
+            "user_limit": 0 if type_name in ("voice", "stage_voice") else None,
+            "overwrites": [],
+            "tags": [],
+            "default_reaction": None,
+        }
+        row.update(fields)
+        return row
+
+    def _structure_rows(self, server_id) -> list[dict]:
+        if server_id not in self.structure:
+            self.structure[server_id] = [
+                self._structure_row(channel.id, channel.name, channel.type, parent_id=channel.parent_id, position=index)
+                for index, channel in enumerate(self.channels.get(server_id, []))
+            ]
+        return self.structure[server_id]
+
+    def _server_name(self, server_id) -> str:
+        return next((server.name for server in self.servers if server.id == server_id), f"server-{server_id}")
+
+    async def get_guild_settings(self, server_id):
+        if server_id not in self.guild_settings:
+            self.guild_settings[server_id] = {
+                "name": self._server_name(server_id),
+                "description": None,
+                "verification_level": "none",
+                "default_notifications": "all_messages",
+                "explicit_content_filter": "disabled",
+                "afk_channel_id": None,
+                "system_channel_id": None,
+                "preferred_locale": "en-US",
+            }
+        return dict(self.guild_settings[server_id])
+
+    async def list_roles(self, server_id):
+        if server_id not in self.roles:
+            self.roles[server_id] = [
+                {"id": server_id, "name": "@everyone", "colour": 0, "hoist": False, "mentionable": False, "permissions": "0", "position": 0, "managed": False}
+            ]
+        return [dict(role) for role in self.roles[server_id]]
+
+    async def list_channel_structure(self, server_id):
+        return [dict(row) for row in self._structure_rows(server_id)]
+
+    async def list_automod_rules(self, server_id):
+        return [dict(rule) for rule in self.automod.get(server_id, [])]
+
+    async def edit_guild(self, server_id, *, reason=None, **settings):
+        self._maybe_fail("edit_guild", server_id)
+        await self.get_guild_settings(server_id)
+        self.guild_settings[server_id].update(settings)
+        if "name" in settings:
+            self.servers = [
+                ServerInfo(id=server.id, name=settings["name"]) if server.id == server_id else server for server in self.servers
+            ]
+        self.structure_writes.append(("edit_guild", server_id, dict(settings)))
+        self.reasons.append(reason)
+
+    async def create_role(self, server_id, name, *, colour=0, hoist=False, mentionable=False, permissions="0", reason=None):
+        self._maybe_fail("create_role", name)
+        await self.list_roles(server_id)
+        self.next_id += 1
+        # Discord puts a new role at position 1, above @everyone and below the rest.
+        for role in self.roles[server_id]:
+            if role["position"] >= 1:
+                role["position"] += 1
+        role = {"id": self.next_id, "name": name, "colour": colour, "hoist": hoist, "mentionable": mentionable, "permissions": permissions, "position": 1, "managed": False}
+        self.roles[server_id].append(role)
+        self.structure_writes.append(("create_role", name, {"colour": colour, "hoist": hoist, "mentionable": mentionable, "permissions": permissions}))
+        self.reasons.append(reason)
+        return {"id": role["id"], "name": name, "position": 1}
+
+    async def edit_role(self, server_id, role_id, *, reason=None, **fields):
+        self._maybe_fail("edit_role", role_id)
+        role = next(r for r in await self.list_roles(server_id) if r["id"] == role_id)
+        stored = next(r for r in self.roles[server_id] if r["id"] == role_id)
+        stored.update(fields)
+        self.structure_writes.append(("edit_role", role["name"], dict(fields)))
+        self.reasons.append(reason)
+
+    async def edit_channel(self, channel_id, *, reason=None, **fields):
+        self._maybe_fail("edit_channel", channel_id)
+        for rows in self.structure.values():
+            for row in rows:
+                if row["id"] == channel_id:
+                    row.update(fields)
+                    self.structure_writes.append(("edit_channel", row["name"], dict(fields)))
+                    self.reasons.append(reason)
+                    return
+        from discord_tools.client import ClientError
+
+        raise ClientError(f"No channel or thread with ID {channel_id} — check it with `discover`.")
+
+    async def create_automod_rule(self, server_id, rule, *, reason=None):
+        self._maybe_fail("create_automod_rule", rule["name"])
+        self.next_id += 1
+        stored = {"id": self.next_id, **rule}
+        self.automod.setdefault(server_id, []).append(stored)
+        self.structure_writes.append(("create_automod_rule", rule["name"], dict(rule)))
+        self.reasons.append(reason)
+        return {"id": stored["id"], "name": rule["name"]}
+
+    async def edit_automod_rule(self, server_id, rule_id, rule, *, reason=None):
+        self._maybe_fail("edit_automod_rule", rule_id)
+        stored = next(r for r in self.automod.get(server_id, []) if r["id"] == rule_id)
+        stored.update(rule)
+        self.structure_writes.append(("edit_automod_rule", rule["name"], dict(rule)))
+        self.reasons.append(reason)
 
     async def create_thread(self, channel_id, name, *, private=False, reason=None):
         self.next_id += 1

@@ -52,3 +52,5 @@ jobs:
           discord-tools create --help
           discord-tools clear-messages --help
           discord-tools bot --help
+          discord-tools structure --help
+          discord-tools structure apply --help

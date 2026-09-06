@@ -258,3 +258,212 @@ def test_discord_py_takes_both_parameters():
     # Client forwards **options straight to HTTPClient, which is where the two
     # are declared. A discord.py that stopped taking them fails here.
     assert {"proxy", "proxy_auth"} <= set(inspect.signature(discord.http.HTTPClient.__init__).parameters)
+
+
+# -- structure: the seam's dict shapes over discord.py objects ----------------
+
+
+def _guild_for_structure():
+    role = discord.Object(id=11, type=discord.Role)
+    overwrite = discord.PermissionOverwrite.from_pair(discord.Permissions(1024), discord.Permissions(0))
+    member = discord.Object(id=42, type=discord.Member)
+    text = SimpleNamespace(
+        id=101, name="deploys", type=SimpleNamespace(name="text"), position=3, category_id=100, topic="what shipped",
+        nsfw=False, slowmode_delay=10, overwrites={role: overwrite, member: overwrite},
+    )
+    forum = SimpleNamespace(
+        id=103, name="ideas", type=SimpleNamespace(name="forum"), position=4, category_id=100, topic=None, nsfw=False,
+        slowmode_delay=0, overwrites={},
+        available_tags=[
+            SimpleNamespace(name="bug", moderated=True, emoji=SimpleNamespace(id=None, name="🐛")),
+            SimpleNamespace(name="wish", moderated=False, emoji=SimpleNamespace(id=555, name="partyparrot")),
+        ],
+        default_reaction_emoji=SimpleNamespace(id=None, name="👍"),
+    )
+    thread = discord.Thread.__new__(discord.Thread)
+    everyone = SimpleNamespace(id=10, name="@everyone", colour=discord.Colour(0), hoist=False, mentionable=False, permissions=discord.Permissions(1024), position=0, managed=False)
+    bot_role = SimpleNamespace(id=13, name="SomeBot", colour=discord.Colour(0), hoist=False, mentionable=False, permissions=discord.Permissions(0), position=2, managed=True)
+    rule = SimpleNamespace(
+        id=500, name="no spam", enabled=True, event_type=discord.AutoModRuleEventType.message_send,
+        trigger=discord.AutoModTrigger(type=discord.AutoModRuleTriggerType.keyword, keyword_filter=["buy now"]),
+        actions=[discord.AutoModRuleAction(type=discord.AutoModRuleActionType.send_alert_message, channel_id=101)],
+        exempt_role_ids={11}, exempt_channel_ids={102},
+    )
+
+    async def fetch_channels():
+        return [text, forum, thread]
+
+    async def fetch_roles():
+        return [everyone, bot_role]
+
+    async def fetch_automod_rules():
+        return [rule]
+
+    return SimpleNamespace(
+        id=10, name="Agency", description="the agency",
+        verification_level=discord.VerificationLevel.medium,
+        default_notifications=discord.NotificationLevel.only_mentions,
+        explicit_content_filter=discord.ContentFilter.all_members,
+        _afk_channel_id=102, _system_channel_id=101, preferred_locale=discord.Locale.british_english,
+        fetch_channels=fetch_channels, fetch_roles=fetch_roles, fetch_automod_rules=fetch_automod_rules,
+    )
+
+
+def _structure_client(monkeypatch, guild=None):
+    client = DiscordClient(SimpleNamespace())
+    guild = guild or _guild_for_structure()
+
+    async def fetch_guild(_server_id):
+        return guild
+
+    monkeypatch.setattr(client, "_fetch_guild", fetch_guild)
+    return client, guild
+
+
+def test_structure_reads_answer_plain_dicts_with_enum_names_and_ids(monkeypatch):
+    client, _guild = _structure_client(monkeypatch)
+    assert asyncio.run(client.get_guild_settings(10)) == {
+        "name": "Agency", "description": "the agency", "verification_level": "medium", "default_notifications": "only_mentions",
+        "explicit_content_filter": "all_members", "afk_channel_id": 102, "system_channel_id": 101, "preferred_locale": "en-GB",
+    }
+    roles = asyncio.run(client.list_roles(10))
+    assert roles[0] == {"id": 10, "name": "@everyone", "colour": 0, "hoist": False, "mentionable": False, "permissions": "1024", "position": 0, "managed": False}
+    assert roles[1]["managed"] is True
+    channels = asyncio.run(client.list_channel_structure(10))
+    assert [channel["id"] for channel in channels] == [101, 103], "a thread is not structure"
+    deploys, ideas = channels
+    assert deploys["overwrites"] == [
+        {"target_id": 11, "target_type": "role", "allow": "1024", "deny": "0"},
+        {"target_id": 42, "target_type": "member", "allow": "1024", "deny": "0"},
+    ]
+    assert (deploys["topic"], deploys["slowmode"], deploys["parent_id"], deploys["position"]) == ("what shipped", 10, 100, 3)
+    assert ideas["tags"] == [
+        {"name": "bug", "moderated": True, "emoji": "🐛", "custom_emoji": None},
+        {"name": "wish", "moderated": False, "emoji": None, "custom_emoji": "partyparrot"},
+    ]
+    assert ideas["default_reaction"] == "👍"
+    rules = asyncio.run(client.list_automod_rules(10))
+    assert rules[0]["trigger"]["type"] == "keyword" and rules[0]["trigger"]["keyword_filter"] == ["buy now"]
+    assert rules[0]["actions"] == [{"type": "send_alert_message", "channel_id": 101, "duration_seconds": None, "custom_message": None}]
+    assert (rules[0]["exempt_role_ids"], rules[0]["exempt_channel_ids"], rules[0]["event_type"]) == ([11], [102], "message_send")
+
+
+def test_automod_rules_forbidden_names_manage_server(monkeypatch):
+    guild = _guild_for_structure()
+
+    async def refused():
+        response = SimpleNamespace(status=403, reason="Forbidden", headers={})
+        raise discord.Forbidden(response, {"message": "Missing Permissions", "code": 50013})
+
+    guild.fetch_automod_rules = refused
+    client, _guild = _structure_client(monkeypatch, guild)
+    try:
+        asyncio.run(client.list_automod_rules(10))
+    except PermissionError as exc:
+        assert "Manage Server" in str(exc)
+    else:
+        raise AssertionError("a forbidden AutoMod read must refuse")
+
+
+def test_edit_channel_translates_every_field_into_discord_pys_own(monkeypatch):
+    calls = []
+
+    async def edit(*, reason=None, **kwargs):
+        calls.append((reason, kwargs))
+
+    channel = SimpleNamespace(type=SimpleNamespace(name="forum"), edit=edit)
+    client = DiscordClient(SimpleNamespace())
+
+    async def fetch_channel(_channel_id):
+        return channel
+
+    monkeypatch.setattr(client, "_fetch_channel", fetch_channel)
+    asyncio.run(
+        client.edit_channel(
+            103, reason="r", topic="t", slowmode=5, parent_id=100, position=2,
+            overwrites=[{"target_id": 11, "target_type": "role", "allow": "1024", "deny": "0"}, {"target_id": 42, "target_type": "member", "allow": "0", "deny": "2048"}],
+            tags=[{"name": "bug", "moderated": True, "emoji": "🐛"}, {"name": "wish", "moderated": False, "emoji": None}],
+            default_reaction="👍",
+        )
+    )
+    reason, kwargs = calls[0]
+    assert reason == "r" and kwargs["topic"] == "t" and kwargs["slowmode_delay"] == 5 and kwargs["position"] == 2
+    assert isinstance(kwargs["category"], discord.Object) and kwargs["category"].id == 100
+    targets = list(kwargs["overwrites"])
+    assert [(t.id, t.type) for t in targets] == [(11, discord.Role), (42, discord.Member)]
+    assert kwargs["overwrites"][targets[0]].pair()[0].value == 1024 and kwargs["overwrites"][targets[1]].pair()[1].value == 2048
+    assert [(tag.name, tag.moderated, str(tag.emoji) if tag.emoji else None) for tag in kwargs["available_tags"]] == [("bug", True, "🐛"), ("wish", False, None)]
+    assert str(kwargs["default_reaction_emoji"]) == "👍"
+
+
+def test_edit_channel_refuses_a_type_change_discord_cannot_make(monkeypatch):
+    from discord_tools.client import ClientError
+
+    async def edit(**_kwargs):
+        raise AssertionError("must not reach Discord")
+
+    channel = SimpleNamespace(type=SimpleNamespace(name="voice"), edit=edit)
+    client = DiscordClient(SimpleNamespace())
+
+    async def fetch_channel(_channel_id):
+        return channel
+
+    monkeypatch.setattr(client, "_fetch_channel", fetch_channel)
+    try:
+        asyncio.run(client.edit_channel(102, type="text"))
+    except ClientError as exc:
+        assert "cannot turn a voice channel into a text one" in str(exc)
+    else:
+        raise AssertionError("a voice to text change must refuse")
+
+
+def test_edit_guild_and_role_and_automod_translate_into_discord_pys_own(monkeypatch):
+    calls = []
+
+    async def guild_edit(*, reason=None, **kwargs):
+        calls.append(("guild", reason, kwargs))
+
+    async def role_edit(*, reason=None, **kwargs):
+        calls.append(("role", reason, kwargs))
+
+    async def create_role(*, reason=None, **kwargs):
+        calls.append(("create_role", reason, kwargs))
+        return SimpleNamespace(id=901, name=kwargs["name"], position=1)
+
+    async def create_automod_rule(*, reason=None, **kwargs):
+        calls.append(("automod", reason, kwargs))
+        return SimpleNamespace(id=902, name=kwargs["name"])
+
+    async def fetch_roles():
+        return [SimpleNamespace(id=11, edit=role_edit)]
+
+    guild = SimpleNamespace(edit=guild_edit, fetch_roles=fetch_roles, create_role=create_role, create_automod_rule=create_automod_rule)
+    client, _guild = _structure_client(monkeypatch, guild)
+
+    asyncio.run(client.edit_guild(10, reason="r", name="Agency", verification_level="medium", default_notifications="only_mentions", explicit_content_filter="all_members", afk_channel_id=102, system_channel_id=None, preferred_locale="en-GB"))
+    kind, reason, kwargs = calls[-1]
+    assert (kind, reason, kwargs["name"], kwargs["verification_level"], kwargs["default_notifications"], kwargs["explicit_content_filter"], kwargs["preferred_locale"]) == (
+        "guild", "r", "Agency", discord.VerificationLevel.medium, discord.NotificationLevel.only_mentions, discord.ContentFilter.all_members, discord.Locale.british_english
+    )
+    assert kwargs["afk_channel"].id == 102 and kwargs["system_channel"] is None
+
+    made = asyncio.run(client.create_role(10, "Moderators", colour=0xFF0000, hoist=True, permissions="8", reason="r"))
+    assert made == {"id": 901, "name": "Moderators", "position": 1}
+    kind, reason, kwargs = calls[-1]
+    assert (kwargs["colour"].value, kwargs["hoist"], kwargs["permissions"].value) == (0xFF0000, True, 8)
+    asyncio.run(client.edit_role(10, 11, reason="r", permissions="1024", position=2))
+    assert calls[-1] == ("role", "r", {"permissions": discord.Permissions(1024), "position": 2})
+
+    asyncio.run(
+        client.create_automod_rule(
+            10,
+            {"name": "mentions", "enabled": True, "event_type": "message_send", "trigger": {"type": "mention_spam", "mention_limit": 5, "presets": []},
+             "actions": [{"type": "timeout", "channel_id": None, "duration_seconds": 60, "custom_message": None}], "exempt_role_ids": [11], "exempt_channel_ids": []},
+            reason="r",
+        )
+    )
+    kind, reason, kwargs = calls[-1]
+    assert kind == "automod" and kwargs["name"] == "mentions" and kwargs["event_type"] is discord.AutoModRuleEventType.message_send
+    assert kwargs["trigger"].type is discord.AutoModRuleTriggerType.mention_spam and kwargs["trigger"].mention_limit == 5
+    assert kwargs["actions"][0].type is discord.AutoModRuleActionType.timeout and kwargs["actions"][0].duration.total_seconds() == 60
+    assert [role.id for role in kwargs["exempt_roles"]] == [11] and kwargs["enabled"] is True

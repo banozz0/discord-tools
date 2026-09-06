@@ -1,6 +1,6 @@
-discord-tools 0.11.0 — the menu, recorded in a real terminal (pty, TERM=xterm-256color)
+discord-tools 0.12.0 — the menu, recorded in a real terminal (pty, TERM=xterm-256color)
 =====================================================================================
-Recorded by scripts/record_menu.py on 6199ded. The menu code, the colour and the
+Recorded by scripts/record_menu.py on df044aa. The menu code, the colour and the
 prompt rendering are the real ones; the Discord side is a canned session (no network, no
 token), so the server, channels, threads and messages below are invented. Keystrokes
 appear after each prompt. The .ansi sibling of this file is the same run with the colour
@@ -11,7 +11,7 @@ discord-tools
 1. Find IDs (servers, channels, threads)
 2. Read (search live, archive, export, members)
 3. Write (send, reply, edit, delete, forward, react, pin, poll)
-4. Build (create, delete, leave a server)
+4. Build (create, delete, structure, leave a server)
 5. Clear messages
 6. Manage (roles, members, invites, webhooks)
 7. Watch (rules, runner, review queue)
@@ -81,7 +81,7 @@ discord-tools
 1. Find IDs (servers, channels, threads)
 2. Read (search live, archive, export, members)
 3. Write (send, reply, edit, delete, forward, react, pin, poll)
-4. Build (create, delete, leave a server)
+4. Build (create, delete, structure, leave a server)
 5. Clear messages
 6. Manage (roles, members, invites, webhooks)
 7. Watch (rules, runner, review queue)
@@ -113,7 +113,7 @@ discord-tools
 1. Find IDs (servers, channels, threads)
 2. Read (search live, archive, export, members)
 3. Write (send, reply, edit, delete, forward, react, pin, poll)
-4. Build (create, delete, leave a server)
+4. Build (create, delete, structure, leave a server)
 5. Clear messages
 6. Manage (roles, members, invites, webhooks)
 7. Watch (rules, runner, review queue)
@@ -126,7 +126,11 @@ Acting as: harrybot (profile harry) · bot
 --------------------------------------------
 1. Create a channel, category, or thread
 2. Delete a channel, category, or thread
-3. Leave a server
+3. Structure: export a server's blueprint
+4. Structure: diff a blueprint against a server
+5. Structure: apply a blueprint (dry-run, then typed name)
+6. Structure: remap table of an apply
+7. Leave a server
 0. Back
 Choose: 1
 Main › Create
@@ -185,7 +189,7 @@ discord-tools
 1. Find IDs (servers, channels, threads)
 2. Read (search live, archive, export, members)
 3. Write (send, reply, edit, delete, forward, react, pin, poll)
-4. Build (create, delete, leave a server)
+4. Build (create, delete, structure, leave a server)
 5. Clear messages
 6. Manage (roles, members, invites, webhooks)
 7. Watch (rules, runner, review queue)
@@ -238,7 +242,7 @@ discord-tools
 1. Find IDs (servers, channels, threads)
 2. Read (search live, archive, export, members)
 3. Write (send, reply, edit, delete, forward, react, pin, poll)
-4. Build (create, delete, leave a server)
+4. Build (create, delete, structure, leave a server)
 5. Clear messages
 6. Manage (roles, members, invites, webhooks)
 7. Watch (rules, runner, review queue)

@@ -2,10 +2,10 @@
 discord-tools --help
 ========================================================================
 usage: discord-tools [-h] [--profile PROFILE] [--json] [--jsonl]
-                     {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,review,message,bot} ...
+                     {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,review,structure,message,bot} ...
 
 positional arguments:
-  {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,review,message,bot}
+  {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,review,structure,message,bot}
     auth                Guided bot setup: Developer Portal walkthrough, token check, invite URL
     doctor              Check token, message-content intent, servers, and channel permissions
     discover            List the server -> channel -> thread tree with IDs
@@ -21,6 +21,9 @@ positional arguments:
     archive             The local archive: sync history into it, search it, export it, prune it
     review              The review queue: attachments and links the archive saw, fetched into
                         quarantine only after you approve
+    structure           Structure blueprints: export a server's roles, categories, channels,
+                        overwrites, forum tags, AutoMod and settings; diff and apply them
+                        elsewhere with new IDs
     message             Act on messages a channel holds: reply, edit, delete, forward, copy,
                         react, pin, poll, typing, bookmark
     bot                 Show or edit the active profile's bot settings and invite URL
@@ -614,3 +617,64 @@ options:
   -h, --help     show this help message and exit
   --scope SCOPE  Channel or thread ID
   --text TEXT    The draft text
+
+========================================================================
+discord-tools structure --help
+========================================================================
+usage: discord-tools structure [-h] {export,diff,apply,remap} ...
+
+positional arguments:
+  {export,diff,apply,remap}
+    export              Write a server's structure as a deterministic blueprint (never members,
+                        messages, webhooks, invites, bans or emoji)
+    diff                What a server would need to become the blueprint, object by object
+    apply               Make a server match a blueprint with new IDs (dry-run by default;
+                        --execute asks for the server's exact name; never deletes)
+    remap               The source ID -> target ID table one apply recorded (reads the archive; no
+                        login)
+
+options:
+  -h, --help            show this help message and exit
+
+========================================================================
+discord-tools structure export --help
+========================================================================
+usage: discord-tools structure export [-h] --target TARGET --output OUTPUT
+
+options:
+  -h, --help       show this help message and exit
+  --target TARGET  Server ID to export
+  --output OUTPUT  Blueprint file; a bare name lands in ~/.discord-tools/exports/
+
+========================================================================
+discord-tools structure diff --help
+========================================================================
+usage: discord-tools structure diff [-h] --blueprint BLUEPRINT --target TARGET
+
+options:
+  -h, --help            show this help message and exit
+  --blueprint BLUEPRINT
+                        A blueprint file from `structure export`
+  --target TARGET       Server ID to compare against
+
+========================================================================
+discord-tools structure apply --help
+========================================================================
+usage: discord-tools structure apply [-h] --blueprint BLUEPRINT --target TARGET [--execute]
+
+options:
+  -h, --help            show this help message and exit
+  --blueprint BLUEPRINT
+                        A blueprint file from `structure export`
+  --target TARGET       Server ID to apply to
+  --execute             Apply for real: shows the steps, then asks you to type the server's exact
+                        name. There is no --yes
+
+========================================================================
+discord-tools structure remap --help
+========================================================================
+usage: discord-tools structure remap [-h] --apply-id APPLY_ID
+
+options:
+  -h, --help           show this help message and exit
+  --apply-id APPLY_ID  The apply id `structure apply` printed

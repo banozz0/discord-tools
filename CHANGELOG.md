@@ -1,5 +1,112 @@
 # Changelog
 
+## 0.14.0 — 2026-09-08
+
+Rules, a runner, and the two kinds of schedule. Everything before this was
+one-shot: you ran a command, it acted, it exited. `watch run` stays: it opens
+Discord's live event stream and runs your rules against what happens.
+
+### Watching a server
+
+- **`watch rules add --name <name> --on <kinds>`** writes a rule file after a
+  preview and a `y/N` (`--yes` skips the prompt). `--on` takes any of
+  `message`, `edit`, `reaction`, `member_join`, `member_leave`, `link`,
+  `media`. What a rule may do is a closed list: `--alert-channel`,
+  `--alert-command`, `--tag`, `--bookmark`, `--capture-metadata`, `--archive`,
+  `--queue-review`. There is no download, no send of its own, no edit and no
+  delete, and anything else is `RULE_INVALID` at load. Narrow it with
+  `--scope`, `--sender`, `--domain`, `--keyword`, `--regex`, `--media-type`,
+  `--min-bytes`, `--max-bytes`; hold repeats down with `--cooldown` and
+  `--dedup-window`.
+- **`watch rules edit`** changes only what you name — the domain you did not
+  mention is still there afterwards. `--clear <part>` empties one part;
+  `--replace-actions` swaps the action list rather than adding to it.
+- **`watch rules list`** prints every rule with what fires it, what it then
+  does, and the **gateway intents** the enabled set needs. **`remove`** asks
+  first; **`enable`** and **`disable`** move one field and read it back.
+- **`watch rules test --event <file>`** evaluates a recorded event against the
+  rules and prints which would fire and why the rest would not. Nothing is
+  fired and nothing is written.
+- **`watch run`** watches until stopped. **`watch status`** shows the lock and
+  its holder, the rules and their intents, the cursors it would replay from,
+  the schedules, any rate-limit waits, refused alerts and the last 20 log
+  lines. **`watch stop`** and **`watch reload`** signal a running one.
+- Nothing is installed as a service: run it in a terminal, under tmux, or under
+  a unit you write. The runner's lock is a POSIX file lock, so it needs macOS
+  or Linux; on Windows `watch run` exits 2 with `PLATFORM_UNSUPPORTED` and
+  every other command works normally.
+
+### The gateway, and what it costs
+
+- `watch run` is the only command that opens a gateway connection. Every other
+  command still logs in over REST, acts and logs out.
+- The connection asks for exactly the intents the loaded rules need. **Message
+  Content** (reading message text) and **Server Members** (joins and leaves)
+  are privileged and are switched on in the Developer Portal; a bot in 100
+  servers or more needs Discord's verification before it may hold either.
+  `doctor` now reports the runner, the rules, their intents, and the server
+  count against that line.
+- One message can be up to three events: it is a message, it may carry a link,
+  it may carry a file. A rule naming two of those fires twice on the same
+  message — the preview says so, and `watch rules test` shows it.
+
+### Alerts
+
+- An alert to a channel goes out through the tool's own `send` path with
+  mentions off, so `DISCORD_SEND_ALLOWLIST` gates an automated alert exactly as
+  it gates `send --yes`. A destination off the list is `NOT_ALLOWLISTED` and
+  shows in `watch status`.
+- An alert can instead run a command you configured, with the text on its
+  stdin. A command absent from `PATH` is `COMMAND_MISSING` **when the rule
+  loads**, not when it fires.
+- Every alert ends with an origin marker. An event from a bot whose text
+  carries that marker is dropped before any rule runs, as is anything this bot
+  posted itself — which is what stops two watchers alerting each other. A
+  person pasting the marker is not a kill switch: the sender check is the other
+  half of it.
+
+### Restarts and clocks
+
+- The runner keeps a cursor per scope and replays the history after it on
+  start, with dedup on: a message that arrived while it was down still fires,
+  one it had already handled does not fire twice. A join or leave that happened
+  while it was down is a gap Discord pages no history for, reported rather than
+  invented.
+- A second `watch run` exits 2 with `RUNNER_LOCKED` naming the holder, and
+  reads the lock before opening a connection it would throw away.
+- Schedules are planned from a monotonic baseline recorded with the wall time.
+  A backward wall jump re-plans; a forward one fires each missed schedule
+  **once**, marked late, never once per missed interval.
+
+### The two guarantees
+
+- **`event list|create|edit|delete`** are guild scheduled events, reported as
+  `server-held`: Discord stores them, they show in the server's Events tab, and
+  they happen with this machine off. Create and edit preflight *Manage Events*,
+  preview and ask `y/N`; delete dry-runs by default and for real takes
+  `--execute` **and** the event's exact name, with no `--yes`.
+- **`schedule post|list|cancel`** are runner-held, reported as `runner-held:
+  fires only while watch run is up on this machine`. Discord has no
+  scheduled-message API for bots, so this is the honest version. `--at` takes
+  an ISO 8601 time, `--every` an interval (`15m`, `2h`, `1d`) or a five-field
+  cron expression.
+- Because the runner posts unattended, a `schedule post` aimed at a channel
+  outside `DISCORD_SEND_ALLOWLIST` is refused as `NOT_ALLOWLISTED` when the row
+  is written, rather than failing silently at the hour it would have fired.
+- Every listing on either side prints its guarantee. A time already in the past
+  is refused before a preview is drawn.
+
+### Elsewhere
+
+- The menu's *Watch* row keeps the review queue and gains four groups: the
+  rules, the runner, the runner-held posts and the server-held events, each row
+  naming the guarantee it has. No row passes `--yes`, and the delete asks for
+  the typed name inside the command.
+- `watch status`, every `watch rules` verb, `schedule list` and `schedule
+  cancel` need no login.
+- Fixed: writing the first rule on a fresh machine left `~/.discord-tools`
+  readable by group and others — the directory the bot token lives in.
+
 ## 0.13.0 — 2026-09-06
 
 Roles and permission overwrites. A server's roles can be listed, created,

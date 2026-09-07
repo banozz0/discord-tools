@@ -1,13 +1,13 @@
 ---
 name: discord-tools
-description: "Use when you need the real numeric ID of a Discord server, channel, or thread — 'what's the ID of that channel?', 'where do I send this?' — when the user wants a channel's messages searched or exported (JSON, CSV, JSONL, Markdown, HTML), when a history question can be answered from the local archive instead of a fresh fetch, when a message must be posted to a channel the user has allowlisted, when a message the user named should get a reply, a reaction, a pin, or be forwarded, copied or bookmarked, when a server's structure should be exported as a blueprint or compared with another server, or when the user wants to see a server's roles or which role can do what in a channel. Bot-token only; the bot sees only servers it was invited to."
-version: 1.8.0
+description: "Use when you need the real numeric ID of a Discord server, channel, or thread — 'what's the ID of that channel?', 'where do I send this?' — when the user wants a channel's messages searched or exported (JSON, CSV, JSONL, Markdown, HTML), when a history question can be answered from the local archive instead of a fresh fetch, when a message must be posted to a channel the user has allowlisted, when a message the user named should get a reply, a reaction, a pin, or be forwarded, copied or bookmarked, when a server's structure should be exported as a blueprint or compared with another server, when the user wants to see a server's roles or which role can do what in a channel, or when they want a message posted at a set time, an event put in a server's calendar, or a rule that alerts them when something happens in a server. Bot-token only; the bot sees only servers it was invited to."
+version: 1.9.0
 author: banozz0
 license: MIT
 platforms: [macos]
 metadata:
   hermes:
-    tags: [discord, channel-ids, thread-ids, search, archive, export, send, message, reply, react, pin, review, structure, blueprint, roles, permissions, cli, bot]
+    tags: [discord, channel-ids, thread-ids, search, archive, export, send, message, reply, react, pin, review, structure, blueprint, roles, permissions, watch, rules, schedule, events, cli, bot]
 ---
 
 # discord-tools
@@ -46,7 +46,8 @@ line, marked `"kind": "envelope"`.
 Read `status` and `error.code` rather than the text: `ok`, `empty`, `partial`,
 `dry_run`, `cancelled`, `refused`, `failed`, and stable codes like
 `NOT_ALLOWLISTED`, `TARGET_NOT_FOUND`, `PERMISSION_DENIED`, `PLAN_DRIFT`,
-`APPROVAL_REQUIRED`. Exit codes: **0** done, **1** not done (cancelled at a
+`APPROVAL_REQUIRED`, `RUNNER_LOCKED`, `RUNNER_NOT_RUNNING`, `RULE_INVALID`,
+`COMMAND_MISSING`, `PLATFORM_UNSUPPORTED`. Exit codes: **0** done, **1** not done (cancelled at a
 gate, or a partial server clear), **2** refused, **3** a prompt was needed and
 there is no terminal, **130** interrupted.
 
@@ -179,6 +180,32 @@ take `--yes`, and you still do not pass it. `role list`, `permission show` and
 `permission show --names` are reads and fine: they show the roles, a channel's
 overwrites, and the permission vocabulary.
 
+**17. Never run `watch run`, and never write or change a rule on your own
+initiative.** `watch run` is the one command that opens a gateway connection
+and it does not return: it holds the terminal until it is stopped, so starting
+one from a tool call hangs the call rather than answering it. Hand the user the
+command and let them run it where they can see it. A rule is a standing
+instruction the user's machine acts on when they are not looking, so writing
+one is their decision — propose it, show the exact command, let them answer its
+`y/N`. `watch status`, `watch rules list` and `watch rules test --event` are
+reads, need no login, and are fine.
+
+**18. Never run an `event delete --execute`, and never pass `--yes` to a
+schedule or an event write.** `event delete` removes a scheduled event from a
+real server's calendar for everyone; it dry-runs by default and executes only
+behind the event's exact name typed at a prompt no agent can answer, with no
+`--yes`. `schedule post`, `schedule cancel`, `event create` and `event edit`
+take `--yes` and you still do not pass it: a scheduled post fires unattended
+later, which is exactly the kind of thing to confirm now. `event list`,
+`schedule list` and the `event delete` dry-run are fine.
+
+**A schedule makes one of two promises, and you must relay which.** A guild
+scheduled `event` is **server-held**: Discord stores it and it happens with the
+user's machine off. A `schedule post` is **runner-held**: it fires *only while
+`discord-tools watch run` is up on that machine*, and if the laptop is closed
+it does not fire at all. Never say "scheduled" without saying which. The tool
+prints the guarantee on every listing; quote it.
+
 ## Commands
 
 | The ask | Run |
@@ -213,6 +240,16 @@ overwrites, and the permission vocabulary.
 | "what roles does this server have / which is the bot's?" | `discord-tools role list --server <id>` — highest first, the bot's own marked |
 | "who can post in #channel / what does that role get there?" | `discord-tools permission show --target <channel id>` (add `--role <id>` for one role) |
 | "make / change / delete a role", "let that role post there" | hand them `discord-tools role create ...`, `role edit ...`, `role delete --server <id> --role <id>` (the dry-run) or `permission set ...` — rule 16, they run it |
+| "what's on this server's calendar?" | `discord-tools event list --server <id>` — every event says **server-held** |
+| "put a standup in the server's events" | hand them `discord-tools event create --server <id> --name "..." --start 2026-10-01T09:00 --place stage_instance --channel <id>` — rule 18, they answer its y/N |
+| "cancel that event" | hand them `discord-tools event delete --server <id> --id <event id>` (the dry-run) — rule 18, the execute is theirs |
+| "post this every morning" | hand them `discord-tools schedule post --channel <id> --text "..." --every 1d` — and say it is **runner-held**: it fires only while `watch run` is up on that machine |
+| "what's scheduled to post?" | `discord-tools schedule list` — each row prints its guarantee; no login |
+| "stop that scheduled post" | hand them `discord-tools schedule cancel --id <id>` |
+| "alert me when someone posts a github link there" | hand them `discord-tools watch rules add --name links --on message --domain github.com --alert-channel <id>` — rule 17, they answer its y/N, then run `watch run` themselves |
+| "what is it watching for?" | `discord-tools watch rules list` — the rules and the gateway intents they need; no login |
+| "would that rule have caught this?" | `discord-tools watch rules test --event /path/event.json` — evaluates and fires nothing |
+| "is the watcher running?" | `discord-tools watch status` — the lock, rules, cursors, schedules and last log lines; no login |
 | a long or multi-line message | pipe it: `... \| discord-tools send --channel <id> --text - --yes` |
 | "send them that file" (allowlisted) | `discord-tools send --channel <id> --file /path --text "caption" --yes` |
 | "make a channel/thread" (they asked) | `discord-tools create channel --server <id> --name "..." --yes` |
@@ -306,6 +343,26 @@ overwrites, and the permission vocabulary.
   role and the fix (move the bot's role above it, or give the bot the right);
   relay that rather than retrying, because nothing on the command line changes
   it. `role list` prints the positions and the bot's top role.
+- **A rule can only ever do six things.** `alert`, `tag`, `bookmark`,
+  `capture_metadata`, `archive`, `queue_review`. Nothing downloads, sends a
+  message of its own, edits or deletes; a rule asking for anything else is
+  `RULE_INVALID` when it loads. If the user wants a rule that "deletes the
+  spam" or "downloads the attachment", say plainly that no rule can, and
+  point at `queue_review` plus a human `review approve` instead.
+- **An alert that could never be delivered is refused early.** A rule alerting
+  a channel outside `DISCORD_SEND_ALLOWLIST` reports `NOT_ALLOWLISTED` in
+  `watch status`; a rule whose alert command is not on `PATH` is
+  `COMMAND_MISSING` **when the rule loads**, not when it would have fired.
+  Relay either as a setup problem, not as a failure to retry.
+- **A rule that never fires is usually an intent.** Reading message text needs
+  the Message Content intent and seeing joins needs Server Members; both are
+  switched on in the Developer Portal, and past 100 servers the bot needs
+  Discord's verification too. `watch rules list` and `doctor` both name the
+  intents the loaded rules need — quote that rather than guessing.
+- **`watch run` needs macOS or Linux.** Its lock is a POSIX file lock; on
+  Windows it exits 2 with `PLATFORM_UNSUPPORTED` and every other command works
+  normally. A second one on the same machine is `RUNNER_LOCKED` naming the
+  holder — that is the design, not something to retry.
 - **`bookmark` is local.** Discord gives a bot no bookmark API, so it is a row
   in the user's archive file on this machine, and the envelope says `local`.
   Say so when you report it; nothing in Discord shows it.
@@ -353,6 +410,19 @@ overwrites, and the permission vocabulary.
   16. They change who can do what on a real server; `role delete` and anything
   touching Administrator are gated on a typed name no agent can supply. Hand
   the user the command. `role list` and `permission show` are reads and fine.
+- **`watch run`** — rule 17. It opens a gateway connection and does not
+  return: started from a tool call it hangs the call. Hand the user the
+  command. `watch status`, `watch rules list` and `watch rules test` are reads,
+  need no login, and are fine.
+- **`watch rules add`, `edit`, `remove`, `enable` and `disable` on your own
+  initiative** — rule 17. A rule is a standing instruction the machine acts on
+  unattended; writing one is the user's decision.
+- **`event delete --execute`** — rule 18. It removes an event from a real
+  server's calendar for everyone and is gated on the event's exact name, which
+  no agent can supply. Hand the user the dry-run.
+- **`--yes` on `schedule post`, `schedule cancel`, `event create` or `event
+  edit`** — rule 18. A scheduled post fires unattended later; that is the
+  moment to have confirmed it, not to have skipped the prompt.
 - **`--mention everyone`** on any posting verb — it always prompts, and the
   ping is the user's decision.
 - **`review approve` and `review accept`** — rule 14. A download onto the

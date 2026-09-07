@@ -63,6 +63,15 @@ bot per agent.
   loop) for its rate-limit handling and typed models; if login-only REST
   fights the one-shot CLI shape, the fallback decision is a thin httpx client
   behind the same internal interface.
+- **The one lifted rule (0.14.0).** The v1 contract below says "no gateway
+  connection, no event listening". The approved full-suite roadmap adds a
+  runner that watches a server live, and a runner cannot be a REST poller, so
+  that rule is lifted for exactly one command — `watch run` — and for exactly
+  one module, `src/discord_tools/adapters/events.py`. Every other command
+  stays login-only REST, `client.py` still logs in with `Intents.none()`, and
+  a test asserts that no one-shot command opens a gateway. The connection asks
+  for exactly the intents the loaded rules need; slash commands, voice and
+  presence remain out of scope. Roadmap section 10.5 is the decision.
 - One internal seam: a `DiscordClient` boundary wrapping every REST call the
   CLI makes. The menu, subcommands, exporters, and gates all sit above it;
   tests mock exactly this seam. This mirrors telegram-tools' client boundary.
@@ -104,7 +113,8 @@ bot per agent.
 - `skill/SKILL.md` is independently versioned and updated in the same commit
   as any CLI-surface change.
 - No gateway connection, no event listening, no slash-command registration in
-  v1 — the bot is a REST actor driven by the CLI.
+  v1 — the bot is a REST actor driven by the CLI. (Lifted for `watch run`
+  alone in 0.14.0; see the lifted-rule note above.)
 
 ## Testing Decisions
 
@@ -132,8 +142,9 @@ bot per agent.
 
 - The localhost web dashboard (parked as a later phase in shaping).
 - Self-bot / user-token operation, in any form, ever.
-- Real-time features: gateway events, message listening, slash commands,
-  voice, presence.
+- Real-time features: slash commands, voice, presence. (Gateway events and
+  message listening arrived in 0.14.0 behind `watch run` and its rules; the
+  other three stay out.)
 - DM reading or sending as the user (a bot cannot act as Sven).
 - SQLite storage (revisit only if the dashboard phase needs it).
 

@@ -7,7 +7,8 @@ server, channel and thread IDs, list server members, search and export
 messages, keep a local archive of history and search it offline, send messages,
 create and delete channels and threads, export a server's structure as a
 blueprint and apply it elsewhere, manage roles and permission overwrites, clear
-messages, and manage the bot's settings — with a guided setup that walks you through the Discord Developer
+messages, watch a server live and act on what happens, schedule a post or a
+server event, and manage the bot's settings — with a guided setup that walks you through the Discord Developer
 Portal.
 
 One menu for humans, the same commands as flags for agents, and a safety
@@ -47,6 +48,9 @@ scripts pass a subcommand.
 | `structure` | Structure blueprints: `export --target <server id> --output <file>` writes a server's roles, categories, channels, overwrites, forum tags, AutoMod rules and settings as one deterministic file (never members, messages, webhooks, invites, bans or emoji); `diff` compares it with a server; `apply` dry-runs, and for real takes `--execute` **and** the server's exact name typed back, creates and edits with new IDs and never deletes; `remap --apply-id` prints the ID table. See [Structure blueprints](#structure-blueprints) |
 | `role` | `list --server <id>` (highest first, the bot's own marked); `create`, `edit` (name, colour, hoist, mentionable, the whole permission set as names) behind a preview + y/N; `delete` dry-runs, and for real takes `--execute` **and** the role's exact name, no `--yes`. Anything touching Administrator is typed too. Every write preflights Manage Roles, refuses `HIERARCHY_DENIED` where the bot's top role cannot reach, and never grants a right the bot lacks. See [Roles and permissions](#roles-and-permissions) |
 | `permission` | `show --target <channel or category id>` prints every role overwrite by name (`--names` lists the vocabulary); `set --target --role --allow --deny` merges into what the role has there, `--clear` removes it, preview + y/N. See [Roles and permissions](#roles-and-permissions) |
+| `watch` | Rules and the runner: `rules list/add/edit/remove/enable/disable/test` write and check the rules; `run` watches the server live over a gateway connection and acts on what happens; `status`, `stop` and `reload` drive a running one. macOS and Linux (the lock is a POSIX file lock). See [Watching a server](#watching-a-server) |
+| `schedule` | Runner-held scheduled posts: `post --channel --text --at | --every` stores one, `list` shows them, `cancel --id` removes one. They fire **only while `watch run` is up on this machine**, and every listing says so. See [The two guarantees](#the-two-guarantees) |
+| `event` | Server-held scheduled events: `list`, `create`, `edit` and `delete` for a server's Events tab. Discord holds these, so they happen with this machine off. `delete` dry-runs, then takes `--execute` **and** the event's exact name. See [The two guarantees](#the-two-guarantees) |
 | `delete` | `channel` / `category` / `thread`. Dry-run by default; deleting for real takes `--execute` **and** typing the target's exact name. Deleting a category leaves its channels alive, just uncategorised. There is no `--yes` — deletion always needs a human |
 | `leave-server` | Makes the bot leave `--server <id>`; nothing in the server is deleted. Same gate as `delete`. Discord gives a bot no way to delete a server (that needs ownership, which a bot never has) |
 | `clear-messages` | Clears either `--channel <id>` or every accessible message location under `--server <id>`. Dry-run by default; deleting for real takes `--execute` **and** typing `DELETE`. Server clears include active/archived threads and forum/media posts (`--skip-threads` leaves them untouched and clears channels only), report skipped locations, and continue past per-location failures |
@@ -71,9 +75,10 @@ discord-tools
 0. Exit
 ```
 
-Row 6 has not shipped yet; it says so and steps back. Row 7 holds the review queue,
-and its rules row says the same. Both are printed as section 14 numbers them so that
-the numbers are learned once rather than shifted again when those commands arrive.
+Row 6's members, invites and webhooks have not shipped yet; that row says so and
+steps back. Row 7 holds the review queue, the rules, the runner and both kinds of
+schedule. The numbers are section 14's, learned once rather than shifted again when
+the last commands arrive.
 
 `0` always steps back one screen — inside a picker or on a flow's own screen alike —
 and exits once you're back at the root; on a text prompt a blank line does the same.
@@ -100,13 +105,16 @@ manual category ID for `create channel`, the four archive rows under *Read* (syn
 search and export, status, prune), the message verbs under *Write* (send with a
 mentions row, reply, edit, delete, forward, copy, react, pin, poll, typing, bookmark),
 the review queue under *Watch* (what is waiting, approve and fetch, accept, reject,
-status, retry), the four structure rows under *Build* (export a blueprint, diff it
+status, retry) beside its four groups (the six rule rows, the four runner rows, the
+three scheduled-post rows and the four scheduled-event rows, each naming which
+guarantee it has), the four structure rows under *Build* (export a blueprint, diff it
 against a server, apply it, the remap table), the six rows under *Manage* (list,
 create, edit and delete a role; show and set a channel's overwrites), and, under *Identity*, listing the stored profiles, switching the one
 the rest of the session acts as, and removing one. The exceptions are deliberate —
 `send`, `create`, `bot`, the message verbs, a role create or edit and a permission set never get `--yes` from the menu,
 `clear-messages` and *Delete messages* always dry-run first and still ask you to type
-`DELETE`, `delete`, *Leave a server*, a structure apply, a role delete and an archive prune dry-run
+`DELETE`, `delete`, *Leave a server*, a structure apply, a role delete, a scheduled-event
+delete and an archive prune dry-run
 first and still ask you to type the target's own name, and a review approve or accept asks its `y/N`
 inside the command. The menu is never a shorter path past a gate.
 
@@ -441,6 +449,110 @@ deny side and the other way round, a right named on neither side keeps what
 it had. `administrator` is a role permission and is refused as an overwrite;
 a thread has no overwrites of its own and the refusal names its parent.
 
+## Watching a server
+
+Everything above is one-shot: you run it, it acts, it exits. `watch run` is the
+one command that stays: it opens a **gateway connection** — the live event
+stream Discord pushes — and runs your rules against what arrives. Every other
+command in this tool logs in over REST, acts and logs out, and that stays true;
+the gateway lives in one file (`adapters/events.py`) and nothing else opens one.
+
+```bash
+discord-tools watch rules add --name deploys --on message \
+    --domain github.com --alert-channel 1542...          # preview + y/N, then a file in ~/.discord-tools/rules/
+discord-tools watch rules list                            # every rule, and the intents the set needs
+discord-tools watch rules test --event recorded.json      # what would fire; nothing does
+discord-tools watch run                                   # until Ctrl-C, or `watch stop` elsewhere
+discord-tools watch status                                # lock, rules, intents, cursors, schedules, last 20 log lines
+discord-tools watch reload                                # re-read the rules without stopping
+```
+
+**What a rule may do is a closed list**: `alert`, `tag`, `bookmark`,
+`capture_metadata` (record what the platform delivered — sender, entities,
+attachment names and sizes — never a fetch of the linked page), `archive`
+(sync that scope, within the archive's budgets) and `queue_review` (put its
+attachments and links in the review queue, still unfetched). There is no
+download, no send of its own, no edit and no delete. A rule naming any other
+action is refused as `RULE_INVALID` when it loads.
+
+**Alerts go through the send gate.** An alert to a channel is posted by the
+tool's own `send` path with mentions off, so `DISCORD_SEND_ALLOWLIST` is the
+gate for an automated alert exactly as it is for `send --yes`; a destination
+off the list is `NOT_ALLOWLISTED` and shows in `watch status`. An alert can
+instead run a command you configured, with the alert text on its stdin — a
+command that is not on `PATH` is `COMMAND_MISSING` **when the rule loads**,
+not at three in the morning when it fires.
+
+Every alert ends with an origin marker line. An event whose sender is a bot
+and whose text carries that marker is dropped before any rule sees it, and so
+is anything this bot itself posted — which is what stops two watchers alerting
+each other forever. A person pasting the marker is not a kill switch: the
+sender check is the other half of it.
+
+**Intents.** A gateway connection asks for exactly what the loaded rules need.
+Reading message text needs the **Message Content** intent and seeing joins and
+leaves needs the **Server Members** intent; both are switched on in the
+Developer Portal, and a bot in 100 servers or more needs Discord's verification
+before it may hold either. `doctor` reports the rules, the intents they need
+and the server count against that line, so "why did my rule never fire" is
+answered on the setup screen.
+
+**One message can be up to three events.** It is a message; it may also carry a
+link, and it may also carry a file — `message`, `link` and `media` are three
+triggers and each has its own key. A rule naming two of them fires twice on the
+same message; the rule preview says so, and `watch rules test` shows exactly
+what a recorded message produces.
+
+**Restarts.** The runner keeps a cursor per scope. On start it replays the
+history after each cursor through the rules with dedup on, so a message that
+arrived while it was down still fires, and one it had already handled does not
+fire again. A join or a leave that happened while it was down is a gap Discord
+pages no history for; that is reported, not invented.
+
+`watch run` takes an exclusive lock at `~/.discord-tools/runner.lock`. A second
+one exits 2 with `RUNNER_LOCKED` naming the holder. The lock is `fcntl`, so the
+runner needs macOS or Linux; on Windows `watch run` exits 2 with
+`PLATFORM_UNSUPPORTED` and every other command works normally. Nothing is
+installed as a service — run it in a terminal, under tmux, or under a
+launchd/systemd unit you write.
+
+## The two guarantees
+
+"Scheduled" means two different promises here, and every listing says which one
+it is making.
+
+```bash
+discord-tools event create --server 1394... --name Standup \
+    --start 2026-10-01T09:00 --place stage_instance --channel 1395...   # server-held
+discord-tools event list --server 1394...
+discord-tools event delete --server 1394... --id 1401... --execute      # asks for its exact name
+
+discord-tools schedule post --channel 1542... --text "standup" --every 1d   # runner-held
+discord-tools schedule list
+discord-tools schedule cancel --id a1b2c3d4e5f6
+```
+
+**`server-held`** — a guild scheduled event. Discord stores it, it shows in the
+server's Events tab, and it happens with this machine switched off. `event
+create` and `event edit` preflight *Manage Events*, preview and ask `y/N`;
+`event delete` dry-runs by default and for real takes `--execute` **and** the
+event's exact name typed at a prompt, with no `--yes`, like every other delete
+here.
+
+**`runner-held: fires only while watch run is up on this machine`** — a
+`schedule post`. The row lives in the local archive and the runner posts it.
+Discord has no scheduled-message API for bots, so this is the honest version
+rather than a promise the platform does not make. Because the runner posts
+unattended, the destination must already be in `DISCORD_SEND_ALLOWLIST`: a
+`schedule post` aimed anywhere else is refused as `NOT_ALLOWLISTED` when you
+write the row, not silently at the moment it would have fired.
+
+`--at` takes an ISO 8601 time (no offset means this machine's); `--every` takes
+an interval (`15m`, `2h`, `1d`) or a five-field cron expression. Schedules are
+planned from a monotonic baseline recorded with the wall time: a wall clock
+that jumps backwards re-plans, one that jumps forwards fires each missed
+schedule **once**, marked late, rather than once per missed interval.
+
 ## Exports stay out of your repos
 
 Relative `--output` names land in `~/.discord-tools/exports/`, never the
@@ -470,6 +582,13 @@ done (stopped at a gate, or a server clear that could not reach everything),
 prompt nobody can answer, the command refuses and its `error.hint` names the
 command a person would run.
 
+`watch status`, every `watch rules` verb, `schedule list` and `schedule cancel`
+need no login: a rule is a file on this machine and the runner's state is a
+lock, a log and rows in the local archive, so a status still reads while the
+token is being rotated. `watch run` is the one command that ever opens a
+gateway; it holds the terminal until it is stopped, and an agent should not be
+the thing that starts it.
+
 Every envelope names the bot it acted as under `identity`, and the thing it acted
 on under `target`. A profile whose stored token decodes to a different bot ID than
 `auth` recorded refuses with `IDENTITY_MISMATCH` and exit 2 before any call, and a
@@ -484,7 +603,8 @@ audit log records the change against `cli-tools <command> plan <id>`.
 
 `skill/SKILL.md` is a bundled agent skill describing the CLI surface and the
 rules an agent must follow (never `clear-messages`, `message delete`,
-`structure apply` or a role or permission write, allowlist-gated sends, never print tokens). It updates in the same commit as any CLI-surface change.
+`structure apply`, a role or permission write, an `event delete --execute` or
+`watch run`, allowlist-gated sends, never print tokens). It updates in the same commit as any CLI-surface change.
 
 ## Development
 

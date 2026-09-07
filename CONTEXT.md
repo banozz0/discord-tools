@@ -332,3 +332,52 @@ Architecture decisions with more context than fits here go to `docs/adr/`.
   from discord.py), the only vocabulary above the seam; `permission_bits` and
   `permission_names` translate at the seam. `permission show --names` prints
   the list with no login.
+
+- **Rule** — one `cli-tools/rule/1` file in `~/.discord-tools/rules/`, named by
+  its own name: what fires it (`trigger.events`), what narrows it (`filter`)
+  and what it then does (`actions`). Written by `watch rules add|edit`, edited
+  by hand, loaded as a set by the runner. One bad file refuses the whole load:
+  a runner with half its rules is a runner nobody configured.
+- **Action** — what a rule may do, a closed enum the core owns: `alert`, `tag`,
+  `bookmark`, `capture_metadata`, `archive`, `queue_review`. There is no
+  download, send, edit or delete, and anything else is `RULE_INVALID` at load.
+  Told apart from a **mutation**, which is what a command's plan performs.
+- **Trigger** — an event kind a rule fires on. One Discord message can be up to
+  three of them: it is a `message`, it may carry a `link`, and it may carry
+  `media`. Each is keyed separately, so a rule naming two fires twice on the
+  same message; the preview says so.
+- **Gateway** — the live event stream Discord pushes, opened by `watch run` and
+  by nothing else (`adapters/events.py`). The one lifted SPEC rule: every
+  other command stays login-only REST. Told apart from the **seam**, which is
+  the REST boundary `client.py` draws and which the gateway's own connection
+  also serves.
+- **Intent** — what a gateway connection asks Discord for, derived from the
+  loaded rules and nothing wider. **Message Content** and **Server Members**
+  are *privileged*: switched on in the Developer Portal, and past 100 servers
+  needing Discord's verification too. `doctor` reports both against the rules.
+- **Runner** — `watch run`: the lock, the replay, the rule engine, the alert
+  delivery and the tick that fires schedules. One per tool, holding
+  `runner.lock` (fcntl, so macOS and Linux); a second is `RUNNER_LOCKED`.
+- **Cursor** — the last event of one scope the runner handled, kept per scope in
+  `runner_state`. On start it replays the history after each cursor with dedup
+  on, so a restart loses nothing and repeats nothing. Told apart from the
+  **archive cursor**, which is the sync's `<newest>:<oldest>` checkpoint.
+- **Origin marker** — the line every alert ends with. An event whose sender is a
+  bot and whose text carries it is dropped before the rules run, as is anything
+  this bot posted; a person pasting it is not a kill switch, because the sender
+  check is the other half.
+- **Alert destination** — where an alert goes: a `platform` rid, posted by this
+  tool's own send under the allowlist (`NOT_ALLOWLISTED` off it), or a
+  `command` argv run with the text on stdin (`COMMAND_MISSING` at rule load,
+  never at fire time).
+- **Guarantee** — which promise a schedule makes, printed on every listing.
+  **server-held**: a guild scheduled event, which Discord stores and which
+  happens with this machine off. **runner-held**: a `schedule post`, a row in
+  the local archive that fires only while `watch run` is up here. The two are
+  never spelled the same way.
+- **Scheduled event** — a guild scheduled event (`dc:event:<id>`), the
+  server-held half. Created, edited and deleted behind *Manage Events*; the
+  delete dry-runs and takes the event's exact name, with no `--yes`.
+- **Late** — a schedule fired after a forward clock jump: once, marked, rather
+  than once per missed interval. A backward jump re-plans from the new
+  baseline instead.

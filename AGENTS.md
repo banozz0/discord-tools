@@ -32,7 +32,12 @@ the typed server name, never deleting; remap table offline) · role (list,
 create, edit, delete behind the typed role name; preflight names a missing
 Manage Roles, HIERARCHY_DENIED where the bot's top role cannot reach, never
 its own roles, never a right it lacks) · permission (show a channel's role
-overwrites, set one role's by merging allow and deny) · leave-server · clear-messages · bot
+overwrites, set one role's by merging allow and deny) · watch (rules the
+runner acts on — a closed action list that never downloads, sends, edits or
+deletes — and run/status/stop/reload; only run logs in, and it is the one
+gateway) · schedule (runner-held posts, which fire only while the runner is
+up) · event (server-held guild scheduled events, which Discord keeps) ·
+leave-server · clear-messages · bot
 (settings + invite URL for the active profile) · doctor (token,
 message-content intent, servers, per-channel perms). v1 (all but members)
 shipped 2026-08-27 after the joint testing session.
@@ -52,6 +57,9 @@ maintainer's private runbook. Rebuild `dist/` after any source edit.
   CI adds `compileall` + per-subcommand `--help` smoke.
 - Bare invocation is the human menu; agents pass a subcommand.
 - Domain terms live in `CONTEXT.md`; read it before renaming things.
+- `watch run` is the one command that opens a gateway connection; it lives in
+  `adapters/events.py` and is the one lifted `SPEC.md` rule. Everything else
+  stays login-only REST, and a test asserts it.
 - A CLI-surface change updates `skill/SKILL.md` in the same commit.
 - A user-visible fix gets its CHANGELOG entry + version bump in the same change.
 - Never commit tokens, IDs of real servers, or exported chat data. `.env*`
@@ -88,7 +96,12 @@ and never deletes anything on the target. `role delete` dry-runs by default
 and executes only with `--execute` + the role's exact name, no `--yes`; any
 role change touching Administrator is typed too; `role create`, `role edit`
 and `permission set` preview + y/N. The tool never edits or elevates its own
-roles and never grants a right the bot does not hold. The menu is never a
+roles and never grants a right the bot does not hold. `event delete` dry-runs
+by default and executes only with `--execute` + the event's exact name, no
+`--yes`; `event create`, `event edit`, `schedule post`, `schedule cancel` and
+every rule write preview + y/N. A rule's actions are a closed list and none of
+them mutates; a `schedule post` off `DISCORD_SEND_ALLOWLIST` is refused when
+the row is written, because the runner posts unattended. The menu is never a
 shorter path past a gate.
 
 Parity rule: anything `delete` removes, `create` can make again — the channel

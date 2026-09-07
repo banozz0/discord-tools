@@ -203,6 +203,56 @@ def _automod_kwargs(rule: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# A scheduled event's three places, in Discord's own words. `external` is the
+# one that needs a location and an end time; the other two need a channel.
+EVENT_PLACES = ("voice", "stage_instance", "external")
+
+
+def _scheduled_event(event: Any) -> dict[str, Any]:
+    """One guild scheduled event as a dict the rim can print without discord.py."""
+    channel = getattr(event, "channel", None)
+    start = getattr(event, "start_time", None)
+    end = getattr(event, "end_time", None)
+    return {
+        "id": int(getattr(event, "id")),
+        "name": getattr(event, "name", "") or "",
+        "description": getattr(event, "description", None) or None,
+        "place": _enum_name(getattr(event, "entity_type", None)),
+        "status": _enum_name(getattr(event, "status", None)),
+        "channel_id": int(getattr(channel, "id")) if channel is not None else None,
+        "channel_name": getattr(channel, "name", None),
+        "location": getattr(event, "location", None) or None,
+        "start": start.isoformat() if start is not None else None,
+        "end": end.isoformat() if end is not None else None,
+        "subscribers": getattr(event, "user_count", None),
+        "creator_id": getattr(getattr(event, "creator", None), "id", None),
+    }
+
+
+def _event_kwargs(guild: Any, fields: dict[str, Any], *, creating: bool = True) -> dict[str, Any]:
+    """The rim's field names as discord.py's parameters, enums resolved.
+
+    Only the fields present are passed, so an edit of one field leaves the
+    rest of the event exactly as Discord holds it.
+    """
+    kwargs: dict[str, Any] = {}
+    for key in ("name", "description", "start_time", "end_time", "location"):
+        if fields.get(key) is not None:
+            kwargs[key] = fields[key]
+    place = fields.get("place")
+    if place is not None:
+        if place not in EVENT_PLACES:
+            raise ValueError(f"A scheduled event happens in one of {', '.join(EVENT_PLACES)}; not {place!r}.")
+        kwargs["entity_type"] = getattr(discord.EntityType, place)
+    if fields.get("channel_id") is not None:
+        kwargs["channel"] = discord.Object(id=int(fields["channel_id"]))
+    if creating:
+        # Discord has exactly one privacy level for a guild event, and passing
+        # it is not optional on the create path.
+        kwargs["privacy_level"] = discord.PrivacyLevel.guild_only
+    return kwargs
+
+
 def _intent_status(flags: Any) -> str:
     if getattr(flags, "gateway_message_content", False):
         return "enabled"
@@ -528,6 +578,49 @@ class DiscordClient:
         """
         guild = await self._fetch_guild(server_id)
         await guild.leave()
+
+    # -- guild scheduled events --------------------------------------------
+    #
+    # The one thing on either platform Discord holds itself: a scheduled event
+    # is stored in the server and shows up in its Events tab whether or not
+    # anything of this tool is running. Plain dicts in and out, so the rim
+    # above never touches a discord.py enum.
+
+    async def list_scheduled_events(self, server_id: int) -> list[dict[str, Any]]:
+        """Every scheduled event the server holds, soonest first."""
+        guild = await self._fetch_guild(server_id)
+        events = await guild.fetch_scheduled_events()
+        rows = [_scheduled_event(event) for event in events]
+        return sorted(rows, key=lambda row: (row["start"] or "", row["name"]))
+
+    async def get_scheduled_event(self, server_id: int, event_id: int) -> dict[str, Any]:
+        guild = await self._fetch_guild(server_id)
+        try:
+            event = await guild.fetch_scheduled_event(event_id)
+        except discord.NotFound as exc:
+            raise ClientError(f"No scheduled event with ID {event_id} in server {server_id}.") from exc
+        return _scheduled_event(event)
+
+    async def create_scheduled_event(
+        self, server_id: int, fields: dict[str, Any], *, reason: str | None = None
+    ) -> dict[str, Any]:
+        """Create one from the rim's own field names; the enums are resolved here."""
+        guild = await self._fetch_guild(server_id)
+        event = await guild.create_scheduled_event(reason=reason, **_event_kwargs(guild, fields))
+        return _scheduled_event(event)
+
+    async def edit_scheduled_event(
+        self, server_id: int, event_id: int, fields: dict[str, Any], *, reason: str | None = None
+    ) -> dict[str, Any]:
+        guild = await self._fetch_guild(server_id)
+        event = await guild.fetch_scheduled_event(event_id)
+        edited = await event.edit(reason=reason, **_event_kwargs(guild, fields, creating=False))
+        return _scheduled_event(edited or event)
+
+    async def delete_scheduled_event(self, server_id: int, event_id: int, *, reason: str | None = None) -> None:
+        guild = await self._fetch_guild(server_id)
+        event = await guild.fetch_scheduled_event(event_id)
+        await event.delete(reason=reason)
 
     # -- structure (blueprints) --------------------------------------------
     #

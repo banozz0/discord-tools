@@ -780,7 +780,13 @@ async def run(args, *, client=None, config=None, out=None) -> int:
         # The one command that opens a gateway. It makes its own connection
         # inside the events adapter, so it never reaches `open_client` below,
         # and a client the menu handed in is not the connection it needs.
-        return await _run_watch_run(args, config, out)
+        try:
+            return await _run_watch_run(args, config, out)
+        except CodedError as exc:
+            # The refusals it can meet before there is a runner - Windows, a
+            # rule that does not load, a store other users can read - as the
+            # envelope every other refusal here becomes.
+            return out.finish(_as_outcome(exc))
 
     if args.command == "message" and args.message_kind == "bookmark" and args.list_bookmarks:
         return await _dispatch_offline(args, config, out)
@@ -3607,7 +3613,7 @@ async def _run_event(client, args, config, out) -> Outcome:
 async def _run_event_write(client, args, out, *, identity, server, creating: bool) -> Outcome:
     fields = watch_rim.event_fields(args, creating=creating)
     existing = None if creating else await client.get_scheduled_event(args.server, args.event_id)
-    target = server if creating else watch_rim.event_target(args.server, args.event_id)
+    target = server if creating else watch_rim.event_target(server, args.event_id, existing["name"])
 
     async def build():
         return await _event_plan(
@@ -3650,7 +3656,7 @@ async def _run_event_write(client, args, out, *, identity, server, creating: boo
     out.say(watch_rim.format_events([row]))
     return Outcome(
         status="ok",
-        target=watch_rim.event_target(args.server, int(row["id"])),
+        target=watch_rim.event_target(server, int(row["id"]), row.get("name")),
         plan=write.plan,
         result={"event": row, "guarantee": watch_rim.SERVER_HELD, "cancelled": False},
         evidence=evidence,
@@ -3673,7 +3679,7 @@ async def _event_gone(client, server_id: int, event_id: int, name: str) -> str:
 async def _run_event_delete(client, args, out, *, identity, server) -> Outcome:
     """Dry-run by default; `--execute` asks for the event's exact name. No `--yes`."""
     row = await client.get_scheduled_event(args.server, args.event_id)
-    target = watch_rim.event_target(args.server, args.event_id)
+    target = watch_rim.event_target(server, args.event_id, row["name"])
 
     async def build():
         return await _event_plan(
@@ -3765,6 +3771,21 @@ async def _run_watch_run(args, config, out) -> int:
                 hint="`discord-tools watch rules add --name <name> --on message --alert-channel <id>` writes one.",
             )
         )
+    # The lock, before the gateway. `Runner.start()` takes it for real and is
+    # what makes two runners impossible; reading it here means the second one
+    # says so instead of opening a connection it is about to throw away.
+    from discord_tools._core.runner import read_lock
+
+    holder = read_lock(paths.runner_lock)
+    if holder is not None and holder.alive:
+        return out.finish(
+            _refused(
+                "RUNNER_LOCKED",
+                f"A watcher is already running here as pid {holder.pid}, since {holder.started_at}.",
+                hint="`discord-tools watch status` shows what it is doing; `discord-tools watch stop` ends it.",
+            )
+        )
+
     intents = gateway.intents_for_rules(rules.rules)
     connection = gateway.GatewayConnection(
         config.token, intents=intents, proxy=config.proxy_url, proxy_auth=config.proxy_auth
@@ -3809,6 +3830,8 @@ async def _run_watch_run(args, config, out) -> int:
         connection.close()
 
     out.say(watch_rim.format_counts(counts))
+    if connection.closed and not runner.stopping:
+        out.warn("The gateway connection ended, so the watcher stopped; `discord-tools watch run` starts it again.")
     if connection.dropped:
         out.warn(
             f"{connection.dropped} event(s) were dropped from a full queue; their cursors did not move, "

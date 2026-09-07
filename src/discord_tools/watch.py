@@ -33,6 +33,7 @@ from __future__ import annotations
 import json
 import shutil
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
@@ -471,13 +472,20 @@ def schedule_rid(channel_id: int) -> str:
     return str(_rid.make("dc", "channel", int(channel_id)))
 
 
-def check_schedule_time(*, at: str | None, every: str | None) -> None:
-    """`--at` or `--every`, exactly one, parsed here so a bad one is refused before the preview."""
+def check_schedule_time(*, at: str | None, every: str | None, now: float | None = None) -> None:
+    """`--at` or `--every`, exactly one, and a time that has not already passed.
+
+    Checked here rather than where the row is stored, so a time nobody can
+    schedule is refused before a preview is drawn and a person is asked to
+    approve it.
+    """
     if (at is None) == (every is None):
         raise ValueError("schedule post takes --at <time> or --every <repeat>, one of the two.")
     try:
         if at is not None:
-            parse_at(at)
+            when = parse_at(at)
+            if when.timestamp() <= (time.time() if now is None else now):
+                raise ValueError(f"{at!r} is in the past, so nothing would ever post it.")
         else:
             parse_every(every)  # type: ignore[arg-type]
     except RunnerError as exc:
@@ -531,14 +539,22 @@ def _preview(text: str, width: int = 60) -> str:
 # -- server-held scheduled events ----------------------------------------------
 
 
-def event_target(server_id: int, event_id: int):
+def event_target(server, event_id: int, name: str | None = None):
+    """One guild scheduled event as a Target, under the server it belongs to.
+
+    `server` is the server's own Target, so the display trail reads
+    `Agency › Standup` rather than an id nobody recognises.
+    """
     from discord_tools._core.identity import Target
 
+    title = name or str(event_id)
+    server_id = server.ids.get("guild", server.title) if hasattr(server, "ids") else str(server)
     return Target(
         platform=PLATFORM,
         kind="event",
         rid=str(_rid.make("dc", "event", event_id)),
-        title=str(event_id),
+        title=title,
+        path=tuple(getattr(server, "path", (str(server),))) + (title,),
         ids={"event": str(event_id), "guild": str(server_id)},
     )
 

@@ -287,8 +287,14 @@ class DiscordEventSource:
         self._closed = False
 
     def events(self) -> Iterator[Mapping[str, Any] | None]:
-        """Events as they arrive, `None` when the queue is empty so the runner ticks."""
-        while not self._closed:
+        """Events as they arrive, `None` when the queue is empty so the runner ticks.
+
+        Ends when the connection ends. A gateway that has gone - a revoked
+        token, a network that went away, Discord closing the session - would
+        otherwise leave the runner polling an empty queue forever, reporting
+        that it is watching a server it is no longer connected to.
+        """
+        while not self._closed and not self._connection.closed:
             yield self._connection.poll(self._idle_s)
 
     def replay(self, rid: str, cursor: str) -> Iterator[Mapping[str, Any]]:
@@ -452,6 +458,11 @@ class GatewayConnection:
             return self._queue.get(timeout=timeout)
         except queue.Empty:
             return None
+
+    @property
+    def closed(self) -> bool:
+        """Whether the connection has ended, for whatever reason."""
+        return self._stopped.is_set()
 
     @property
     def seam(self) -> Any:

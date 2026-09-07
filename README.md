@@ -42,7 +42,7 @@ scripts pass a subcommand.
 | `search` | Searches a channel/thread's history locally (Discord gives bots no search API): `--keyword`, `--from-user`, `--since`, `--until`, `--limit`; `--output <name>` exports JSON, CSV, JSONL, Markdown or HTML (`--format`). `--archive` searches the local archive instead of fetching. The printed table previews long bodies at 70 characters — exports carry them whole |
 | `archive` | The local archive: `sync` fetches new history from everything the bot can read and resumes where it stopped; `status` shows scopes, rows and coverage; `search --query` is ranked full-text search with `--regex`, `--from`, `--since`, `--until`, `--context`; `export --format json/csv/jsonl/markdown/html --output` writes the same result; `retention --scope --keep 90d` and `forget --scope` prune it, dry-run by default and behind the scope's exact name. See [The archive](#the-archive) |
 | `review` | The review queue: attachments and links the archive saw, waiting. `list` shows them without contacting a host; `approve` asks y/N and fetches into quarantine (no `--yes`); `status` shows redirects, refreshes, sha256 and the verdict; `accept` shows the verdict and asks before moving a file into `media/`; `reject` deletes the bytes; `retry` resumes a failed fetch. See [The review queue](#the-review-queue) |
-| `send` | Posts as the bot after a full-message preview + y/N; `--yes` skips the prompt only for channels in `DISCORD_SEND_ALLOWLIST`. `--reply-to <message id>` answers a message; `--mention users/roles/everyone` lets it ping (nobody by default, and `everyone` always asks) |
+| `send` | Posts as the bot after a full-message preview + y/N; `--yes` skips the prompt only for channels in `DISCORD_SEND_ALLOWLIST`. `--reply-to <message id>` answers a message; `--mention users/roles/everyone` lets it ping (nobody by default, and `everyone` always asks); `--at <time>` makes the same runner-held schedule `schedule post --at` does |
 | `message` | What you do to a message once it exists: `reply`, `edit` (the bot's own only), `delete` (dry-run, then `--execute` + typed `DELETE`, bounded by `--limit`), `forward`, `copy`, `react`/`unreact`, `pin`/`unpin`, `poll`, `typing`, `bookmark` (local). Each shows the channel and the message first. `read`, `unread` and `draft` say a bot cannot. See [Message operations](#message-operations) |
 | `create` | `channel` (`--type text/news/voice/stage_voice/forum/media`) / `category` / `thread` (`--private`), each behind a confirmation. Every type `delete` can remove, `create` can make again |
 | `structure` | Structure blueprints: `export --target <server id> --output <file>` writes a server's roles, categories, channels, overwrites, forum tags, AutoMod rules and settings as one deterministic file (never members, messages, webhooks, invites, bans or emoji); `diff` compares it with a server; `apply` dry-runs, and for real takes `--execute` **and** the server's exact name typed back, creates and edits with new IDs and never deletes; `remap --apply-id` prints the ID table. See [Structure blueprints](#structure-blueprints) |
@@ -546,6 +546,12 @@ rather than a promise the platform does not make. Because the runner posts
 unattended, the destination must already be in `DISCORD_SEND_ALLOWLIST`: a
 `schedule post` aimed anywhere else is refused as `NOT_ALLOWLISTED` when you
 write the row, not silently at the moment it would have fired.
+
+`send --at <time>` is the same thing, spelled the way `send` spells it — there
+is nothing else it could mean, since Discord holds no scheduled message for a
+bot. It carries no file and no `--reply-to`: the runner would post them later,
+and by then the file may have moved and the message being answered may be
+gone, so both are refused rather than quietly dropped.
 
 `--at` takes an ISO 8601 time (no offset means this machine's); `--every` takes
 an interval (`15m`, `2h`, `1d`) or a five-field cron expression. Schedules are

@@ -179,6 +179,11 @@ def build_parser() -> argparse.ArgumentParser:
     send_parser.add_argument("--text", help="Message text, or - to read it from stdin; optional when --file is given")
     send_parser.add_argument("--file", dest="files", action="append", metavar="PATH", help="Attach a file; repeatable")
     send_parser.add_argument("--reply-to", dest="reply_to", type=snowflake, metavar="MESSAGE_ID", help="Post as a reply to this message in the same channel")
+    send_parser.add_argument(
+        "--at",
+        metavar="TIME",
+        help="Post it later instead of now: the same runner-held schedule `schedule post --at` makes",
+    )
     _mention_flag(send_parser)
     send_parser.add_argument(
         "--yes",
@@ -1520,6 +1525,12 @@ def _asks_anyway(args) -> bool:
 
 
 async def _run_send(client, args, config, out) -> Outcome:
+    if getattr(args, "at", None):
+        # Section 15: `send --at` is the compatibility spelling of a
+        # runner-held `schedule post`, not a second way of doing it. Discord
+        # holds no scheduled message for a bot, so there is nothing else it
+        # could mean.
+        return await _run_schedule_post(client, _scheduled_send(args), config, out)
     files = _attachments(getattr(args, "files", None))
     text = _message_text(args.text, has_files=bool(files))
     mentions = _mentions(args)
@@ -1598,6 +1609,36 @@ async def _run_send(client, args, config, out) -> Outcome:
         lambda: plans.message_landed(client, args.channel, result.message_id),
     )
     return Outcome(status="ok", target=target, plan=write.plan, result=result.to_dict(), evidence=evidence)
+
+
+def _scheduled_send(args) -> argparse.Namespace:
+    """`send --at` as the `schedule post` it is an alias of.
+
+    A file cannot ride along: the runner would have to hold the bytes until it
+    fired, and a path that has moved by then is a send that fails at the hour
+    nobody is watching. A reply cannot either — the message it answers may be
+    gone. Both are refused here rather than silently dropped.
+    """
+    if getattr(args, "files", None):
+        raise ValueError(
+            "send --at cannot carry a file: the runner would post it later, and the file may not be "
+            "there by then. Send the file now, or schedule the text alone."
+        )
+    if getattr(args, "reply_to", None):
+        raise ValueError(
+            "send --at cannot reply: the message it answers may be gone by the time it posts. "
+            "Schedule the text alone, or reply now."
+        )
+    return argparse.Namespace(
+        command="schedule",
+        schedule_kind="post",
+        channel=args.channel,
+        text=args.text,
+        at=args.at,
+        every=None,
+        yes=args.yes,
+        profile=args.profile,
+    )
 
 
 async def _run_create(client, args, config, out) -> Outcome:

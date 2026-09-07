@@ -95,6 +95,11 @@ Discord's live event stream and runs your rules against what happens.
   is written, rather than failing silently at the hour it would have fired.
 - Every listing on either side prints its guarantee. A time already in the past
   is refused before a preview is drawn.
+- **`send --at <time>`** makes the same runner-held schedule: an alias, not a
+  second mechanism, because Discord holds no scheduled message for a bot. It
+  refuses `--file` and `--reply-to` rather than dropping them — the runner
+  would post later, when the file may have moved and the message being answered
+  may be gone.
 
 ### Elsewhere
 

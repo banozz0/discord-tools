@@ -505,3 +505,40 @@ def test_a_dry_run_and_a_refusal_write_no_audit_line(home_is_a_tmp_dir, monkeypa
     lines = plans.audit_path(home_is_a_tmp_dir).read_text(encoding="utf-8").strip().splitlines()
     assert len(lines) == 1
     assert json.loads(lines[0])["command"] == "event delete"
+
+
+# -- send --at is the same schedule, spelled the way section 15 asks --------
+
+
+def test_send_at_makes_the_same_runner_held_schedule(home_is_a_tmp_dir, monkeypatch):
+    """Discord holds no scheduled message for a bot, so `send --at` can only
+    mean the runner-held one. It is an alias, not a second mechanism."""
+    answer(monkeypatch, "y")
+    code, body, stderr = go(
+        ["--json", "send", "--channel", "101", "--text", "standup", "--at", "2099-01-01T09:00"], agency()
+    )
+    assert (code, body["status"]) == (0, "ok")
+    assert body["result"]["guarantee"].startswith("runner-held")
+    assert "runner-held: fires only while watch run is up on this machine" in stderr
+
+    _code, listed, _stderr = go(["--json", "schedule", "list"])
+    assert len(listed["result"]["schedules"]) == 1, "one schedule, made by either spelling"
+
+
+def test_send_at_refuses_a_file_or_a_reply_rather_than_dropping_it(home_is_a_tmp_dir, tmp_path):
+    attachment = tmp_path / "notes.txt"
+    attachment.write_text("hi", encoding="utf-8")
+    with pytest.raises(ValueError, match="cannot carry a file"):
+        go(["--json", "send", "--channel", "101", "--text", "x", "--at", "2099-01-01T09:00",
+            "--file", str(attachment)], agency())
+    with pytest.raises(ValueError, match="cannot reply"):
+        go(["--json", "send", "--channel", "101", "--text", "x", "--at", "2099-01-01T09:00",
+            "--reply-to", "500"], agency())
+
+
+def test_send_with_no_at_still_sends_now(home_is_a_tmp_dir):
+    """The flag is additive: `send` without it is the send it always was."""
+    client = agency()
+    code, _body, _stderr = go(["--json", "send", "--channel", "101", "--text", "now", "--yes"], client)
+    assert code == 0
+    assert [row["text"] for row in client.sent] == ["now"]

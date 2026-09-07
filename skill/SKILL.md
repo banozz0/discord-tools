@@ -244,6 +244,7 @@ prints the guarantee on every listing; quote it.
 | "put a standup in the server's events" | hand them `discord-tools event create --server <id> --name "..." --start 2026-10-01T09:00 --place stage_instance --channel <id>` — rule 18, they answer its y/N |
 | "cancel that event" | hand them `discord-tools event delete --server <id> --id <event id>` (the dry-run) — rule 18, the execute is theirs |
 | "post this every morning" | hand them `discord-tools schedule post --channel <id> --text "..." --every 1d` — and say it is **runner-held**: it fires only while `watch run` is up on that machine |
+| "post this at nine tomorrow" | hand them `discord-tools send --channel <id> --text "..." --at 2026-10-01T09:00` — the same runner-held schedule, spelled the way `send` spells it |
 | "what's scheduled to post?" | `discord-tools schedule list` — each row prints its guarantee; no login |
 | "stop that scheduled post" | hand them `discord-tools schedule cancel --id <id>` |
 | "alert me when someone posts a github link there" | hand them `discord-tools watch rules add --name links --on message --domain github.com --alert-channel <id>` — rule 17, they answer its y/N, then run `watch run` themselves |

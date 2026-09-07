@@ -114,7 +114,8 @@ options:
 discord-tools send --help
 ========================================================================
 usage: discord-tools send [-h] --channel CHANNEL [--text TEXT] [--file PATH]
-                          [--reply-to MESSAGE_ID] [--mention {users,roles,everyone}] [--yes]
+                          [--reply-to MESSAGE_ID] [--at TIME] [--mention {users,roles,everyone}]
+                          [--yes]
 
 options:
   -h, --help            show this help message and exit
@@ -123,6 +124,8 @@ options:
   --file PATH           Attach a file; repeatable
   --reply-to MESSAGE_ID
                         Post as a reply to this message in the same channel
+  --at TIME             Post it later instead of now: the same runner-held schedule `schedule post
+                        --at` makes
   --mention {users,roles,everyone}
                         Let the post ping this group; repeatable. Nobody is pinged without it, and
                         everyone always asks, even with --yes

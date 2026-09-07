@@ -2457,19 +2457,602 @@ async def _flow_profiles(*, session, runner, read, write) -> bool:
             return False
 
 
-def _group(trail: str, rows):
+# -- Watch: the rules, the runner and the two kinds of schedule ------------
+#
+# Four screens under Watch beside the review queue. Every gate is asked inside
+# the command, exactly as the flags reach it: a rule write previews and asks
+# y/N there, an event delete asks for the event's exact name there, and no row
+# here passes --yes.
+
+_RULE_DEFAULTS = {
+    "command": "watch",
+    "watch_kind": "rules",
+    "on": None,
+    "alert_channel": None,
+    "alert_command": None,
+    "tag": None,
+    "bookmark": False,
+    "capture_metadata": False,
+    "archive_scope": False,
+    "queue_review": False,
+    "scope": None,
+    "sender": None,
+    "domain": None,
+    "keyword": None,
+    "regex": None,
+    "media_type": None,
+    "min_bytes": None,
+    "max_bytes": None,
+    "filter_identity": None,
+    "cooldown": None,
+    "dedup_window": None,
+    "clear": None,
+    "replace_actions": False,
+    # Never true from a row: the preview and its y/N are the command's, and the
+    # menu is not a shorter path past them.
+    "yes": False,
+}
+
+# What a rule may do, as rows. The list is the core's closed enum: a seventh
+# row cannot be added here without the core accepting a seventh action first.
+_ACTION_ROWS = (
+    ("alert_channel", "Alert a channel or thread"),
+    ("alert_command", "Alert by running a command"),
+    ("tag", "Tag the message in the archive"),
+    ("bookmark", "Bookmark it locally"),
+    ("capture_metadata", "Record what the platform delivered with it"),
+    ("archive_scope", "Sync the scope it happened in"),
+    ("queue_review", "Queue its attachments and links for review"),
+)
+
+
+def _rule_namespace(session, **overrides) -> argparse.Namespace:
+    return _namespace(**{**_RULE_DEFAULTS, "profile": session.profile, **overrides})
+
+
+def _stored_rules() -> list[str]:
+    from discord_tools import watch as watch_rim
+
+    return watch_rim.rule_names(archive_store.tool_paths())
+
+
+def _pick_rule(*, read, write, trail: str) -> Any:
+    names = _stored_rules()
+    if not names:
+        write("No rules stored yet. `Rules: write a new rule` makes one.")
+        return BACK
+    return pick(names, title=trail, label=lambda name: name, read=read, write=write)
+
+
+def _ask_actions(*, read, write, trail: str) -> Any:
+    """The action list, one row at a time; a rule needs at least one."""
+    from discord_tools import watch as watch_rim
+
+    chosen: dict[str, Any] = {}
+    while True:
+        picked = choose(
+            [label for _key, label in _ACTION_ROWS] + (["Done - that is the whole list"] if chosen else []),
+            title=crumb(trail, f"Actions ({len(chosen) or 'none yet'})"),
+            read=read,
+            write=write,
+        )
+        if picked is BACK:
+            return BACK
+        if picked >= len(_ACTION_ROWS):
+            return chosen
+        key = _ACTION_ROWS[picked][0]
+        if key == "alert_channel":
+            channel_id = _ask_id("Channel or thread ID to alert", read=read, write=write)
+            if channel_id is BACK:
+                continue
+            chosen.setdefault("alert_channel", []).append(channel_id)
+        elif key == "alert_command":
+            command = ask_text("Command to run (it must be on PATH now)", read=read, write=write)
+            if command is BACK:
+                continue
+            chosen.setdefault("alert_command", []).append(command)
+        elif key == "tag":
+            label = ask_text("Tag label", read=read, write=write)
+            if label is BACK:
+                continue
+            chosen.setdefault("tag", []).append(label)
+        else:
+            chosen[key] = True
+        write(f"Added. A rule may do only these: {watch_rim.action_vocabulary()}.")
+
+
+def _ask_filters(*, read, write, trail: str) -> Any:
+    """The optional narrowing; a blank answer at any field means no constraint."""
+    fields = (
+        ("scope", "Only these scopes (RIDs, space-separated: dc:channel:123)"),
+        ("sender", "Only these senders (RIDs, space-separated: dc:user:123)"),
+        ("domain", "Only links on these domains (space-separated)"),
+        ("keyword", "Only text containing one of these words (space-separated)"),
+        ("media_type", "Only attachments of these MIME types (space-separated)"),
+    )
+    which = choose(
+        ["No filter - every event of those kinds", "Narrow it down"],
+        title=crumb(trail, "Filter"),
+        read=read,
+        write=write,
+    )
+    if which is BACK:
+        return BACK
+    if which == 0:
+        return {}
+    out: dict[str, Any] = {}
+    for key, label in fields:
+        answer = ask_text(label, read=read, write=write)
+        if answer is BACK:
+            return BACK
+        values = [part for part in str(answer).split() if part]
+        if values:
+            out[key] = values
+    return out
+
+
+async def _flow_rules_list(*, session, runner, read, write) -> bool:
+    await _call(_rule_namespace(session, rules_kind="list"), session=None, runner=runner, write=write)
+    return after_action(read=read, write=write)
+
+
+async def _flow_rules_add(*, session, runner, read, write) -> bool:
+    from discord_tools._core.rules import EVENT_KINDS
+
+    trail = crumb(MAIN, "Rules: write a new rule")
+    while True:
+        name = ask_text("Rule name (letters, digits, dot, dash, underscore)", read=read, write=write)
+        if name is BACK:
+            return True
+        on = ask_text(f"Fires on (comma-separated: {', '.join(EVENT_KINDS)})", read=read, write=write)
+        if on is BACK:
+            continue
+        actions = _ask_actions(read=read, write=write, trail=crumb(trail, str(name)))
+        if actions is BACK:
+            continue
+        filters = _ask_filters(read=read, write=write, trail=crumb(trail, str(name)))
+        if filters is BACK:
+            continue
+        result = await _act(
+            _rule_namespace(session, rules_kind="add", name=name, on=on, **actions, **filters),
+            session=None,
+            runner=runner,
+            read=read,
+            write=write,
+            trail=crumb(trail, str(name)),
+            rows=((STAY, "Write another"),),
+        )
+        if result is not STAY:
+            return result is not EXIT
+
+
+async def _flow_rules_edit(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Rules: change a rule")
+    while True:
+        name = _pick_rule(read=read, write=write, trail=trail)
+        if name is BACK:
+            return True
+        where = crumb(trail, str(name))
+        which = choose(
+            ["Change what fires it", "Add actions", "Replace the actions", "Change the filter", "Empty part of it"],
+            title=where,
+            read=read,
+            write=write,
+        )
+        if which is BACK:
+            continue
+        extra: dict[str, Any] = {}
+        if which == 0:
+            from discord_tools._core.rules import EVENT_KINDS
+
+            on = ask_text(f"Fires on (comma-separated: {', '.join(EVENT_KINDS)})", read=read, write=write)
+            if on is BACK:
+                continue
+            extra["on"] = on
+        elif which in (1, 2):
+            actions = _ask_actions(read=read, write=write, trail=where)
+            if actions is BACK:
+                continue
+            extra = {**actions, "replace_actions": which == 2}
+        elif which == 3:
+            filters = _ask_filters(read=read, write=write, trail=where)
+            if filters is BACK:
+                continue
+            extra = dict(filters)
+        else:
+            parts = ask_text(
+                "Empty which parts? (space-separated: scopes senders domains keywords media_types regex "
+                "min_bytes max_bytes actions)",
+                read=read,
+                write=write,
+            )
+            if parts is BACK:
+                continue
+            extra["clear"] = [part for part in str(parts).split() if part]
+        result = await _act(
+            _rule_namespace(session, rules_kind="edit", name=name, **extra),
+            session=None,
+            runner=runner,
+            read=read,
+            write=write,
+            trail=where,
+            rows=((STAY, "Change it again"),),
+        )
+        if result is not STAY:
+            return result is not EXIT
+
+
+async def _flow_rules_remove(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Rules: remove a rule")
+    while True:
+        name = _pick_rule(read=read, write=write, trail=trail)
+        if name is BACK:
+            return True
+        # The preview and its y/N are asked inside the command.
+        result = await _act(
+            _rule_namespace(session, rules_kind="remove", name=name),
+            session=None,
+            runner=runner,
+            read=read,
+            write=write,
+            trail=crumb(trail, str(name)),
+            rows=((STAY, "Remove another"),),
+        )
+        if result is not STAY:
+            return result is not EXIT
+
+
+async def _flow_rules_toggle(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Rules: enable or disable")
+    while True:
+        name = _pick_rule(read=read, write=write, trail=trail)
+        if name is BACK:
+            return True
+        which = choose(["Enable it", "Disable it"], title=crumb(trail, str(name)), read=read, write=write)
+        if which is BACK:
+            continue
+        await _call(
+            _rule_namespace(session, rules_kind="enable" if which == 0 else "disable", name=name),
+            session=None,
+            runner=runner,
+            write=write,
+        )
+        if not after_action(read=read, write=write):
+            return False
+
+
+async def _flow_rules_test(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Rules: test against a recorded event")
+    while True:
+        path = ask_text("Path to a JSON file holding one recorded event", read=read, write=write)
+        if path is BACK:
+            return True
+        only = choose(["Every rule", "One rule"], title=trail, read=read, write=write)
+        if only is BACK:
+            continue
+        name = None
+        if only == 1:
+            name = _pick_rule(read=read, write=write, trail=trail)
+            if name is BACK:
+                continue
+        result = await _act(
+            _rule_namespace(session, rules_kind="test", event=path, name=name),
+            session=None,
+            runner=runner,
+            read=read,
+            write=write,
+            trail=trail,
+            rows=((STAY, "Test another"),),
+        )
+        if result is not STAY:
+            return result is not EXIT
+
+
+def _runner_flow(kind: str, *, title: str, note: str | None = None):
+    """One runner lifecycle row: run, status, stop or reload."""
+
+    async def flow(*, session, runner, read, write) -> bool:
+        if note:
+            write(note)
+        await _call(
+            _namespace(command="watch", watch_kind=kind, foreground=True, profile=session.profile),
+            session=None,
+            runner=runner,
+            write=write,
+        )
+        return after_action(read=read, write=write)
+
+    flow.__name__ = f"_flow_watch_{kind}"
+    flow.__doc__ = title
+    return flow
+
+
+_flow_watch_run = _runner_flow(
+    "run",
+    title="Run the watcher",
+    note=(
+        "The watcher runs here until you stop it (Ctrl-C, or `discord-tools watch stop` "
+        "from another terminal). Runner-held schedules fire only while it is up."
+    ),
+)
+_flow_watch_status = _runner_flow("status", title="What the runner is doing")
+_flow_watch_stop = _runner_flow("stop", title="Stop the runner")
+_flow_watch_reload = _runner_flow("reload", title="Re-read the rules")
+
+
+async def _flow_schedule_list(*, session, runner, read, write) -> bool:
+    await _call(
+        _namespace(command="schedule", schedule_kind="list", profile=session.profile),
+        session=None,
+        runner=runner,
+        write=write,
+    )
+    return after_action(read=read, write=write)
+
+
+async def _flow_schedule_post(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Scheduled posts: add one")
+    while True:
+        channel = await _pick_channel(session=session, read=read, write=write, trail=trail)
+        if channel is BACK:
+            return True
+        text = ask_lines("Message", read=read, write=write)
+        if text is BACK:
+            continue
+        repeat = choose(["Once, at a time", "Repeating"], title=crumb(trail, "When"), read=read, write=write)
+        if repeat is BACK:
+            continue
+        at = every = None
+        if repeat == 0:
+            at = ask_text("When (ISO 8601; a time with no offset is this machine's)", read=read, write=write)
+            if at is BACK:
+                continue
+        else:
+            every = ask_text("How often (15m, 2h, 1d, or a five-field cron expression)", read=read, write=write)
+            if every is BACK:
+                continue
+        result = await _act(
+            _namespace(
+                command="schedule", schedule_kind="post", channel=channel.id, text=text, at=at, every=every,
+                yes=False, profile=session.profile,
+            ),
+            session=session,
+            runner=runner,
+            read=read,
+            write=write,
+            trail=crumb(trail, channel.title),
+            rows=((STAY, "Schedule another"),),
+        )
+        if result is not STAY:
+            return result is not EXIT
+
+
+async def _flow_schedule_cancel(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Scheduled posts: cancel one")
+    while True:
+        schedule_id = ask_text("Schedule ID (the listing prints it)", read=read, write=write)
+        if schedule_id is BACK:
+            return True
+        result = await _act(
+            _namespace(
+                command="schedule", schedule_kind="cancel", schedule_id=schedule_id, yes=False, profile=session.profile
+            ),
+            session=None,
+            runner=runner,
+            read=read,
+            write=write,
+            trail=crumb(trail, str(schedule_id)),
+            rows=((STAY, "Cancel another"),),
+        )
+        if result is not STAY:
+            return result is not EXIT
+
+
+_EVENT_DEFAULTS = {
+    "command": "event",
+    "name": None,
+    "start": None,
+    "end": None,
+    "place": None,
+    "channel": None,
+    "location": None,
+    "description": None,
+    # Never true from a row: the preview and its y/N belong to the command.
+    "yes": False,
+}
+
+
+def _event_namespace(session, **overrides) -> argparse.Namespace:
+    """An event namespace with every flag defaulted, so no field is ever missing."""
+    return _namespace(**{**_EVENT_DEFAULTS, "profile": session.profile, **overrides})
+
+
+async def _flow_event_list(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Scheduled events: list")
+    server = await _pick_server(session=session, read=read, write=write, trail=trail)
+    if server is BACK:
+        return True
+    await _call(
+        _event_namespace(session, event_kind="list", server=server.id),
+        session=session,
+        runner=runner,
+        write=write,
+    )
+    return after_action(read=read, write=write)
+
+
+async def _ask_event_place(*, read, write, trail: str) -> Any:
+    """Where the event happens, and the one thing that place needs."""
+    from discord_tools import watch as watch_rim
+
+    picked = choose(
+        ["In a voice channel", "In a stage channel", "Somewhere else (a place, in words)"],
+        title=crumb(trail, "Where"),
+        read=read,
+        write=write,
+    )
+    if picked is BACK:
+        return BACK
+    place = watch_rim.EVENT_PLACES[(0, 1, 2)[picked]]
+    if place == "external":
+        location = ask_text("Where (in words)", read=read, write=write)
+        if location is BACK:
+            return BACK
+        return {"place": place, "location": location}
+    channel_id = _ask_id(f"{'Voice' if place == 'voice' else 'Stage'} channel ID", read=read, write=write)
+    if channel_id is BACK:
+        return BACK
+    return {"place": place, "channel": channel_id}
+
+
+async def _flow_event_create(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Scheduled events: create")
+    while True:
+        server = await _pick_server(session=session, read=read, write=write, trail=trail)
+        if server is BACK:
+            return True
+        where = crumb(trail, server.name)
+        name = ask_text("Event name", read=read, write=write)
+        if name is BACK:
+            if await _single_server(session):
+                return True
+            continue
+        start = ask_text("Starts (ISO 8601; a time with no offset is this machine's)", read=read, write=write)
+        if start is BACK:
+            continue
+        place = await _ask_event_place(read=read, write=write, trail=where)
+        if place is BACK:
+            continue
+        end = None
+        if place["place"] == "external":
+            # Discord requires an end time for an external event, so this is
+            # asked rather than offered.
+            end = ask_text("Ends (ISO 8601 - Discord requires one for a place in words)", read=read, write=write)
+            if end is BACK:
+                continue
+        description = ask_text("What it is about (blank for none)", read=read, write=write)
+        if description is BACK:
+            continue
+        result = await _act(
+            _event_namespace(
+                session, event_kind="create", server=server.id, name=name, start=start, end=end,
+                description=description or None, **place,
+            ),
+            session=session,
+            runner=runner,
+            read=read,
+            write=write,
+            trail=where,
+            rows=((STAY, "Create another"),),
+        )
+        if result is not STAY:
+            return result is not EXIT
+
+
+async def _pick_event(*, session, server, read, write, trail: str) -> Any:
+    """One of the server's scheduled events, by name and start."""
+    client = await session.client()
+    rows = await client.list_scheduled_events(server.id)
+    if not rows:
+        write("This server holds no scheduled events.")
+        return BACK
+    return pick(
+        rows,
+        title=crumb(trail, server.name),
+        label=lambda row: f"{row['name']}  ({row['id']}, starts {row['start']})",
+        read=read,
+        write=write,
+    )
+
+
+async def _flow_event_edit(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Scheduled events: change one")
+    while True:
+        server = await _pick_server(session=session, read=read, write=write, trail=trail)
+        if server is BACK:
+            return True
+        row = await _pick_event(session=session, server=server, read=read, write=write, trail=trail)
+        if row is BACK:
+            if await _single_server(session):
+                return True
+            continue
+        where = crumb(trail, str(row["name"]))
+        field = choose(["Name", "Start time", "End time", "Description"], title=where, read=read, write=write)
+        if field is BACK:
+            continue
+        key = ("name", "start", "end", "description")[field]
+        answer = ask_text(("Event name", "Starts (ISO 8601)", "Ends (ISO 8601)", "What it is about")[field], read=read, write=write)
+        if answer is BACK:
+            continue
+        result = await _act(
+            _event_namespace(session, event_kind="edit", server=server.id, event_id=row["id"], **{key: answer}),
+            session=session,
+            runner=runner,
+            read=read,
+            write=write,
+            trail=where,
+            rows=((STAY, "Change it again"),),
+        )
+        if result is not STAY:
+            return result is not EXIT
+
+
+async def _flow_event_delete(*, session, runner, read, write) -> bool:
+    """Dry-run first, then the same command with --execute, which asks for the
+    event's exact name at the CLI's own prompt. No row here answers it."""
+    trail = crumb(MAIN, "Scheduled events: delete")
+    while True:
+        server = await _pick_server(session=session, read=read, write=write, trail=trail)
+        if server is BACK:
+            return True
+        row = await _pick_event(session=session, server=server, read=read, write=write, trail=trail)
+        if row is BACK:
+            if await _single_server(session):
+                return True
+            continue
+        where = crumb(trail, str(row["name"]))
+        args = _event_namespace(session, event_kind="delete", server=server.id, event_id=row["id"], execute=False)
+        if await _call(args, session=session, runner=runner, write=write) is None:
+            if not after_action(read=read, write=write):
+                return False
+            continue
+        go = choose(
+            ["Delete it (it asks for the event's exact name)", "Leave it alone"],
+            title=crumb(where, "Delete"),
+            read=read,
+            write=write,
+        )
+        if go is BACK or go == 1:
+            continue
+        result = await _act(
+            _event_namespace(session, event_kind="delete", server=server.id, event_id=row["id"], execute=True),
+            session=session,
+            runner=runner,
+            read=read,
+            write=write,
+            trail=where,
+            rows=((STAY, "Delete another"),),
+        )
+        if result is not STAY:
+            return result is not EXIT
+
+
+def _group(trail, rows):
     """A root row that is a list of flows rather than one flow.
 
     Rows keep their own numbers inside the group, and 0 steps back to the root,
-    which is the same shape every other screen has.
+    which is the same shape every other screen has. `trail` is one label or a
+    sequence of them, so a group can hold a group and the crumb still reads as
+    the path taken.
     """
+    parts = (trail,) if isinstance(trail, str) else tuple(trail)
 
     async def flow(*, session, runner, read, write) -> bool:
         while True:
             # Back on the group screen, whatever a flow was acting on is behind
             # the user: the banner names the bot and stops.
             session.target = None
-            choice = choose([label for label, _inner in rows], title=crumb(MAIN, trail), read=read, write=write)
+            choice = choose([label for label, _inner in rows], title=crumb(MAIN, *parts), read=read, write=write)
             if choice is BACK:
                 return True
             if not await rows[choice][1](session=session, runner=runner, read=read, write=write):
@@ -2600,7 +3183,55 @@ async def run_menu(*, read=None, write=None, session=None, runner=None, profile:
                     ("Review queue: reject (deletes the quarantined bytes)", _flow_review_reject),
                     ("Review queue: status of a download", _flow_review_status),
                     ("Review queue: retry a failed fetch", _flow_review_retry),
-                    ("Rules and the runner", _later("rules and the runner")),
+                    (
+                        "Rules (what the watcher acts on)",
+                        _group(
+                            ("Watch", "Rules"),
+                            (
+                                ("List them, with the intents they need", _flow_rules_list),
+                                ("Write a new rule", _flow_rules_add),
+                                ("Change a rule", _flow_rules_edit),
+                                ("Remove a rule", _flow_rules_remove),
+                                ("Enable or disable one", _flow_rules_toggle),
+                                ("Test the rules against a recorded event", _flow_rules_test),
+                            ),
+                        ),
+                    ),
+                    (
+                        "Runner (start it, see it, stop it)",
+                        _group(
+                            ("Watch", "Runner"),
+                            (
+                                ("Run the watcher here until stopped", _flow_watch_run),
+                                ("What it is doing (lock, rules, cursors, schedules)", _flow_watch_status),
+                                ("Stop it", _flow_watch_stop),
+                                ("Make it re-read the rules", _flow_watch_reload),
+                            ),
+                        ),
+                    ),
+                    (
+                        "Scheduled posts - runner-held, need the watcher up",
+                        _group(
+                            ("Watch", "Scheduled posts"),
+                            (
+                                ("List them", _flow_schedule_list),
+                                ("Schedule a post", _flow_schedule_post),
+                                ("Cancel one", _flow_schedule_cancel),
+                            ),
+                        ),
+                    ),
+                    (
+                        "Scheduled events - server-held, Discord keeps them",
+                        _group(
+                            ("Watch", "Scheduled events"),
+                            (
+                                ("List a server's events", _flow_event_list),
+                                ("Create one", _flow_event_create),
+                                ("Change one", _flow_event_edit),
+                                ("Delete one (dry-run, then its typed name)", _flow_event_delete),
+                            ),
+                        ),
+                    ),
                 ),
             ),
             False,

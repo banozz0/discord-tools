@@ -199,6 +199,90 @@ def check_quarantine(*, home: Path | None = None) -> DoctorCheck:
     return DoctorCheck("WARN" if used > limit else "OK", message)
 
 
+def check_runner(*, home: Path | None = None) -> DoctorCheck:
+    """Whether a watcher holds the lock here, and when it last did anything."""
+    from discord_tools._core.runner import read_lock, tail
+    from discord_tools.archive import tool_paths
+
+    paths = tool_paths(home)
+    if sys.platform.startswith("win"):
+        return DoctorCheck("WARN", "Runner: `watch run` needs macOS or Linux (its lock is a POSIX file lock); every other command works here")
+    holder = read_lock(paths.runner_lock)
+    lines = tail(paths.runner_log, 20)
+    last = lines[-1].get("at") if lines else None
+    if holder is None:
+        return DoctorCheck("OK", f"Runner: not running{f' (last log line {last})' if last else ''}")
+    if not holder.alive:
+        return DoctorCheck(
+            "WARN",
+            f"Runner: a stale lock names pid {holder.pid}, which is gone - `discord-tools watch run` takes it over",
+        )
+    return DoctorCheck("OK", f"Runner: running as pid {holder.pid} since {holder.started_at} (last log line {last})")
+
+
+def check_rules(*, home: Path | None = None) -> DoctorCheck:
+    """The rules the runner would load, and exactly what they need on the wire."""
+    from discord_tools._core.contract import CodedError
+    from discord_tools.adapters import events as gateway
+    from discord_tools.archive import tool_paths
+
+    try:
+        loaded = gateway_rules(tool_paths(home))
+    except CodedError as exc:
+        return DoctorCheck("FAIL", f"Rules: {exc.error.code} - {exc.error.message}")
+    if not loaded:
+        return DoctorCheck("OK", "Rules: none stored (`discord-tools watch rules add` writes one)")
+    enabled = [rule for rule in loaded if rule.enabled]
+    intents = gateway.intents_for_rules(enabled)
+    privileged = gateway.privileged_among(intents)
+    detail = f"{len(loaded)} stored, {len(enabled)} enabled; gateway intents {', '.join(intents)}"
+    if privileged:
+        return DoctorCheck(
+            "WARN",
+            f"Rules: {detail}. {', '.join(privileged)} must be on in the Developer Portal -> Bot, "
+            "or those rules never fire",
+        )
+    return DoctorCheck("OK", f"Rules: {detail}")
+
+
+def gateway_rules(paths):
+    """The stored rules, loaded the way the runner loads them."""
+    from discord_tools._core.rules import load_directory
+
+    return load_directory(paths.rules)
+
+
+def check_intent_verification(servers, *, home: Path | None = None) -> DoctorCheck | None:
+    """Discord's verification line: 100 servers or more gates a privileged intent.
+
+    Only reported when the loaded rules actually need one - a bot in 120
+    servers with no rules has nothing to verify for.
+    """
+    from discord_tools._core.contract import CodedError
+    from discord_tools.adapters import events as gateway
+    from discord_tools.archive import tool_paths
+
+    try:
+        loaded = [rule for rule in gateway_rules(tool_paths(home)) if rule.enabled]
+    except CodedError:
+        return None
+    privileged = gateway.privileged_among(gateway.intents_for_rules(loaded))
+    if not privileged:
+        return None
+    count = len(servers)
+    if count < gateway.VERIFICATION_SERVERS:
+        return DoctorCheck(
+            "OK",
+            f"Privileged intents: in {count} server(s), below Discord's verification line of "
+            f"{gateway.VERIFICATION_SERVERS}, so {', '.join(privileged)} needs only the portal switch",
+        )
+    return DoctorCheck(
+        "WARN",
+        f"Privileged intents: in {count} server(s), at or above Discord's line of "
+        f"{gateway.VERIFICATION_SERVERS}, so {', '.join(privileged)} needs Discord's verification too",
+    )
+
+
 def check_send_allowlist(allowlist: tuple[int, ...]) -> DoctorCheck:
     if not allowlist:
         # Counts only, never the destinations.
@@ -321,6 +405,8 @@ async def collect_checks(
     checks.append(check_archive(home=home))
     checks.append(check_scanner())
     checks.append(check_quarantine(home=home))
+    checks.append(check_runner(home=home))
+    checks.append(check_rules(home=home))
 
     if config is not None:
         checks.append(check_token_shape(config.token))
@@ -339,7 +425,11 @@ async def collect_checks(
                     identity_seen(identity_of(identity, profile=config.profile, source=config.source))
                 checks.append(check_identity(identity))
                 checks.append(check_message_content_intent(identity))
-                checks.append(check_servers(await client.list_servers()))
+                servers = await client.list_servers()
+                checks.append(check_servers(servers))
+                verification = check_intent_verification(servers, home=home)
+                if verification is not None:
+                    checks.append(verification)
                 if channel_id is not None:
                     checks.extend(await channel_checks(client, channel_id))
         except (ConfigError, RuntimeError, PermissionError) as exc:

@@ -199,13 +199,28 @@ def test_a_row_whose_pack_has_not_landed_says_so_and_steps_back():
     assert printed[notice + 1].split("\n")[0].endswith("Manage")
 
 
-def test_the_watch_row_is_a_group_whose_rules_row_says_so_and_steps_back_to_it():
-    # The review queue landed under Watch; rules and the runner have not, and
-    # their row says so inside the group rather than hiding the queue behind it.
+def test_the_watch_row_holds_the_queue_the_rules_the_runner_and_both_schedules():
+    """Watch is a group of groups: the review queue's six rows, then rules,
+    the runner, and the two kinds of schedule, each a screen of its own."""
+    printed = walk(["7", "0"])
+    screen = next(text for text in printed if text.split("\n")[0].endswith("Watch"))
+    assert "Review queue: what is waiting" in screen
+    assert "Rules (what the watcher acts on)" in screen
+    assert "Runner (start it, see it, stop it)" in screen
+    # Each schedule row says which of the two guarantees it has, on the row
+    # itself: "scheduled" means two different promises.
+    assert "Scheduled posts - runner-held" in screen
+    assert "Scheduled events - server-held" in screen
+    assert "Not built yet" not in screen
+
+
+def test_the_rules_group_under_watch_steps_back_to_watch():
     printed = walk(["7", "7", "0", "0"])
-    notice = next(index for index, text in enumerate(printed) if "Not built yet" in text)
-    assert "rules" in printed[notice]
-    assert printed[notice + 1].split("\n")[0].endswith("Watch")
+    rules = next(index for index, text in enumerate(printed) if text.split("\n")[0].endswith("Rules"))
+    assert "Write a new rule" in printed[rules]
+    # 0 goes back to Watch, not to the root: a group inside a group unwinds one
+    # screen at a time like every other screen here.
+    assert printed[rules + 1].split("\n")[0].endswith("Watch")
 
 
 def test_a_number_typed_after_that_notice_reaches_the_row_it_names():

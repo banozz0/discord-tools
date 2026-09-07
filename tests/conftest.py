@@ -98,6 +98,7 @@ class FakeClient:
         structure: dict[int, list[dict]] | None = None,
         automod: dict[int, list[dict]] | None = None,
         bot_roles: dict[int, list[int]] | None = None,
+        scheduled_events: dict[int, list[dict]] | None = None,
     ) -> None:
         self.identity = identity
         self.servers = servers or []
@@ -146,6 +147,13 @@ class FakeClient:
         # has the bot on @everyone only, which is the bottom of the hierarchy.
         self.bot_roles: dict[int, list[int]] = {k: list(v) for k, v in (bot_roles or {}).items()}
         self.deleted_roles: list[int] = []
+        # The guild scheduled events a server holds, in the seam's dict shape.
+        # Discord holds these itself, so the fake does too: a create lands in
+        # the server's list and a delete leaves it.
+        self.scheduled_events: dict[int, list[dict]] = {
+            k: [dict(row) for row in v] for k, v in (scheduled_events or {}).items()
+        }
+        self.deleted_events: list[int] = []
         # Every structure write in call order: (method, id or name, fields).
         self.structure_writes: list[tuple] = []
         # A test's hook to make one write fail: called with (method, name_or_id),
@@ -514,6 +522,69 @@ class FakeClient:
 
     async def guild_permissions(self, server_id):
         return dict(self.guild_perms.get(server_id, self.default_permissions))
+
+    # -- guild scheduled events ------------------------------------------
+
+    def _events(self, server_id) -> list[dict]:
+        return self.scheduled_events.setdefault(server_id, [])
+
+    def _event(self, server_id, event_id) -> dict:
+        from discord_tools.client import ClientError
+
+        for row in self._events(server_id):
+            if int(row["id"]) == int(event_id):
+                return row
+        raise ClientError(f"No scheduled event with ID {event_id} in server {server_id}.")
+
+    async def list_scheduled_events(self, server_id):
+        rows = [dict(row) for row in self._events(server_id)]
+        return sorted(rows, key=lambda row: (row.get("start") or "", row.get("name") or ""))
+
+    async def get_scheduled_event(self, server_id, event_id):
+        return dict(self._event(server_id, event_id))
+
+    async def create_scheduled_event(self, server_id, fields, *, reason=None):
+        self._maybe_fail("create_scheduled_event", fields.get("name"))
+        self.next_id += 1
+        self.reasons.append(reason)
+        row = self._event_row(self.next_id, fields)
+        self._events(server_id).append(row)
+        self.structure_writes.append(("create_scheduled_event", self.next_id, dict(fields)))
+        return dict(row)
+
+    async def edit_scheduled_event(self, server_id, event_id, fields, *, reason=None):
+        self._maybe_fail("edit_scheduled_event", event_id)
+        self.reasons.append(reason)
+        row = self._event(server_id, event_id)
+        row.update({key: value for key, value in self._event_row(event_id, fields).items() if value is not None})
+        self.structure_writes.append(("edit_scheduled_event", event_id, dict(fields)))
+        return dict(row)
+
+    async def delete_scheduled_event(self, server_id, event_id, *, reason=None):
+        self.reasons.append(reason)
+        row = self._event(server_id, event_id)
+        self._events(server_id).remove(row)
+        self.deleted_events.append(int(event_id))
+        self.structure_writes.append(("delete_scheduled_event", event_id, {}))
+
+    @staticmethod
+    def _event_row(event_id, fields) -> dict:
+        start = fields.get("start_time")
+        end = fields.get("end_time")
+        return {
+            "id": int(event_id),
+            "name": fields.get("name"),
+            "description": fields.get("description"),
+            "place": fields.get("place"),
+            "status": "scheduled",
+            "channel_id": fields.get("channel_id"),
+            "channel_name": f"channel-{fields['channel_id']}" if fields.get("channel_id") else None,
+            "location": fields.get("location"),
+            "start": start.isoformat() if hasattr(start, "isoformat") else start,
+            "end": end.isoformat() if hasattr(end, "isoformat") else end,
+            "subscribers": 0,
+            "creator_id": None,
+        }
 
     async def edit_bot_user(self, *, username=None, avatar_path=None):
         self.user_edits.append({"username": username, "avatar_path": avatar_path})

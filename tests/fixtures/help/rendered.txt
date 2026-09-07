@@ -2,10 +2,10 @@
 discord-tools --help
 ========================================================================
 usage: discord-tools [-h] [--profile PROFILE] [--json] [--jsonl]
-                     {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,review,structure,role,permission,message,bot} ...
+                     {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,review,structure,role,permission,message,watch,schedule,event,bot} ...
 
 positional arguments:
-  {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,review,structure,role,permission,message,bot}
+  {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,review,structure,role,permission,message,watch,schedule,event,bot}
     auth                Guided bot setup: Developer Portal walkthrough, token check, invite URL
     doctor              Check token, message-content intent, servers, and channel permissions
     discover            List the server -> channel -> thread tree with IDs
@@ -29,6 +29,12 @@ positional arguments:
     permission          Permission overwrites on a channel or category: show them, set one role's
     message             Act on messages a channel holds: reply, edit, delete, forward, copy,
                         react, pin, poll, typing, bookmark
+    watch               Rules and the runner: watch a server live and act on what happens (macOS
+                        and Linux)
+    schedule            Runner-held scheduled posts: they fire only while `watch run` is up on
+                        this machine
+    event               Server-held scheduled events: Discord holds them, so they happen with this
+                        machine off
     bot                 Show or edit the active profile's bot settings and invite URL
 
 options:

@@ -77,6 +77,10 @@ REQUIRED_RIGHTS = {
     "role-delete": ("manage_roles",),
     "permission-show": (),
     "permission-set": ("manage_roles",),
+    # Guild scheduled events: one right covers creating, editing and deleting
+    # one, and listing them needs none - Discord shows a server's events to
+    # every member.
+    "event-write": ("manage_events",),
 }
 
 

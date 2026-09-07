@@ -12,6 +12,7 @@ from discord_tools import plans
 from discord_tools import review as review_store
 from discord_tools import roles as roles_rim
 from discord_tools import structure as structure_store
+from discord_tools import watch as watch_rim
 from discord_tools._core import blueprint as blueprint_engine
 from discord_tools._core.blueprint import BlueprintError
 from discord_tools._core import rid as _rid
@@ -30,6 +31,8 @@ from discord_tools.adapters import (
     DiscordTargetResolver,
 )
 from discord_tools.adapters.blueprint import ALLOWLIST as BLUEPRINT_ALLOWLIST, APPLY_RIGHTS, EXPORT_RIGHTS
+from discord_tools.adapters import events as gateway
+from discord_tools.adapters.sender import DiscordMessageSender
 from discord_tools.adapters.targets import TargetError
 from discord_tools.client import MENTION_KINDS, ClientError, permission_bits
 from discord_tools import __version__
@@ -532,6 +535,128 @@ def build_parser() -> argparse.ArgumentParser:
         if verb == "draft":
             unsupported.add_argument("--text", help="The draft text")
 
+    watch_parser = subparsers.add_parser(
+        "watch",
+        help="Rules and the runner: watch a server live and act on what happens (macOS and Linux)",
+    )
+    watch_kinds = watch_parser.add_subparsers(dest="watch_kind")
+
+    watch_run = watch_kinds.add_parser("run", help="Run the watcher in the foreground until stopped (needs macOS or Linux)")
+    watch_run.add_argument(
+        "--foreground",
+        action="store_true",
+        help="Kept for symmetry: the runner is always in the foreground; nothing is installed as a service",
+    )
+    watch_kinds.add_parser("status", help="The runner's lock, rules, intents, cursors, schedules and last log lines (no login)")
+    watch_kinds.add_parser("stop", help="Ask the running watcher to stop and wait for it (no login)")
+    watch_kinds.add_parser("reload", help="Ask the running watcher to re-read its rules (no login)")
+
+    rules_parser = watch_kinds.add_parser("rules", help="The rules the watcher runs: list, add, edit, remove, enable, disable, test")
+    rules_kinds = rules_parser.add_subparsers(dest="rules_kind")
+
+    rules_kinds.add_parser("list", help="Every stored rule with what fires it, what it does and the intents it needs")
+
+    def rule_writing_flags(parser, *, editing: bool) -> None:
+        parser.add_argument("--name", required=True, help="The rule's name; it is also its file name")
+        parser.add_argument(
+            "--on",
+            help=f"Comma-separated event kinds that fire it: {', '.join(watch_rim.EVENT_KINDS)}"
+            + (" (unchanged when omitted)" if editing else ""),
+        )
+        parser.add_argument("--alert-channel", type=snowflake, action="append", metavar="ID", help="Alert this channel or thread (needs it in DISCORD_SEND_ALLOWLIST)")
+        parser.add_argument("--alert-command", action="append", metavar="ARGV", help="Alert by running this command with the text on stdin; it must be on PATH now")
+        parser.add_argument("--tag", action="append", metavar="LABEL", help="Tag the message in the archive")
+        parser.add_argument("--bookmark", action="store_true", help="Keep the message as a local bookmark")
+        parser.add_argument("--capture-metadata", action="store_true", help="Record what the platform delivered with the event; nothing is fetched")
+        parser.add_argument("--archive", dest="archive_scope", action="store_true", help="Sync the scope the event happened in, within budgets")
+        parser.add_argument("--queue-review", action="store_true", help="Put the attachments and links in the review queue; still nothing is fetched")
+        parser.add_argument("--scope", action="append", metavar="RID", help="Only events in these scopes (dc:channel:ID, dc:thread:ID)")
+        parser.add_argument("--sender", action="append", metavar="RID", help="Only events from these senders (dc:user:ID, dc:bot:ID)")
+        parser.add_argument("--domain", action="append", help="Only messages carrying a link on these domains")
+        parser.add_argument("--keyword", action="append", help="Only messages whose text contains one of these")
+        parser.add_argument("--regex", help="Only messages whose text matches this regular expression")
+        parser.add_argument("--media-type", action="append", metavar="TYPE", help="Only attachments of these MIME types (image/* is allowed)")
+        parser.add_argument("--min-bytes", type=positive_int, help="Only attachments at least this large")
+        parser.add_argument("--max-bytes", type=positive_int, help="Only attachments no larger than this")
+        parser.add_argument("--identity", dest="filter_identity", action="append", metavar="RID", help="Only when this bot is the acting identity")
+        parser.add_argument("--cooldown", type=int, metavar="SECONDS", help="Fold repeat alerts inside this window into one summary")
+        parser.add_argument("--dedup-window", type=int, metavar="SECONDS", help="How long a fired event stays remembered (default 86400)")
+        parser.add_argument("--yes", action="store_true", help="Skip the preview's y/N")
+        if editing:
+            parser.add_argument(
+                "--clear",
+                action="append",
+                choices=("identity", "scopes", "senders", "domains", "keywords", "media_types", "regex", "min_bytes", "max_bytes", "actions"),
+                help="Empty this part of the rule (repeatable)",
+            )
+            parser.add_argument("--replace-actions", action="store_true", help="Replace the action list instead of adding to it")
+
+    rule_writing_flags(rules_kinds.add_parser("add", help="Write a new rule (preview + y/N)"), editing=False)
+    rule_writing_flags(rules_kinds.add_parser("edit", help="Change a stored rule; only what you name changes (preview + y/N)"), editing=True)
+
+    rules_remove = rules_kinds.add_parser("remove", help="Delete a stored rule (preview + y/N)")
+    rules_remove.add_argument("--name", required=True, help="The rule to remove")
+    rules_remove.add_argument("--yes", action="store_true", help="Skip the preview's y/N")
+
+    for verb, what in (("enable", "Enable"), ("disable", "Disable")):
+        toggle = rules_kinds.add_parser(verb, help=f"{what} a stored rule without changing anything else")
+        toggle.add_argument("--name", required=True, help="The rule to change")
+
+    rules_test = rules_kinds.add_parser(
+        "test", help="Evaluate the rules against a recorded event and print what would fire; nothing is fired"
+    )
+    rules_test.add_argument("--event", required=True, metavar="PATH", help="A JSON file holding one recorded event")
+    rules_test.add_argument("--name", help="Test only this rule")
+
+    schedule_parser = subparsers.add_parser(
+        "schedule",
+        help="Runner-held scheduled posts: they fire only while `watch run` is up on this machine",
+    )
+    schedule_kinds = schedule_parser.add_subparsers(dest="schedule_kind")
+
+    schedule_post = schedule_kinds.add_parser("post", help="Schedule a message; it fires through the runner (preview + y/N)")
+    schedule_post.add_argument("--channel", type=snowflake, required=True, help="Channel or thread ID to post in")
+    schedule_post.add_argument("--text", required=True, help="The message; `-` reads it from stdin")
+    schedule_post.add_argument("--at", metavar="TIME", help="ISO 8601 time to post once; a time with no offset is local")
+    schedule_post.add_argument("--every", metavar="REPEAT", help="An interval (15m, 2h, 1d) or a five-field cron expression")
+    schedule_post.add_argument("--yes", action="store_true", help="Skip the preview's y/N (the channel must be in DISCORD_SEND_ALLOWLIST either way)")
+    schedule_kinds.add_parser("list", help="Every runner-held schedule with its guarantee (no login)")
+    schedule_cancel = schedule_kinds.add_parser("cancel", help="Cancel a runner-held schedule (no login)")
+    schedule_cancel.add_argument("--id", dest="schedule_id", required=True, help="The schedule ID `schedule list` prints")
+    schedule_cancel.add_argument("--yes", action="store_true", help="Skip the confirmation")
+
+    event_parser = subparsers.add_parser(
+        "event",
+        help="Server-held scheduled events: Discord holds them, so they happen with this machine off",
+    )
+    event_kinds = event_parser.add_subparsers(dest="event_kind")
+
+    event_list = event_kinds.add_parser("list", help="Every scheduled event a server holds, with its guarantee")
+    event_list.add_argument("--server", type=snowflake, required=True, help="Server ID")
+
+    def event_fields_flags(parser, *, creating: bool) -> None:
+        parser.add_argument("--server", type=snowflake, required=True, help="Server ID")
+        if not creating:
+            parser.add_argument("--id", dest="event_id", type=snowflake, required=True, help="The event's ID")
+        parser.add_argument("--name", help="What the event is called")
+        parser.add_argument("--start", metavar="TIME", help="ISO 8601 start; a time with no offset is local")
+        parser.add_argument("--end", metavar="TIME", help="ISO 8601 end (Discord requires one for an external event)")
+        parser.add_argument("--place", choices=watch_rim.EVENT_PLACES, help="Where it happens: a voice or stage channel, or somewhere external")
+        parser.add_argument("--channel", type=snowflake, help="Voice or stage channel ID, for a voice or stage_instance event")
+        parser.add_argument("--location", help="Where an external event happens, in words")
+        parser.add_argument("--description", help="What the event is about")
+        parser.add_argument("--yes", action="store_true", help="Skip the preview's y/N")
+
+    event_fields_flags(event_kinds.add_parser("create", help="Create a scheduled event (preview + y/N)"), creating=True)
+    event_fields_flags(event_kinds.add_parser("edit", help="Change a scheduled event; only what you name changes (preview + y/N)"), creating=False)
+
+    event_delete = event_kinds.add_parser(
+        "delete", help="Delete a scheduled event (dry-run by default; --execute asks for its exact name)"
+    )
+    event_delete.add_argument("--server", type=snowflake, required=True, help="Server ID")
+    event_delete.add_argument("--id", dest="event_id", type=snowflake, required=True, help="The event's ID")
+    event_delete.add_argument("--execute", action="store_true", help="Actually delete it, after typing its exact name")
+
     bot_parser = subparsers.add_parser("bot", help="Show or edit the active profile's bot settings and invite URL")
     bot_parser.add_argument("--invite", action="store_true", help="Print only the invite URL")
     bot_parser.add_argument(
@@ -643,8 +768,19 @@ async def run(args, *, client=None, config=None, out=None) -> int:
         # Refused before any config or login: there is nothing Discord could answer.
         return out.finish(Outcome(status="refused", error=message_ops.platform_unsupported(args.message_kind)))
 
+    if args.command == "watch" and args.watch_kind is None:
+        raise ValueError("watch needs one of: run, status, stop, reload, rules.")
+    if args.command == "schedule" and args.schedule_kind is None:
+        raise ValueError("schedule needs one of: post, list, cancel.")
+
     if config is None:
         config = load_config(profile=args.profile)
+
+    if args.command == "watch" and args.watch_kind == "run":
+        # The one command that opens a gateway. It makes its own connection
+        # inside the events adapter, so it never reaches `open_client` below,
+        # and a client the menu handed in is not the connection it needs.
+        return await _run_watch_run(args, config, out)
 
     if args.command == "message" and args.message_kind == "bookmark" and args.list_bookmarks:
         return await _dispatch_offline(args, config, out)
@@ -861,6 +997,12 @@ OFFLINE_ARCHIVE = ("status", "search", "export", "retention", "forget")
 # and retry fetch, and fetching an attachment may need the seam to refresh
 # its URL, so those two log in.
 OFFLINE_REVIEW = ("list", "status", "accept", "reject")
+# The watch commands that never log in: the runner's own state is a lock, a
+# log and rows in the local archive, and a rule is a file on this machine.
+# Only `watch run` opens anything, and it opens a gateway rather than the
+# login-only REST connection every other command uses.
+OFFLINE_WATCH = ("status", "stop", "reload", "rules")
+OFFLINE_SCHEDULE = ("list", "cancel")
 
 
 def _is_offline_archive(args) -> bool:
@@ -870,6 +1012,10 @@ def _is_offline_archive(args) -> bool:
         return args.structure_kind == "remap"
     if args.command == "review":
         return args.review_kind in OFFLINE_REVIEW
+    if args.command == "watch":
+        return args.watch_kind in OFFLINE_WATCH
+    if args.command == "schedule":
+        return args.schedule_kind in OFFLINE_SCHEDULE
     return args.command == "search" and getattr(args, "archive", False)
 
 
@@ -885,6 +1031,10 @@ async def _dispatch_offline(args, config, out) -> int:
             outcome = await OFFLINE_REVIEW_RUNNERS[args.review_kind](args, out)
         elif args.command == "structure":
             outcome = await _run_structure_remap(args, out)
+        elif args.command == "watch":
+            outcome = await _run_watch_offline(args, out)
+        elif args.command == "schedule":
+            outcome = await (_run_schedule_list if args.schedule_kind == "list" else _run_schedule_cancel)(args, out)
         elif args.command == "search":
             outcome = await _run_archive_search(_archive_args_from_search(args), out)
         elif args.archive_kind == "status":
@@ -3079,6 +3229,599 @@ async def _describe_bot(client) -> str:
 
 # -- dispatch -------------------------------------------------------------
 
+# -- watch: the rules, the runner and the two kinds of schedule ------------
+#
+# The core owns the engine, the lock, the cursors and the schedule planner;
+# the gateway and the send path are adapters; `watch.py` holds the screens.
+# What is here is the wiring: which command reads what, which asks what, and
+# where each answer goes.
+
+
+def _rule_paths():
+    return archive_store.tool_paths()
+
+
+def _runner_state(archive, identity):
+    from discord_tools._core.runner import Clock, RunnerState, Schedules
+
+    return Schedules(RunnerState(archive, identity), Clock())
+
+
+async def _run_watch_offline(args, out) -> Outcome:
+    """Every watch command that reads or writes only this machine."""
+    if args.watch_kind == "status":
+        return await _run_watch_status(args, out)
+    if args.watch_kind == "stop":
+        return await _run_watch_stop(args, out)
+    if args.watch_kind == "reload":
+        return await _run_watch_reload(args, out)
+    if args.rules_kind is None:
+        raise ValueError("watch rules needs one of: list, add, edit, remove, enable, disable, test.")
+    if args.rules_kind == "list":
+        return await _run_rules_list(args, out)
+    if args.rules_kind in ("add", "edit"):
+        return await _run_rules_write(args, out, editing=args.rules_kind == "edit")
+    if args.rules_kind == "remove":
+        return await _run_rules_remove(args, out)
+    if args.rules_kind in ("enable", "disable"):
+        return await _run_rules_toggle(args, out, enabled=args.rules_kind == "enable")
+    return await _run_rules_test(args, out)
+
+
+async def _run_watch_status(args, out) -> Outcome:
+    paths = _rule_paths()
+    from discord_tools._core.runner import report as runner_report
+
+    rules: tuple = ()
+    rules_error = None
+    try:
+        rules = watch_rim.ruleset(paths).rules
+    except CodedError as exc:
+        rules_error = f"{exc.error.code}: {exc.error.message}"
+
+    if archive_store.archive_exists():
+        with archive_store.open_archive() as archive:
+            report = runner_report(paths, archive)
+    else:
+        # No archive yet means no cursors and no schedules, which is a true
+        # answer rather than a missing one: the lock and the log still read.
+        report = runner_report(paths)
+    out.say(watch_rim.format_status(report, rules=rules, rules_error=rules_error))
+    return Outcome(
+        status="ok",
+        result={
+            **report,
+            "rules": [rule.name for rule in rules],
+            "rules_error": rules_error,
+            "intents": list(gateway.intents_for_rules(rules)),
+        },
+    )
+
+
+async def _run_watch_stop(args, out) -> Outcome:
+    from discord_tools._core.runner import stop as stop_runner
+
+    result = stop_runner(_rule_paths())
+    out.say(
+        f"Asked the runner (pid {result['pid']}) to stop; it exited after {result['waited_s']}s."
+        if result["status"] == "ok"
+        else f"The runner (pid {result['pid']}) has not exited after {result['waited_s']}s."
+    )
+    return Outcome(status="ok" if result["status"] == "ok" else "partial", result=result)
+
+
+async def _run_watch_reload(args, out) -> Outcome:
+    from discord_tools._core.runner import reload as reload_runner
+
+    result = reload_runner(_rule_paths())
+    out.say(f"Asked the runner (pid {result['pid']}) to re-read its rules.")
+    return Outcome(status="ok", result=result)
+
+
+async def _run_rules_list(args, out) -> Outcome:
+    rules = watch_rim.ruleset(_rule_paths()).rules
+    out.say(watch_rim.format_rules(rules))
+    for rule in rules:
+        out.record("rule", rule.to_dict())
+    return Outcome(
+        status="ok" if rules else "empty",
+        result={"rules": [] if out.jsonl else [rule.to_dict() for rule in rules], "intents": list(gateway.intents_for_rules(rules))},
+    )
+
+
+def _rule_gate(out, *, yes: bool, preview: str, question: str) -> Outcome | None:
+    """The y/N every rule write asks, unless `--yes` answered it already."""
+    if yes:
+        return None
+    refusal = out.approval_unavailable(
+        "Run this in a terminal, or pass --yes: a rule write shows what it would store and asks."
+    )
+    if refusal is not None:
+        return Outcome(status="refused", error=refusal)
+    out.say(preview)
+    if not watch_rim.confirm(question, write=out.say):
+        out.say("Nothing was written.")
+        return Outcome(status="cancelled", result={"cancelled": True})
+    return None
+
+
+async def _run_rules_write(args, out, *, editing: bool) -> Outcome:
+    """`watch rules add` and `watch rules edit`: one rule file, previewed first."""
+    require_private_store()
+    paths = _rule_paths()
+    current = watch_rim.read_rule(paths, args.name) if editing else None
+    existing = watch_rim.build_rule(current) if current else None
+    document = watch_rim.rule_document(args, current=current)
+    if not document["trigger"].get("events"):
+        raise ValueError("watch rules add needs --on: an event kind that fires the rule.")
+    if not document["actions"]:
+        raise ValueError(
+            f"A rule needs at least one action; the closed list is {watch_rim.action_vocabulary()}."
+        )
+    # RULE_INVALID and COMMAND_MISSING are raised here, before the preview: a
+    # rule whose alert command is not on PATH is refused at load, never at
+    # fire time.
+    rule = watch_rim.build_rule(document)
+    preview = watch_rim.format_rule_preview(rule, existing=existing, path=paths.rule(rule.name))
+    stopped = _rule_gate(out, yes=args.yes, preview=preview, question="Store it?")
+    if stopped is not None:
+        return stopped
+
+    path = watch_rim.save_rule(paths, rule)
+    # Readback: the rule as the file now holds it, loaded again from disk.
+    stored = watch_rim.build_rule(watch_rim.read_rule(paths, rule.name))
+    out.say(watch_rim.format_rule(stored))
+    warning = watch_rim.overlap_warning(stored.trigger)
+    if warning:
+        out.warn(warning)
+    out.say(f"Written to {path}. `discord-tools watch reload` picks it up in a running watcher.")
+    return Outcome(
+        status="ok",
+        result={"rule": stored.to_dict(), "path": str(path), "cancelled": False},
+        evidence=Evidence.verified(f"{path} holds rule {stored.name} firing on {', '.join(stored.trigger)}"),
+    )
+
+
+async def _run_rules_remove(args, out) -> Outcome:
+    require_private_store()
+    paths = _rule_paths()
+    rule = watch_rim.build_rule(watch_rim.read_rule(paths, args.name))
+    path = paths.rule(rule.name)
+    stopped = _rule_gate(
+        out, yes=args.yes, preview=watch_rim.format_rule_removal(rule, path), question="Remove it?"
+    )
+    if stopped is not None:
+        return stopped
+    watch_rim.delete_rule(paths, rule.name)
+    out.say(f"Removed {path}.")
+    return Outcome(
+        status="ok",
+        result={"name": rule.name, "path": str(path), "cancelled": False},
+        evidence=Evidence.verified(f"{path} no longer exists"),
+    )
+
+
+async def _run_rules_toggle(args, out, *, enabled: bool) -> Outcome:
+    """`enable` and `disable`: one field, and the opposite command undoes it."""
+    require_private_store()
+    paths = _rule_paths()
+    document = watch_rim.read_rule(paths, args.name)
+    document["enabled"] = enabled
+    rule = watch_rim.build_rule(document)
+    watch_rim.save_rule(paths, rule)
+    stored = watch_rim.build_rule(watch_rim.read_rule(paths, rule.name))
+    word = "enabled" if enabled else "disabled"
+    out.say(f"Rule {stored.name} is {word}. `discord-tools watch reload` picks it up in a running watcher.")
+    return Outcome(
+        status="ok",
+        result={"rule": stored.to_dict()},
+        evidence=Evidence.verified(f"rule {stored.name} reads back {word}"),
+    )
+
+
+async def _run_rules_test(args, out) -> Outcome:
+    """Evaluate a recorded event against the rules and print what would fire."""
+    from discord_tools._core.rules import explain, load_event
+
+    paths = _rule_paths()
+    event = load_event(args.event)
+    rules = [rule for rule in watch_rim.ruleset(paths).rules if not args.name or rule.name == args.name]
+    if args.name and not rules:
+        raise CodedError("TARGET_NOT_FOUND", f"There is no rule named {args.name!r}.", hint="`discord-tools watch rules list` shows them.")
+    result = explain(rules, event, out.identity)
+    out.say(watch_rim.format_explain(result, event))
+    return Outcome(status="ok", result={**result, "event": event.to_dict()})
+
+
+# -- runner-held schedules ------------------------------------------------
+
+
+async def _run_schedule_list(args, out) -> Outcome:
+    if not archive_store.archive_exists():
+        out.say(watch_rim.format_schedules(()))
+        return Outcome(status="empty", result={"schedules": [], "guarantee": watch_rim.RUNNER_HELD})
+    with archive_store.open_archive() as archive:
+        from discord_tools._core.runner import listing
+
+        rows = [listing(schedule) for schedule in _runner_state(archive, out.identity).list()]
+    out.say(watch_rim.format_schedules(rows))
+    for row in rows:
+        out.record("schedule", row)
+    return Outcome(
+        status="ok" if rows else "empty",
+        result={"schedules": [] if out.jsonl else rows, "guarantee": watch_rim.RUNNER_HELD},
+    )
+
+
+async def _run_schedule_cancel(args, out) -> Outcome:
+    from discord_tools._core.runner import RunnerError, listing
+
+    if not archive_store.archive_exists():
+        raise CodedError("TARGET_NOT_FOUND", "There are no schedules yet.", hint="`discord-tools schedule post` adds one.")
+    require_private_store()
+    with archive_store.open_archive() as archive:
+        schedules = _runner_state(archive, out.identity)
+        try:
+            schedule = schedules.get(args.schedule_id)
+        except RunnerError as exc:
+            raise CodedError("TARGET_NOT_FOUND", str(exc), hint="`discord-tools schedule list` shows the IDs.") from exc
+        preview = watch_rim.format_schedules([listing(schedule)])
+        stopped = _rule_gate(out, yes=args.yes, preview=preview, question="Cancel it?")
+        if stopped is not None:
+            return stopped
+        cancelled = schedules.cancel(args.schedule_id)
+        left = [row.id for row in schedules.list()]
+    out.say(f"Schedule {cancelled.id} cancelled; nothing will be posted for it.")
+    return Outcome(
+        status="ok",
+        result={"schedule": listing(cancelled), "cancelled": False},
+        evidence=Evidence.verified(f"{cancelled.id} is no longer among the {len(left)} stored schedule(s)"),
+    )
+
+
+async def _run_schedule_post(client, args, config, out) -> Outcome:
+    """A runner-held post: the send gate now, and the runner's allowlist later."""
+    require_private_store()
+    watch_rim.check_schedule_time(at=args.at, every=args.every)
+    text = _message_text(args.text, has_files=False)
+    if not text:
+        raise ValueError("schedule post needs --text: there is no file to schedule, only a message.")
+
+    resolver = DiscordTargetResolver(client)
+    target = await resolver.resolve(args.channel)
+    identity = await _identity(out, client, config)
+    # The runner posts under `yes_allowlist`, so a destination off the list is
+    # a schedule that could only ever be refused. Saying so now beats a row
+    # that fails quietly at three in the morning.
+    if args.channel not in config.send_allowlist:
+        return Outcome(
+            status="refused",
+            target=target,
+            error=Error(
+                code="NOT_ALLOWLISTED",
+                message=f"{target.display} is not in DISCORD_SEND_ALLOWLIST, and the runner posts unattended.",
+                hint=(
+                    f"Add it in ~/.discord-tools/.env as DISCORD_SEND_ALLOWLIST={args.channel} "
+                    "(comma-separated for several). Every scheduled post goes out with nobody watching, "
+                    "so the allowlist is the only gate it has."
+                ),
+            ),
+        )
+
+    async def build():
+        return await _plan(
+            client,
+            command=out.command,
+            identity=identity,
+            targets=(await resolver.resolve(args.channel),),
+            mutations=(
+                Mutation(
+                    op="schedule_post",
+                    rid=watch_rim.schedule_rid(args.channel),
+                    params={"text_chars": len(text), "at": args.at, "every": args.every, "guarantee": watch_rim.RUNNER_HELD},
+                ),
+            ),
+            approval="prompt_y" if not args.yes else "yes_allowlist",
+            rights=plans.REQUIRED_RIGHTS["send"],
+        )
+
+    write = await build()
+    if write.refusal is not None:
+        return Outcome(status="refused", target=target, plan=write.plan, error=write.refusal)
+
+    channel = await client.get_channel(args.channel)
+    preview = watch_rim.format_schedule_preview(
+        channel_label=f"#{channel.name} ({channel.id}, {channel.type})",
+        text=text,
+        at=args.at,
+        every=args.every,
+        sender=identity.label,
+    )
+    out.say(plans.format_preflight(write.plan))
+    stopped = _rule_gate(out, yes=args.yes, preview=preview, question="Schedule it?")
+    if stopped is not None:
+        return Outcome(status=stopped.status, target=target, plan=write.plan, error=stopped.error, result=stopped.result)
+    await _drift_guard(out, write, build)()
+
+    from discord_tools._core.runner import RunnerError, listing
+
+    with archive_store.open_archive() as archive:
+        schedules = _runner_state(archive, identity)
+        try:
+            schedule = schedules.add(watch_rim.schedule_rid(args.channel), text, at=args.at, every=args.every)
+        except RunnerError as exc:
+            raise ValueError(str(exc)) from exc
+        stored = schedules.get(schedule.id)
+    row = listing(stored)
+    out.say(watch_rim.format_schedules([row]))
+    out.say("It fires only while `discord-tools watch run` is up on this machine.")
+    return Outcome(
+        status="ok",
+        target=target,
+        plan=write.plan,
+        result={"schedule": row, "guarantee": watch_rim.RUNNER_HELD, "cancelled": False},
+        evidence=Evidence.verified(f"schedule {stored.id} is stored, next at {row['next']}, {watch_rim.RUNNER_HELD}"),
+    )
+
+
+# -- server-held scheduled events -----------------------------------------
+
+
+async def _event_plan(client, out, *, identity, server_id, mutation, approval, target):
+    resolver = DiscordTargetResolver(client)
+    return await _plan(
+        client,
+        command=out.command,
+        identity=identity,
+        targets=(await resolver.resolve(server_id, kind="guild"),),
+        mutations=(mutation,),
+        approval=approval,
+        rights=plans.REQUIRED_RIGHTS["event-write"],
+    )
+
+
+async def _run_event(client, args, config, out) -> Outcome:
+    if args.event_kind is None:
+        raise ValueError("event needs one of: list, create, edit, delete.")
+    identity = await _identity(out, client, config)
+    resolver = DiscordTargetResolver(client)
+    server = await resolver.resolve(args.server, kind="guild")
+
+    if args.event_kind == "list":
+        rows = await client.list_scheduled_events(args.server)
+        out.say(watch_rim.format_events(rows))
+        for row in rows:
+            out.record("event", row)
+        return Outcome(
+            status="ok" if rows else "empty",
+            target=server,
+            result={"events": [] if out.jsonl else rows, "guarantee": watch_rim.SERVER_HELD},
+        )
+
+    require_private_store()
+    if args.event_kind == "delete":
+        return await _run_event_delete(client, args, out, identity=identity, server=server)
+    return await _run_event_write(client, args, out, identity=identity, server=server, creating=args.event_kind == "create")
+
+
+async def _run_event_write(client, args, out, *, identity, server, creating: bool) -> Outcome:
+    fields = watch_rim.event_fields(args, creating=creating)
+    existing = None if creating else await client.get_scheduled_event(args.server, args.event_id)
+    target = server if creating else watch_rim.event_target(args.server, args.event_id)
+
+    async def build():
+        return await _event_plan(
+            client,
+            out,
+            identity=identity,
+            server_id=args.server,
+            target=target,
+            approval="prompt_y" if not args.yes else "yes_allowlist",
+            mutation=Mutation(
+                op="create_scheduled_event" if creating else "edit_scheduled_event",
+                rid=target.rid,
+                params={
+                    key: (value.isoformat() if hasattr(value, "isoformat") else value)
+                    for key, value in fields.items()
+                    if value is not None
+                },
+            ),
+        )
+
+    write = await build()
+    if write.refusal is not None:
+        return Outcome(status="refused", target=target, plan=write.plan, error=write.refusal)
+
+    preview = watch_rim.format_event_preview(fields, server=server.display, sender=identity.label, existing=existing)
+    out.say(plans.format_preflight(write.plan))
+    stopped = _rule_gate(out, yes=args.yes, preview=preview, question="Create it?" if creating else "Change it?")
+    if stopped is not None:
+        return Outcome(status=stopped.status, target=target, plan=write.plan, error=stopped.error, result=stopped.result)
+    await _drift_guard(out, write, build)()
+
+    if creating:
+        row = await client.create_scheduled_event(args.server, fields, reason=write.reason)
+    else:
+        row = await client.edit_scheduled_event(args.server, args.event_id, fields, reason=write.reason)
+    evidence = await plans.read_back(
+        "the event could not be read back",
+        lambda: _event_readback(client, args.server, int(row["id"])),
+    )
+    out.say(watch_rim.format_events([row]))
+    return Outcome(
+        status="ok",
+        target=watch_rim.event_target(args.server, int(row["id"])),
+        plan=write.plan,
+        result={"event": row, "guarantee": watch_rim.SERVER_HELD, "cancelled": False},
+        evidence=evidence,
+    )
+
+
+async def _event_readback(client, server_id: int, event_id: int) -> str:
+    row = await client.get_scheduled_event(server_id, event_id)
+    return f"scheduled event {row['id']} is {row['name']!r}, starting {row['start']} ({watch_rim.SERVER_HELD})"
+
+
+async def _event_gone(client, server_id: int, event_id: int, name: str) -> str:
+    try:
+        await client.get_scheduled_event(server_id, event_id)
+    except (ClientError, PermissionError):
+        return f"scheduled event {name} ({event_id}) no longer resolves"
+    raise ClientError(f"scheduled event {event_id} still resolves")
+
+
+async def _run_event_delete(client, args, out, *, identity, server) -> Outcome:
+    """Dry-run by default; `--execute` asks for the event's exact name. No `--yes`."""
+    row = await client.get_scheduled_event(args.server, args.event_id)
+    target = watch_rim.event_target(args.server, args.event_id)
+
+    async def build():
+        return await _event_plan(
+            client,
+            out,
+            identity=identity,
+            server_id=args.server,
+            target=target,
+            approval="typed_name",
+            mutation=Mutation(op="delete_scheduled_event", rid=target.rid, params={"name": row["name"]}),
+        )
+
+    write = await build()
+    preview = watch_rim.format_event_removal(row, server=server.display)
+    out.say(preview)
+    out.say(plans.format_preflight(write.plan))
+    if not args.execute:
+        out.say("Dry run - nothing was deleted. Add --execute to delete it, and type its exact name.")
+        return Outcome(status="dry_run", target=target, plan=write.plan, result={"event": row, "dry_run": True})
+    if write.refusal is not None:
+        return Outcome(status="refused", target=target, plan=write.plan, error=write.refusal)
+
+    refusal = out.approval_unavailable(
+        "Run `discord-tools event delete --execute` in a terminal: it asks for the event's exact name, "
+        "and there is deliberately no flag that answers for you."
+    )
+    if refusal is not None:
+        return Outcome(status="refused", target=target, plan=write.plan, error=refusal)
+    typed = watch_rim.confirm_name("", row["name"], write=out.say)
+    if not watch_rim.names_match(typed, row["name"]):
+        out.say("Names do not match - nothing was deleted.")
+        return Outcome(status="cancelled", target=target, plan=write.plan, result={"event": row, "cancelled": True})
+
+    await _drift_guard(out, write, build)()
+    await client.delete_scheduled_event(args.server, args.event_id, reason=write.reason)
+    evidence = await plans.read_back(
+        "the event could not be read back",
+        lambda: _event_gone(client, args.server, args.event_id, row["name"]),
+    )
+    out.say(f"Deleted scheduled event {row['name']} ({row['id']}).")
+    return Outcome(
+        status="ok", target=target, plan=write.plan, result={"event": row, "cancelled": False}, evidence=evidence
+    )
+
+
+# -- the runner ------------------------------------------------------------
+
+
+def _sync_through(connection, seam, identity):
+    """The runner's `archive` action: sync one scope, within the archive's budgets.
+
+    The sync runs on the gateway's own loop, because that is the loop the
+    connection's HTTP session belongs to, and opens its own archive handle
+    there: SQLite binds a connection to the thread that made it, and the
+    runner's handle belongs to the main thread.
+    """
+
+    def run_sync(request):
+        async def walk():
+            with archive_store.open_archive() as archive:
+                queue = review_store.open_queue(archive)
+                source = DiscordArchiveSource(seam, sink=review_store.sink_into(queue, identity.id))
+                report = await archive.sync(source, identity, scopes=[request.rid], batch=SYNC_BATCH)
+                return {"status": report.status, "rid": request.rid, "messages": report.to_dict().get("messages")}
+
+        return connection.run(walk())
+
+    return run_sync
+
+
+async def _run_watch_run(args, config, out) -> int:
+    """`watch run`: the one command that opens a gateway, in the foreground.
+
+    The runner is a synchronous step loop and it owns this thread while it
+    runs, because its stop and reload are POSIX signals and those are the main
+    thread's. The gateway has its own event loop on a thread of its own, so
+    nothing here needs the loop this coroutine was started on.
+    """
+    watch_rim.require_posix()
+    require_private_store()
+    paths = _rule_paths()
+    paths.ensure()
+    rules = watch_rim.ruleset(paths)
+    if not len(rules):
+        return out.finish(
+            _refused(
+                "RULE_INVALID",
+                "There are no rules to run.",
+                hint="`discord-tools watch rules add --name <name> --on message --alert-channel <id>` writes one.",
+            )
+        )
+    intents = gateway.intents_for_rules(rules.rules)
+    connection = gateway.GatewayConnection(
+        config.token, intents=intents, proxy=config.proxy_url, proxy_auth=config.proxy_auth
+    )
+    try:
+        connection.open()
+    except (TimeoutError, RuntimeError, OSError) as exc:
+        connection.close()
+        return out.finish(_refused("PLATFORM_ERROR", f"The gateway would not open: {exc}"))
+
+    try:
+        seam = connection.seam
+        identity = connection.run(
+            DiscordIdentityProvider(
+                seam, profile=config.profile, profiles=tuple(config.tokens), source=config.source
+            ).identity()
+        )
+        out.identity = identity
+        if out.presents:
+            out.frame(banner(identity))
+        privileged = gateway.privileged_among(intents)
+        out.say(f"Watching with {len(rules)} rule(s); intents {', '.join(intents)}.")
+        if privileged:
+            out.say(f"Privileged intents in use: {', '.join(privileged)} (Developer Portal -> Bot).")
+        out.say("Runner-held schedules fire only while this is up. Ctrl-C, or `discord-tools watch stop`, ends it.")
+
+        sender = DiscordMessageSender(seam, run=connection.run, allowlist=config.send_allowlist)
+        with archive_store.open_archive() as archive:
+            runner = watch_rim.build_runner(
+                archive=archive,
+                identity=identity,
+                rules=rules,
+                paths=paths,
+                sender=sender,
+                queue=review_store.open_queue(archive),
+                sync=_sync_through(connection, seam, identity),
+            )
+            source = gateway.DiscordEventSource(connection)
+            counts = runner.run(source)
+            status = runner.status()
+    finally:
+        connection.close()
+
+    out.say(watch_rim.format_counts(counts))
+    if connection.dropped:
+        out.warn(
+            f"{connection.dropped} event(s) were dropped from a full queue; their cursors did not move, "
+            "so the next `watch run` replays them."
+        )
+    return out.finish(
+        Outcome(
+            status="ok",
+            result={"counts": counts, "dropped": connection.dropped, "intents": list(intents), "status": status},
+        )
+    )
+
+
 READING = {
     "discover": _run_discover,
     "search": _run_search,
@@ -3088,6 +3831,8 @@ READING = {
 }
 WRITING = {
     "send": _run_send,
+    "schedule": _run_schedule_post,
+    "event": _run_event,
     "create": _run_create,
     "delete": _run_delete,
     "leave-server": _run_leave_server,

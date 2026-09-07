@@ -39,6 +39,7 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from discord_tools._core import rid as _rid
 from discord_tools._core.contract import CodedError
+from discord_tools._core.paths import make_private_dir
 from discord_tools._core.rules import (
     ACTION_KINDS,
     EVENT_KINDS,
@@ -223,6 +224,14 @@ def rule_names(paths) -> list[str]:
 
 
 def save_rule(paths, rule: Rule) -> Path:
+    """The rule as a 0600 file under a 0700 store.
+
+    The core's `write_rule` makes `rules/` at 0700 but leaves the parent to
+    the umask, so on a fresh machine the first rule written would create
+    `~/.discord-tools` at 0755 - beside the bot token, and refused by the very
+    check the next write runs.
+    """
+    make_private_dir(paths.root)
     return write_rule(paths, rule)
 
 

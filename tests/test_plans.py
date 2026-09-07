@@ -390,7 +390,10 @@ def test_the_seam_methods_that_take_a_reason_are_the_ones_that_get_one():
               # the plan's reason (tests/test_blueprint_adapter.py).
               "create_role", "edit_role", "edit_channel", "edit_guild", "create_automod_rule", "edit_automod_rule",
               # Role delete: the one role primitive the admin commands added (tests/test_role_cli.py).
-              "delete_role"}
+              "delete_role",
+              # Guild scheduled events: the server-held half of `watch`
+              # (tests/test_watch_cli.py).
+              "create_scheduled_event", "edit_scheduled_event", "delete_scheduled_event"}
     accepts = {
         name
         for name, member in inspect.getmembers(DiscordClient, inspect.isfunction)

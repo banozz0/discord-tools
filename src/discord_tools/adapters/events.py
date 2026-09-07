@@ -453,6 +453,21 @@ class GatewayConnection:
         except queue.Empty:
             return None
 
+    @property
+    def seam(self) -> Any:
+        """The REST seam over the same connection.
+
+        One login, not two: a gateway-connected `discord.Client` is still the
+        client every REST call in `client.py` is written against, so replay,
+        the alerts and the schedules go out over the connection already open
+        rather than over a second one.
+        """
+        from discord_tools.client import DiscordClient
+
+        if self._client is None:
+            raise RuntimeError("the gateway connection is not open")
+        return DiscordClient(self._client)
+
     def run(self, coro: Any) -> Any:
         """Run one coroutine on the connection's loop and wait for it.
 

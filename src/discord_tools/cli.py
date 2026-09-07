@@ -3792,9 +3792,20 @@ async def _run_watch_run(args, config, out) -> int:
     )
     try:
         connection.open()
-    except (TimeoutError, RuntimeError, OSError) as exc:
+    except (ConfigError, CodedError):
+        # Already an answer: a rejected token, a privileged intent the portal
+        # has not switched on. The caller turns it into the envelope.
         connection.close()
-        return out.finish(_refused("PLATFORM_ERROR", f"The gateway would not open: {exc}"))
+        raise
+    except Exception as exc:  # noqa: BLE001 - a connection that would not open is not a bug to dump
+        connection.close()
+        return out.finish(
+            _refused(
+                "PLATFORM_ERROR",
+                f"The gateway would not open: {exc}",
+                hint="`discord-tools doctor` checks the token, the intents and what the bot can see.",
+            )
+        )
 
     try:
         seam = connection.seam

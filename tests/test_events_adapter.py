@@ -240,3 +240,40 @@ def test_replay_of_a_scope_discord_pages_no_history_for_is_a_gap_not_an_inventio
     assert list(source.replay("dc:guild:1", "500")) == []
     assert list(source.replay("dc:channel:10", "not-a-cursor")) == []
     assert connection.history_reads == []
+
+
+# -- a connection that will not open ------------------------------------------
+
+
+def test_a_failure_on_the_gateways_thread_is_raised_on_the_thread_that_asked():
+    """A bad token fails inside the background loop. Re-raising it where the
+    command is waiting is what makes it a refusal instead of a traceback
+    nobody is looking at."""
+    from discord_tools.config import ConfigError
+
+    connection = gateway.GatewayConnection("token", intents=("guilds",), ready_timeout_s=5.0)
+
+    def refuse():
+        """What `_serve` does when Discord rejects the token: record and unblock."""
+        connection._error = ConfigError("Discord rejected the bot token.")
+        connection._ready.set()
+        connection._stopped.set()
+
+    connection._serve = refuse
+    with pytest.raises(ConfigError, match="rejected the bot token"):
+        connection.open()
+
+
+def test_a_gateway_that_never_becomes_ready_times_out_rather_than_hanging():
+    connection = gateway.GatewayConnection("token", intents=("guilds",), ready_timeout_s=0.01)
+    connection._serve = lambda: None  # never sets ready, never sets an error
+    with pytest.raises(TimeoutError, match="did not become ready"):
+        connection.open()
+
+
+def test_a_closed_connection_has_no_seam_and_runs_nothing():
+    connection = gateway.GatewayConnection("token", intents=("guilds",))
+    with pytest.raises(RuntimeError, match="not open"):
+        _ = connection.seam
+    with pytest.raises(RuntimeError, match="not open"):
+        connection.run(None)

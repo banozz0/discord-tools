@@ -38,6 +38,7 @@ from typing import Any, Iterator, Mapping, Sequence
 
 from discord_tools._core import rid as _rid
 from discord_tools.adapters.archive import author_of, links_in
+from discord_tools.config import ConfigError
 from discord_tools.records import message_date
 
 PLATFORM = "discord"
@@ -368,6 +369,9 @@ class GatewayConnection:
                 f"the gateway did not become ready within {self._ready_timeout_s:.0f}s"
             )
         if self._error is not None:
+            # Raised on the thread that asked for the connection, so a bad
+            # token or a missing intent is the command's refusal rather than a
+            # traceback from a background thread nobody is watching.
             raise self._error
 
     def _serve(self) -> None:
@@ -387,6 +391,20 @@ class GatewayConnection:
         self._register(client)
         try:
             loop.run_until_complete(client.start(self._token))
+        except discord.LoginFailure as exc:
+            # The same answer `client.py` gives a bad token on the REST path: a
+            # refusal naming the fix, not a traceback out of a background thread.
+            self._error = ConfigError(
+                "Discord rejected the bot token. Re-run `discord-tools auth` to store a fresh one."
+            )
+            self._error.__cause__ = exc
+        except discord.PrivilegedIntentsRequired as exc:
+            self._error = ConfigError(
+                "Discord refused the gateway: the rules need a privileged intent this bot does not have. "
+                "Switch it on in the Developer Portal -> your application -> Bot -> Privileged Gateway "
+                "Intents, then run this again. `discord-tools doctor` names which one."
+            )
+            self._error.__cause__ = exc
         except BaseException as exc:  # noqa: BLE001 - handed to the opening thread
             self._error = exc
         finally:

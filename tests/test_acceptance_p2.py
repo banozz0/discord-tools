@@ -187,16 +187,28 @@ def test_the_root_is_section_14s_nine_rows():
     assert ROOT_ITEMS[8] == "Check setup"
 
 
-def test_a_row_whose_pack_has_not_landed_says_so_and_steps_back():
-    # Roles, permissions, members, invites and the audit log landed under
-    # Manage; webhooks, emoji and AutoMod have not, and their row says so
-    # inside the group rather than hiding the rows above it.
-    printed = walk(["6", "6", "0", "0"])
-    notice = next(index for index, text in enumerate(printed) if "Not built yet" in text)
-    assert "webhooks, emoji and AutoMod" in printed[notice]
-    # Straight back to the group, with no prompt in between: an Enter-to-continue
-    # on a screen with nothing to decide eats the number you meant to press next.
-    assert printed[notice + 1].split("\n")[0].endswith("Manage")
+def test_no_row_under_manage_is_a_placeholder_any_more():
+    """Every row under Manage now leads somewhere.
+
+    The placeholder that stood here — "Not built yet" — was the last one, and
+    the pack that filled it took the row rather than pushing one in below, so
+    the numbers people learned for roles, permissions, members, invites and the
+    audit log are the numbers they still are.
+    """
+    printed = walk(["6", "0"])
+    screen = next(text for text in printed if text.split("\n")[0].endswith("Manage"))
+    # "0. Back" closes every group; the rows above it are the group's own.
+    rows = [line for line in screen.split("\n") if line[:1].isdecimal() and not line.startswith("0.")]
+    assert "Not built yet" not in screen and "later version" not in screen
+    assert [row.split(". ", 1)[1].split(" (")[0] for row in rows][:5] == [
+        "Roles", "Permissions", "Members", "Invites", "Audit log: who did what on a server",
+    ]
+    assert [row.split(". ", 1)[1] for row in rows][5:] == [
+        "Webhooks (list, create, delete)",
+        "Emoji and stickers (list, add, remove)",
+        "AutoMod (what Discord filters by itself)",
+        "Channel settings: name, topic, age gate, slow mode, position",
+    ]
 
 
 def test_the_watch_row_holds_the_queue_the_rules_the_runner_and_both_schedules():
@@ -223,9 +235,13 @@ def test_the_rules_group_under_watch_steps_back_to_watch():
     assert printed[rules + 1].split("\n")[0].endswith("Watch")
 
 
-def test_a_number_typed_after_that_notice_reaches_the_row_it_names():
-    printed = walk(["6", "6", "6"])
-    assert sum("Not built yet" in text for text in printed) == 2
+def test_the_manage_group_redraws_so_a_number_reaches_the_row_it_names():
+    """Coming back out of a subgroup lands on Manage itself, not on the root:
+    a second number is answered by the screen that printed it."""
+    printed = walk(["6", "6", "0", "0"])
+    manage = [index for index, text in enumerate(printed) if text.split("\n")[0].endswith("Manage")]
+    assert len(manage) >= 2, printed[-3:]
+    assert printed[manage[0] + 1].split("\n")[0].endswith("Webhooks")
 
 
 COMMANDS_REACHED = {

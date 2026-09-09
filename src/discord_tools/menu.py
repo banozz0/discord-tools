@@ -33,7 +33,9 @@ from discord_tools.prompts import (
     pick,
     with_banner,
 )
+from discord_tools import integrations
 from discord_tools import moderation
+from discord_tools import settings
 from discord_tools.ui import crumb
 
 # What the menu turns into a printed line instead of an exit. Anything not
@@ -1991,6 +1993,467 @@ async def _flow_audit_log(*, session, runner, read, write) -> bool:
         return result is not EXIT
 
 
+# -- webhooks, emoji, stickers, AutoMod and a channel's settings ---------------
+#
+# Fourteen rows under Manage, in four subgroups. Listing reads; the webhook
+# create, both adds, both rule writes and the channel edit ask their y/N inside
+# the command (the menu never passes --yes); the three removals and the rule
+# delete dry-run first and then ask for the exact name inside the command, so
+# the menu is no shorter a path to a deletion than the flags are.
+#
+# A repeatable flag is one comma-separated line here, the way `rules add` asks
+# for its event kinds: the flags path takes them one at a time, and a menu that
+# asked "and another?" five times would be a worse screen than a list.
+
+
+def _split(text) -> list[str] | None:
+    parts = [part.strip() for part in str(text or "").split(",") if part.strip()]
+    return parts or None
+
+
+def _ask_optional_list(*, title: str, none_row: str, some_row: str, prompt: str, read, write, trail: str):
+    """A comma-separated list, or None, or BACK.
+
+    A blank line cancels every text prompt in this menu, so "none" cannot be an
+    empty answer: it is a row, the way keeping and clearing are rows elsewhere.
+    """
+    which = choose([none_row, some_row], title=crumb(trail, title), read=read, write=write)
+    if which is BACK:
+        return BACK
+    if which == 0:
+        return None
+    typed = ask_text(prompt, read=read, write=write)
+    return BACK if typed is BACK else _split(typed)
+
+
+# What each integration listing is called on the seam, and how one of its rows
+# reads on a picker.
+_INTEGRATIONS = {
+    "webhook": ("list_webhooks", lambda row: f"{cell(str(row['name']), 28)}  {row['id']}  #{row.get('channel') or '-'}"),
+    "emoji": ("list_emojis", lambda row: f"{cell(str(row['name']), 28)}  {row['id']}  {row.get('mention') or ''}"),
+    "sticker": ("list_stickers", lambda row: f"{cell(str(row['name']), 28)}  {row['id']}  {row.get('emoji') or ''}"),
+    "automod": ("list_automod_rules", lambda row: f"{cell(str(row['name']), 28)}  {row['id']}  {'on' if row.get('enabled') else 'off'}"),
+}
+
+
+async def _pick_integration(*, session, server, what: str, read, write, trail: str):
+    """One webhook, emoji, sticker or AutoMod rule of `server`, or BACK.
+
+    No typed-ID fallback: unlike a member, every one of these is listed to a
+    bot that may act on it at all, so an empty screen means there is nothing to
+    act on rather than a listing Discord withheld.
+    """
+    listing, label = _INTEGRATIONS[what]
+    client = await session.client()
+    try:
+        rows = await getattr(client, listing)(server.id)
+    except MENU_ERRORS as exc:
+        write(f"Cannot list the {what}s of {server.name}: {exc}")
+        return BACK
+    if not rows:
+        write(f"Nothing to pick: {server.name} has no {what}s.")
+        return BACK
+    return pick(rows, title=crumb(trail, f"Pick a {what} on {server.name}"), label=label, read=read, write=write)
+
+
+def _integration_list(command: str, title: str):
+    async def flow(*, session, runner, read, write) -> bool:
+        trail = crumb(MAIN, title)
+        server = await _pick_server(session=session, read=read, write=write, trail=trail)
+        if server is BACK:
+            return True
+        args = _namespace(command=command, **{f"{command}_kind": "list"}, server=server.id)
+        result = await _act(args, session=session, runner=runner, read=read, write=write, trail=crumb(trail, server.name), rows=(RUN_AGAIN,))
+        return result is not EXIT
+
+    return flow
+
+
+def _integration_removal(command: str, *, verb: str, title: str, said: str):
+    """The three removals and the rule delete: pick, dry-run, then the same
+    command with --execute, which asks for the exact name itself."""
+
+    async def flow(*, session, runner, read, write) -> bool:
+        trail = crumb(MAIN, title)
+        while True:
+            server = await _pick_server(session=session, read=read, write=write, trail=trail)
+            if server is BACK:
+                return True
+            row = await _pick_integration(session=session, server=server, what=command, read=read, write=write, trail=trail)
+            if row is BACK:
+                if await _single_server(session):
+                    return True
+                continue
+            where = crumb(trail, str(row["name"]))
+            reference = "rule" if command == "automod" else command
+            dry_run = _namespace(
+                command=command, **{f"{command}_kind": verb}, server=server.id, **{reference: str(row["id"])}, execute=False
+            )
+            if await _call(dry_run, session=session, runner=runner, write=write) is None:
+                return after_action(read=read, write=write)
+            choice = choose(
+                [f"{said} it for real - the next screen asks for its exact name"],
+                title=crumb(where, "Dry-run done"),
+                read=read,
+                write=write,
+                back_label=f"Back to the {command} list",
+            )
+            if choice is BACK:
+                continue
+            for_real = _namespace(**{**vars(dry_run), "execute": True})
+            result = await _act(for_real, session=session, runner=runner, read=read, write=write, trail=where, rows=((STAY, f"{said} another"),))
+            if result is not STAY:
+                return result is not EXIT
+
+    return flow
+
+
+_flow_webhook_list = _integration_list("webhook", "Webhooks: list")
+_flow_emoji_list = _integration_list("emoji", "Emoji: list")
+_flow_sticker_list = _integration_list("sticker", "Stickers: list")
+_flow_automod_list = _integration_list("automod", "AutoMod: list")
+_flow_webhook_delete = _integration_removal("webhook", verb="delete", title="Webhooks: delete", said="Delete")
+_flow_emoji_remove = _integration_removal("emoji", verb="remove", title="Emoji: remove", said="Remove")
+_flow_sticker_remove = _integration_removal("sticker", verb="remove", title="Stickers: remove", said="Remove")
+_flow_automod_delete = _integration_removal("automod", verb="delete", title="AutoMod: delete", said="Delete")
+
+
+async def _flow_webhook_create(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Webhooks: create")
+    while True:
+        picked = await _pick_channel(session=session, read=read, write=write, trail=trail)
+        if picked is BACK:
+            return True
+        where = crumb(trail, picked.title)
+        name = ask_text("What Discord shows as the poster's name", read=read, write=write)
+        if name is BACK:
+            continue
+        # The URL is a credential, so choosing to see it is a press of its own
+        # rather than something that happens because a webhook was made.
+        reveal = choose(
+            ["Do not print the URL", "Print the URL once, on this screen"],
+            title=crumb(where, "Anyone holding the URL can post into that channel"),
+            read=read,
+            write=write,
+        )
+        if reveal is BACK:
+            continue
+        args = _namespace(command="webhook", webhook_kind="create", channel=picked.id, name=name, reveal=reveal == 1, yes=False)
+        result = await _act(args, session=session, runner=runner, read=read, write=write, trail=where, rows=((STAY, "Create another"),))
+        if result is not STAY:
+            return result is not EXIT
+
+
+async def _flow_emoji_add(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Emoji: add")
+    while True:
+        server = await _pick_server(session=session, read=read, write=write, trail=trail)
+        if server is BACK:
+            return True
+        where = crumb(trail, server.name)
+        name = ask_text("What it is typed as, between colons", read=read, write=write)
+        if name is BACK:
+            return True
+        path = ask_text(f"Image file ({', '.join(integrations.EMOJI_SUFFIXES)}), at most 256 KiB", read=read, write=write)
+        if path is BACK:
+            continue
+        args = _namespace(command="emoji", emoji_kind="add", server=server.id, name=name, file=path, yes=False)
+        result = await _act(args, session=session, runner=runner, read=read, write=write, trail=where, rows=((STAY, "Add another"),))
+        if result is not STAY:
+            return result is not EXIT
+
+
+async def _flow_sticker_add(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Stickers: add")
+    while True:
+        server = await _pick_server(session=session, read=read, write=write, trail=trail)
+        if server is BACK:
+            return True
+        where = crumb(trail, server.name)
+        name = ask_text("What the sticker is called", read=read, write=write)
+        if name is BACK:
+            return True
+        path = ask_text(f"Sticker file ({', '.join(integrations.STICKER_SUFFIXES)}), at most 512 KiB", read=read, write=write)
+        if path is BACK:
+            continue
+        emoji = ask_text("The unicode emoji Discord suggests it by; Discord requires one", read=read, write=write)
+        if emoji is BACK:
+            continue
+        described = choose(
+            ["No description", "Describe it, for people using a screen reader"],
+            title=crumb(where, "Description"), read=read, write=write,
+        )
+        if described is BACK:
+            continue
+        description = ""
+        if described == 1:
+            description = ask_text("What it shows", read=read, write=write)
+            if description is BACK:
+                continue
+        args = _namespace(
+            command="sticker", sticker_kind="add", server=server.id, name=name, file=path,
+            emoji=emoji, description=description or "", yes=False,
+        )
+        result = await _act(args, session=session, runner=runner, read=read, write=write, trail=where, rows=((STAY, "Add another"),))
+        if result is not STAY:
+            return result is not EXIT
+
+
+# What a rule catches, in the order the screen offers it. The value is the flag
+# the answer fills, which is also what names the trigger family.
+_AUTOMOD_TRIGGERS = (
+    ("Words or phrases", "keyword"),
+    ("Patterns (regular expressions)", "regex"),
+    ("One of Discord's own lists", "preset"),
+    ("Too many mentions in one message", "mention_limit"),
+    ("Whatever Discord itself judges to be spam", "spam"),
+)
+
+
+def _blank_rule(**given) -> dict:
+    """Every AutoMod flag unset, with the ones a screen filled."""
+    blank = dict(
+        name=None, keyword=None, regex=None, allow=None, preset=None, mention_limit=None, spam=False,
+        block=None, alert=None, timeout=None, exempt_role=None, exempt_channel=None, enabled=None, yes=False,
+    )
+    blank.update(given)
+    return blank
+
+
+def _ask_trigger(*, read, write, trail: str):
+    """What the rule catches: the trigger family, and its configuration."""
+    which = choose([label for label, _flag in _AUTOMOD_TRIGGERS], title=crumb(trail, "What does it catch?"), read=read, write=write)
+    if which is BACK:
+        return BACK
+    flag = _AUTOMOD_TRIGGERS[which][1]
+    if flag == "spam":
+        return {"spam": True}
+    if flag == "mention_limit":
+        typed = ask_text(f"Catch a message mentioning more than how many people? (1 to {settings.MAX_MENTIONS})", read=read, write=write)
+        if typed is BACK:
+            return BACK
+        if not str(typed).strip().isdecimal():
+            write("That is not a number of people.")
+            return BACK
+        return {"mention_limit": int(str(typed).strip())}
+    if flag == "preset":
+        chosen = ask_text(f"Which lists? (comma-separated: {', '.join(settings.PRESETS)})", read=read, write=write)
+        if chosen is BACK:
+            return BACK
+        return {"preset": _split(chosen)}
+    label = "Words or phrases, comma-separated" if flag == "keyword" else f"Patterns, comma-separated (at most {settings.MAX_REGEX})"
+    typed = ask_text(label, read=read, write=write)
+    if typed is BACK:
+        return BACK
+    return {flag: _split(typed)}
+
+
+def _ask_rule_actions(*, read, write, trail: str):
+    """What it then does. All three are offered, and none of them deletes."""
+    block = choose(
+        ["Do not block it", "Block the message", "Block it and tell the author why"],
+        title=crumb(trail, "Blocking"), read=read, write=write,
+    )
+    if block is BACK:
+        return BACK
+    given: dict = {}
+    if block == 1:
+        given["block"] = ""
+    elif block == 2:
+        message = ask_text("What the author is told", read=read, write=write)
+        if message is BACK:
+            return BACK
+        given["block"] = message
+    alert = choose(["Do not alert anyone", "Post a copy into a channel"], title=crumb(trail, "Alerting"), read=read, write=write)
+    if alert is BACK:
+        return BACK
+    if alert == 1:
+        typed = _ask_id("Channel ID the copy goes to", read=read, write=write)
+        if typed is BACK:
+            return BACK
+        given["alert"] = typed
+    timeout = choose(["Do not time them out", "Time the author out"], title=crumb(trail, "Timing out"), read=read, write=write)
+    if timeout is BACK:
+        return BACK
+    if timeout == 1:
+        typed = ask_text("For how many seconds? (1 second to 28 days)", read=read, write=write)
+        if typed is BACK:
+            return BACK
+        if not str(typed).strip().isdecimal():
+            write("That is not a number of seconds.")
+            return BACK
+        given["timeout"] = int(str(typed).strip())
+    return given
+
+
+def _ask_rule_exemptions(*, read, write, trail: str):
+    roles = _ask_optional_list(
+        title="Roles it ignores", none_row="It applies to everyone", some_row="Some roles are exempt",
+        prompt="Role IDs, comma-separated", read=read, write=write, trail=trail,
+    )
+    if roles is BACK:
+        return BACK
+    channels = _ask_optional_list(
+        title="Channels it ignores", none_row="It applies everywhere", some_row="Some channels are exempt",
+        prompt="Channel IDs, comma-separated", read=read, write=write, trail=trail,
+    )
+    if channels is BACK:
+        return BACK
+    return {"exempt_role": roles, "exempt_channel": channels}
+
+
+async def _flow_automod_create(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "AutoMod: create")
+    while True:
+        server = await _pick_server(session=session, read=read, write=write, trail=trail)
+        if server is BACK:
+            return True
+        where = crumb(trail, server.name)
+        name = ask_text("What the rule is called", read=read, write=write)
+        if name is BACK:
+            return True
+        trigger = _ask_trigger(read=read, write=write, trail=where)
+        if trigger is BACK:
+            continue
+        allow: dict = {}
+        if {"keyword", "regex", "preset"} & set(trigger):
+            exceptions = _ask_optional_list(
+                title="Exceptions", none_row="No exceptions", some_row="Some words are allowed anyway",
+                prompt="Exceptions, comma-separated", read=read, write=write, trail=where,
+            )
+            if exceptions is BACK:
+                continue
+            allow = {"allow": exceptions}
+        actions = _ask_rule_actions(read=read, write=write, trail=where)
+        if actions is BACK:
+            continue
+        exempt = _ask_rule_exemptions(read=read, write=write, trail=where)
+        if exempt is BACK:
+            continue
+        on = choose(["On", "Off (written, but not applied yet)"], title=crumb(where, "Enabled"), read=read, write=write)
+        if on is BACK:
+            continue
+        args = _namespace(
+            command="automod", automod_kind="create", server=server.id,
+            **_blank_rule(name=name, enabled=on == 0, **trigger, **allow, **actions, **exempt),
+        )
+        result = await _act(args, session=session, runner=runner, read=read, write=write, trail=where, rows=((STAY, "Write another"),))
+        if result is not STAY:
+            return result is not EXIT
+
+
+_AUTOMOD_EDIT_FIELDS = (
+    "Name",
+    "What it catches (inside the family it already has)",
+    "What it then does",
+    "Which roles and channels it ignores",
+    "On or off",
+)
+
+
+async def _flow_automod_edit(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "AutoMod: edit")
+    while True:
+        server = await _pick_server(session=session, read=read, write=write, trail=trail)
+        if server is BACK:
+            return True
+        rule = await _pick_integration(session=session, server=server, what="automod", read=read, write=write, trail=trail)
+        if rule is BACK:
+            if await _single_server(session):
+                return True
+            continue
+        where = crumb(trail, str(rule["name"]))
+        while True:
+            field = choose(list(_AUTOMOD_EDIT_FIELDS), title=crumb(where, "What changes?"), read=read, write=write)
+            if field is BACK:
+                break
+            given: dict | Any = {}
+            if field == 0:
+                value = ask_text("New name", read=read, write=write, current=str(rule["name"]))
+                if value is BACK:
+                    continue
+                given = {"name": value}
+            elif field == 1:
+                given = _ask_trigger(read=read, write=write, trail=where)
+            elif field == 2:
+                given = _ask_rule_actions(read=read, write=write, trail=where)
+            elif field == 3:
+                given = _ask_rule_exemptions(read=read, write=write, trail=where)
+            else:
+                on = choose(["On", "Off"], title=crumb(where, "Enabled"), read=read, write=write)
+                if on is BACK:
+                    continue
+                given = {"enabled": on == 0}
+            if given is BACK:
+                continue
+            args = _namespace(
+                command="automod", automod_kind="edit", server=server.id, rule=str(rule["id"]), **_blank_rule(**given)
+            )
+            result = await _act(args, session=session, runner=runner, read=read, write=write, trail=where, rows=((STAY, "Edit more"),))
+            if result is not STAY:
+                return result is not EXIT
+
+
+_CHANNEL_FIELDS = ("Name", "Topic", "Age gate on/off", "Slow mode", "Position in its list")
+
+
+async def _flow_channel_edit(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Channel settings")
+    while True:
+        picked = await _pick_channel(session=session, read=read, write=write, messageable_only=False, trail=trail)
+        if picked is BACK:
+            return True
+        where = crumb(trail, picked.title)
+        while True:
+            field = choose(list(_CHANNEL_FIELDS), title=crumb(where, "What changes?"), read=read, write=write)
+            if field is BACK:
+                break
+            args = _namespace(
+                command="channel", channel_kind="edit", channel=picked.id,
+                name=None, topic=None, nsfw=None, slowmode=None, position=None, yes=False,
+            )
+            if field == 0:
+                value = ask_text("New name", read=read, write=write, current=picked.title)
+                if value is BACK:
+                    continue
+                args.name = value
+            elif field == 1:
+                # Clearing is its own row: a blank line cancels a text prompt
+                # everywhere else in this menu and cannot mean two things here.
+                choice = choose(["Type a new topic", "Clear the topic"], title=crumb(where, "Topic"), read=read, write=write)
+                if choice is BACK:
+                    continue
+                if choice == 1:
+                    args.topic = ""
+                else:
+                    value = ask_text("New topic", read=read, write=write)
+                    if value is BACK:
+                        continue
+                    args.topic = value
+            elif field == 2:
+                on = choose(["Off", "On"], title=crumb(where, "Age gate"), read=read, write=write)
+                if on is BACK:
+                    continue
+                args.nsfw = on == 1
+            elif field in (3, 4):
+                key = "slowmode" if field == 3 else "position"
+                label = (
+                    f"Seconds between one person's messages, 0 turns it off (at most {settings.MAX_SLOWMODE})"
+                    if field == 3
+                    else "Where it sits in its list, counting from 0 at the top"
+                )
+                value = ask_text(label, read=read, write=write)
+                if value is BACK:
+                    continue
+                if not str(value).strip().isdecimal():
+                    write("That is not a number.")
+                    continue
+                setattr(args, key, int(str(value).strip()))
+            result = await _act(args, session=session, runner=runner, read=read, write=write, trail=where, rows=((STAY, "Edit more"),))
+            if result is not STAY:
+                return result is not EXIT
+
+
 async def _flow_clear(*, session, runner, read, write) -> bool:
     # What the last dry-run scanned, so backing out of its screen and choosing
     # the same target again does not walk the whole history a second time.
@@ -3383,24 +3846,6 @@ def _group(trail, rows):
     return flow
 
 
-def _later(what: str):
-    """A root row whose pack has not landed. It says so and steps back.
-
-    The numbers of section 14's nine rows are learned once, which means the two
-    rows nothing sits under yet are printed from the start rather than pushed in
-    later and shifting everything below them.
-    """
-
-    async def flow(*, session, runner, read, write) -> bool:
-        # Straight back to the root, with no prompt in between: there is nothing
-        # on this screen to read carefully and nothing to decide, and an
-        # Enter-to-continue here eats the number of wherever you meant to go.
-        write(f"Not built yet - {what} arrive in a later version.")
-        return True
-
-    return flow
-
-
 async def run_menu(*, read=None, write=None, session=None, runner=None, profile: str | None = None) -> int:
     """The looping menu. Returns 0 on a normal exit.
 
@@ -3532,7 +3977,44 @@ async def run_menu(*, read=None, write=None, session=None, runner=None, profile:
                         ),
                     ),
                     ("Audit log: who did what on a server", _flow_audit_log),
-                    ("Webhooks, emoji and AutoMod", _later("webhooks, emoji and AutoMod")),
+                    (
+                        "Webhooks (list, create, delete)",
+                        _group(
+                            ("Manage", "Webhooks"),
+                            (
+                                ("List them, every URL's token hidden", _flow_webhook_list),
+                                ("Create one on a channel", _flow_webhook_create),
+                                ("Delete one (dry-run, then typed name)", _flow_webhook_delete),
+                            ),
+                        ),
+                    ),
+                    (
+                        "Emoji and stickers (list, add, remove)",
+                        _group(
+                            ("Manage", "Emoji and stickers"),
+                            (
+                                ("List the custom emoji", _flow_emoji_list),
+                                ("Add an emoji from a file", _flow_emoji_add),
+                                ("Remove an emoji (dry-run, then typed name)", _flow_emoji_remove),
+                                ("List the stickers", _flow_sticker_list),
+                                ("Add a sticker from a file", _flow_sticker_add),
+                                ("Remove a sticker (dry-run, then typed name)", _flow_sticker_remove),
+                            ),
+                        ),
+                    ),
+                    (
+                        "AutoMod (what Discord filters by itself)",
+                        _group(
+                            ("Manage", "AutoMod"),
+                            (
+                                ("List the rules", _flow_automod_list),
+                                ("Write a rule", _flow_automod_create),
+                                ("Change a rule", _flow_automod_edit),
+                                ("Delete a rule (dry-run, then typed name)", _flow_automod_delete),
+                            ),
+                        ),
+                    ),
+                    ("Channel settings: name, topic, age gate, slow mode, position", _flow_channel_edit),
                 ),
             ),
             True,

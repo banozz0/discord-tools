@@ -29,6 +29,9 @@ import test_member_cli as member_cli
 from test_role_cli import MANAGE_ROLES, agency, answer, role, writes
 
 BOT_42 = "NDI.fake.sig"
+# Shape-valid, vendor-invalid, the way the redaction fixture's samples are.
+WEBHOOK_SEG = "SampleWebhookSegment700"
+WEBHOOK_URL = f"https://discord.com/api/webhooks/700/{WEBHOOK_SEG}"
 CONFIG = Config(token=BOT_42, profile="harry", tokens={"harry": BOT_42})
 
 WRITES = {
@@ -313,7 +316,21 @@ def walk(answers):
         members={10: [MemberInfo(id=50, username="ana", display_name="Ana R")]},
         bans={10: [{"id": 54, "username": "dee", "display_name": "dee", "reason": "raiding"}]},
         invites={10: [{"code": "abc123", "channel": "deploys", "uses": 1}]},
-        default_permissions=MANAGE_ROLES,
+        webhooks={10: [{"id": 700, "name": "deploy bot", "type": "incoming", "channel_id": 101,
+                        "channel": "deploys", "creator": "sven", "url": WEBHOOK_URL}]},
+        emojis={10: [{"id": 800, "name": "parrot", "animated": False, "managed": False, "available": True,
+                      "role_ids": [], "creator": "sven", "mention": "<:parrot:800>"}]},
+        stickers={10: [{"id": 810, "name": "wave", "description": "hello", "emoji": "\U0001F44B",
+                        "format": "png", "available": True, "creator": "sven"}]},
+        automod={10: [{"id": 500, "name": "no spam", "enabled": True, "event_type": "message_send",
+                       "trigger": {"type": "keyword", "keyword_filter": ["buy now"], "regex_patterns": [],
+                                   "allow_list": [], "presets": [], "mention_limit": None,
+                                   "mention_raid_protection": False},
+                       "actions": [{"type": "block_message", "channel_id": None, "duration_seconds": None,
+                                    "custom_message": None}],
+                       "exempt_role_ids": [], "exempt_channel_ids": []}],},
+        default_permissions={**MANAGE_ROLES, "manage_webhooks": True, "manage_expressions": True,
+                             "create_expressions": True, "manage_guild": True, "manage_channels": True},
     )
     asyncio.run(run_menu(read=read, write=printed.append, session=session, runner=runner))
     return printed, reached
@@ -338,6 +355,22 @@ MANAGE_ROWS = {
     "invite create": [("6", "4", "2"), "1", "2", "1", "1"],
     "invite revoke": [("6", "4", "3"), "1"],
     "audit-log list": [("6", "5"), "1", "24h"],
+    # Row 6 was the last "not built yet"; this pack took it rather than pushing
+    # a row in below, so 1 to 5 above are the numbers they always were.
+    "webhook list": [("6", "6", "1")],
+    "webhook create": [("6", "6", "2"), "1", "ci", "2"],
+    "webhook delete": [("6", "6", "3"), "1"],
+    "emoji list": [("6", "7", "1")],
+    "emoji add": [("6", "7", "2"), "wave", "/tmp/wave.png"],
+    "emoji remove": [("6", "7", "3"), "1"],
+    "sticker list": [("6", "7", "4")],
+    "sticker add": [("6", "7", "5"), "hi", "/tmp/hi.png", "\U0001F44B", "1"],
+    "sticker remove": [("6", "7", "6"), "1"],
+    "automod list": [("6", "8", "1")],
+    "automod create": [("6", "8", "2"), "no links", "2", "https?://", "1", "2", "1", "1", "1", "1", "1"],
+    "automod edit": [("6", "8", "3"), "1", "1", "renamed"],
+    "automod delete": [("6", "8", "4"), "1"],
+    "channel edit": [("6", "9"), "1", "2", "1", "what landed"],
 }
 
 
@@ -346,7 +379,8 @@ def test_every_manage_row_is_reachable_and_shortcuts_no_gate(expected, answers):
     printed, reached = walk(answers)
     assert any(text == f"<{expected}>" for text in printed), (expected, printed[-3:])
     assert not any(getattr(args, "yes", False) for args in reached)
-    if expected in ("role delete", "member kick", "member ban", "invite revoke"):
+    if expected in ("role delete", "member kick", "member ban", "invite revoke",
+                    "webhook delete", "emoji remove", "sticker remove", "automod delete"):
         assert [args.execute for args in reached] == [False], "the menu dry-runs first; the typed gate is inside the command"
 
 
@@ -372,7 +406,169 @@ def test_the_menu_builds_the_flags_arguments_for_roles_and_overwrites():
     assert (reached[0].permission_kind, reached[0].target) == ("show", 101)
 
 
-def test_the_manage_rows_that_are_not_built_still_say_so():
-    printed, reached = walk([("6", "6")])
-    assert any("Not built yet - webhooks, emoji and AutoMod" in text for text in printed)
-    assert reached == []
+# -- 8. the same four things, for webhooks, emoji, stickers and AutoMod ------------
+#
+# The specification's row again, on the last half of the pack: the right is
+# named before any mutation, every delete needs --execute plus the typed name,
+# every executed write carries an audit line and an audit-log reason, and a
+# channel edit reads back a diff. Plus the one thing only this half has: the
+# webhook redaction fixture, which asserts no token segment reaches any output.
+
+import test_integration_cli as integration_cli
+import test_settings_cli as settings_cli
+
+INTEGRATION_WRITES = {
+    "webhook create": (["webhook", "create", "--channel", "101", "--name", "ci", "--yes"], None, "manage_webhooks"),
+    "emoji add": (["emoji", "add", "--server", "10", "--name", "wave", "--file", "{png}", "--yes"], None, "create_expressions"),
+    "sticker add": (["sticker", "add", "--server", "10", "--name", "hi", "--file", "{png}", "--emoji", "\U0001F44B", "--yes"], None, "create_expressions"),
+    "webhook delete": (["webhook", "delete", "--server", "10", "--webhook", "700", "--execute"], "deploy bot", "manage_webhooks"),
+    "emoji remove": (["emoji", "remove", "--server", "10", "--emoji", "800", "--execute"], "parrot", "manage_expressions"),
+    "sticker remove": (["sticker", "remove", "--server", "10", "--sticker", "810", "--execute"], "wave", "manage_expressions"),
+}
+POLICY_WRITES = {
+    "automod create": (["automod", "create", "--server", "10", "--name", "no links", "--regex", "https?://", "--block", "--yes"], None, "manage_guild"),
+    "automod edit": (["automod", "edit", "--server", "10", "--rule", "500", "--no-enabled", "--yes"], None, "manage_guild"),
+    "automod delete": (["automod", "delete", "--server", "10", "--rule", "500", "--execute"], "no spam", "manage_guild"),
+    "channel edit": (["channel", "edit", "--channel", "101", "--topic", "what landed", "--yes"], None, "manage_channels"),
+}
+
+
+def a_png(tmp_path):
+    path = tmp_path / "wave.png"
+    path.write_bytes(b"\x89PNG" + b"0" * 64)
+    return str(path)
+
+
+def filled(argv, tmp_path):
+    return [part.replace("{png}", a_png(tmp_path)) for part in argv]
+
+
+@pytest.mark.parametrize("name", list(INTEGRATION_WRITES))
+def test_p7_a_missing_right_is_named_before_any_integration_mutation(name, tmp_path):
+    argv, _label, right = INTEGRATION_WRITES[name]
+    client = integration_cli.agency(default_permissions={"view_channel": True})
+    code, body, _stderr = integration_cli.go(["--json", *filled(argv, tmp_path)], client)
+    assert (code, body["error"]["code"]) == (2, "PERMISSION_DENIED"), (name, body)
+    assert right in body["error"]["message"]
+    assert integration_cli.writes(client) == []
+
+
+@pytest.mark.parametrize("name", list(POLICY_WRITES))
+def test_p7_a_missing_right_is_named_before_any_policy_mutation(name):
+    argv, _label, right = POLICY_WRITES[name]
+    client = settings_cli.agency(default_permissions={"view_channel": True})
+    code, body, _stderr = settings_cli.go(["--json", *argv], client)
+    assert (code, body["error"]["code"]) == (2, "PERMISSION_DENIED"), (name, body)
+    assert right in body["error"]["message"]
+    assert client.structure_writes == [] and client.deleted_automod == []
+
+
+@pytest.mark.parametrize(
+    "name,argv,label",
+    [(name, argv, label) for name, (argv, label, _right) in {**INTEGRATION_WRITES, **POLICY_WRITES}.items() if label],
+)
+def test_p7_every_delete_needs_execute_and_the_typed_name_and_has_no_yes(name, argv, label, monkeypatch):
+    from capture_help import parser_for
+
+    flags = {flag for action in parser_for(tuple(argv[:2]))._actions for flag in action.option_strings}
+    assert "--yes" not in flags, name
+    module = settings_cli if name.startswith("automod") else integration_cli
+    client = module.agency()
+    dry = [part for part in argv if part != "--execute"]
+    code, body, _stderr = module.go(["--json", *dry], client)
+    assert (code, body["status"], body["result"]["dry_run"]) == (0, "ok", True), name
+
+    module.answer(monkeypatch, label + " not")
+    code, body, _stderr = module.go(["--json", *argv], client)
+    assert (code, body["status"]) == (1, "cancelled"), name
+
+    module.answer(monkeypatch, label)
+    code, body, _stderr = module.go(["--json", *argv], client)
+    assert (code, body["status"]) == (0, "ok"), name
+    assert "is no longer listed" in body["evidence"]["readback"]
+
+
+def test_p7_every_executed_integration_write_has_an_audit_line_and_an_audit_reason(home_is_a_tmp_dir, monkeypatch, tmp_path):
+    client = integration_cli.agency()
+    typed(monkeypatch, [label for _argv, label, _right in INTEGRATION_WRITES.values() if label])
+    plan_ids = {}
+    for name, (argv, _label, _right) in INTEGRATION_WRITES.items():
+        code, body, _stderr = integration_cli.go(["--json", *filled(argv, tmp_path)], client)
+        assert (code, body["status"]) == (0, "ok"), (name, body)
+        assert body["evidence"]["readback"] and not body["evidence"]["readback"].startswith("unverified")
+        plan_ids[name] = body["plan"]["plan_id"]
+
+    lines = audit_lines(home_is_a_tmp_dir)
+    assert [line["command"] for line in lines] == list(INTEGRATION_WRITES)
+    assert [line["approval"] for line in lines] == ["prompt_y"] * 3 + ["typed_name"] * 3
+    assert all(line["status"] == "ok" and line["evidence"]["readback"] for line in lines)
+    assert client.reasons == [f"cli-tools {name} plan {plan_ids[name][:8]}" for name in INTEGRATION_WRITES]
+    assert find(json.dumps(lines)) == []
+
+
+def test_p7_every_executed_policy_write_has_an_audit_line_and_a_channel_edit_reads_back_a_diff(home_is_a_tmp_dir, monkeypatch):
+    client = settings_cli.agency()
+    typed(monkeypatch, ["y", "y", "no spam", "y"])
+    plan_ids, evidence = {}, {}
+    for name, (argv, _label, _right) in POLICY_WRITES.items():
+        code, body, _stderr = settings_cli.go(["--json", *[part for part in argv if part != "--yes"]], client)
+        assert (code, body["status"]) == (0, "ok"), (name, body)
+        plan_ids[name] = body["plan"]["plan_id"]
+        evidence[name] = body["evidence"]["readback"]
+
+    lines = audit_lines(home_is_a_tmp_dir)
+    assert [line["command"] for line in lines] == list(POLICY_WRITES)
+    assert [line["approval"] for line in lines] == ["prompt_y", "prompt_y", "typed_name", "prompt_y"]
+    assert client.reasons == [f"cli-tools {name} plan {plan_ids[name][:8]}" for name in POLICY_WRITES]
+    # The channel edit's evidence is the diff, read back from Discord.
+    assert evidence["channel edit"] == "topic 'what shipped' -> 'what landed'"
+    assert find(json.dumps(lines)) == []
+
+
+def test_p7_no_integration_or_policy_read_and_no_dry_run_is_audited(home_is_a_tmp_dir):
+    for what in ("webhook", "emoji", "sticker"):
+        integration_cli.go(["--json", what, "list", "--server", "10"], integration_cli.agency())
+    integration_cli.go(["--json", "webhook", "delete", "--server", "10", "--webhook", "700"], integration_cli.agency())
+    settings_cli.go(["--json", "automod", "list", "--server", "10"], settings_cli.agency())
+    settings_cli.go(["--json", "automod", "delete", "--server", "10", "--rule", "500"], settings_cli.agency())
+    assert audit_lines(home_is_a_tmp_dir) == []
+
+
+# -- 9. the webhook redaction fixture ------------------------------------------------
+#
+# The card's own acceptance: no webhook token segment reaches any output file.
+# Every command that can touch a webhook is run, its whole envelope, its human
+# screen and the audit log are collected, and the shared forbidden-pattern list
+# is run over all three. `--reveal` is included on purpose: it is the one path
+# allowed to print the URL, and it must still keep it out of the envelope.
+
+
+def test_p7_no_webhook_token_segment_reaches_any_output_file(home_is_a_tmp_dir, monkeypatch):
+    client = integration_cli.agency()
+    typed(monkeypatch, ["y", "y", "deploy bot"])
+    screens, envelopes = [], []
+    for argv in (
+        ["webhook", "list", "--server", "10"],
+        ["webhook", "create", "--channel", "101", "--name", "ci"],
+        ["webhook", "create", "--channel", "101", "--name", "ci2", "--reveal"],
+        ["webhook", "delete", "--server", "10", "--webhook", "700", "--execute"],
+    ):
+        _code, body, stderr = integration_cli.go(["--json", *argv], client)
+        envelopes.append(body)
+        screens.append(stderr)
+
+    minted = [hook["url"] for hook in client.created_webhooks] + [integration_cli.URL]
+    assert len(minted) == 3, "two webhooks were created and one already existed"
+
+    # The envelope, the args echo and the audit log carry no whole URL at all.
+    written = json.dumps(envelopes) + json.dumps(audit_lines(home_is_a_tmp_dir))
+    for url in minted:
+        segment = url.rsplit("/", 1)[1]
+        assert segment not in written, url
+    assert find(written) == [], "the shared forbidden-pattern list finds nothing"
+
+    # And on the screens, exactly one whole URL appears: the one --reveal asked for.
+    revealed = client.created_webhooks[1]["url"]
+    assert sum(url in "".join(screens) for url in minted) == 1
+    assert revealed in screens[2] and "only time the URL is printed" in screens[2]
+    assert find(screens[0] + screens[1] + screens[3]) == []

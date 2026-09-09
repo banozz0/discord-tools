@@ -26,6 +26,11 @@ this release is mostly about handling it properly.
   the webhook's exact name typed at a prompt. There is no `--yes`: everything
   posting through that URL stops at once, and Discord cannot bring the same URL
   back.
+- **A delete checks the right on the webhook's own channel**, not on the server.
+  Manage Webhooks is a right a channel overwrite can grant or take away, and the
+  channel is the only place Discord asks about — so a bot holding it just there
+  can delete, and one denied it there is told so by name instead of getting a
+  403 from Discord after the preview said yes.
 
 ### Emoji and stickers
 
@@ -76,6 +81,8 @@ this release is mostly about handling it properly.
   disagrees with what was asked is reported `unverified`, not `ok`.
 - Only the fields you give are sent, and a field already at the asked value is
   not a change at all: the command says so and touches nothing.
+- Under `--json`, `result.channel` is the channel **as it now is**,
+  `result.before` is what it was, and `result.changed` is what moved.
 - A field the channel's type does not have — a topic on a category, slow mode on
   a stage — is refused by name before anything is sent, because Discord answers
   that with a 400 that names neither the field nor the type.

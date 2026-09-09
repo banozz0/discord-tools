@@ -34,9 +34,11 @@ The terms this codebase uses, and the boundaries they imply.
   before anything opens a connection, so a token pasted into the wrong profile
   never acts as the wrong bot.
 - **Root group** — a root row holding several flows (`menu._group`): Read,
-  Build, Identity. Rows keep their own numbers inside it and `0` steps back to
-  the root. Two rows hold nothing yet (`menu._later`) and say so, so section
-  14's nine numbers are learned once.
+  Build, Manage, Watch, Identity. Rows keep their own numbers inside it and `0`
+  steps back to the root, and a group may hold groups — Manage holds six. A
+  pack that lands takes the number of the placeholder it fills rather than
+  pushing a row in below it, so section 14's nine numbers, and the numbers
+  inside each group, are learned once.
 - **Gate** — the confirmation pattern on every destructive path, fixed by
   the suite specification: send = preview + y/N (`--yes` needs the
   allowlist), create = preview + y/N, clear = dry-run default + `--execute` +

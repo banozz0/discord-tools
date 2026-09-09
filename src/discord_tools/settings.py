@@ -38,13 +38,9 @@ from discord_tools._core.identity import Target
 from discord_tools.adapters.targets import TargetError
 from discord_tools.roles import RULE
 
-PLATFORM = "discord"
-
-# The trigger families this tool writes, each named by the flags that configure
-# it. Discord's `member_profile` and the retired `harmful_link` are absent: one
-# needs a different event type, the other Discord fills in by itself.
-TRIGGERS = ("keyword", "keyword_preset", "spam", "mention_spam")
-# Discord's own preset lists, by its own names.
+# Discord's own preset lists, by its own names. The trigger families themselves
+# are not listed here: `_family` names them where it decides between them, and a
+# second copy is a second thing to keep in step.
 PRESETS = ("profanity", "sexual_content", "slurs")
 # The three actions, all of which leave every message that already posted alone.
 ACTIONS = ("block_message", "send_alert_message", "timeout")

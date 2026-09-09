@@ -52,7 +52,7 @@ scripts pass a subcommand.
 | `member` | Moderation: `list` (the `members` command by its group name); `kick` and `ban` dry-run, and for real take `--execute` **and** the member's exact username, with no `--yes` and a required `--reason`; `unban`, `timeout --until` (required, 28 days at most) and `nick` preview + y/N. Every write preflights the right Discord checks and refuses `HIERARCHY_DENIED` for the owner, the bot itself, or a member the bot's top role cannot reach. See [Members, invites and the audit log](#members-invites-and-the-audit-log) |
 | `invite` | `list --server <id>` prints every invite **with its link**; `create --channel <id>` makes one (`--max-age`, `--max-uses`, `--temporary`) behind a preview + y/N and prints the link once; `revoke` dry-runs, and for real takes `--execute` **and** the exact code, no `--yes`. Links appear in `list` and `create` and nowhere else |
 | `audit-log` | `list --server <id>` prints the server's own audit log, newest first, filtered by `--action`, `--user` and `--since`. Needs **View Audit Log**. This is Discord's log of everyone's changes; `audit.jsonl` in `~/.discord-tools/` is this tool's own log of its own writes |
-| `webhook` | `list --server <id>` shows every webhook **with its URL's token hidden**; `create --channel <id> --name <name>` makes one behind a preview + y/N and prints the whole URL only with `--reveal`, once, on screen; `delete` dry-runs, and for real takes `--execute` **and** the webhook's exact name, no `--yes`. Needs **Manage Webhooks**. See [Webhooks, emoji and stickers](#webhooks-emoji-and-stickers) |
+| `webhook` | `list --server <id>` shows every webhook **with its URL's token hidden**; `create --channel <id> --name <name>` makes one behind a preview + y/N and prints the whole URL only with `--reveal`, once, on screen; `delete` dry-runs, and for real takes `--execute` **and** the webhook's exact name, no `--yes`. Needs **Manage Webhooks** — on the server to list, and on the webhook's own channel to delete, because a channel overwrite can grant or take that right away. See [Webhooks, emoji and stickers](#webhooks-emoji-and-stickers) |
 | `emoji` | `list --server <id>` shows every custom emoji with the text you paste to use it; `add --name --file` uploads one (PNG/JPG/GIF/WebP, 256 KiB) behind a preview + y/N; `remove` dry-runs, and for real takes `--execute` **and** the emoji's exact name, no `--yes`. Adding needs **Create Expressions**, removing **Manage Expressions**; listing needs nothing |
 | `sticker` | `list --server <id>`; `add --name --file --emoji` uploads one (PNG/APNG/Lottie JSON/GIF, 512 KiB, with the emoji Discord suggests it by) behind a preview + y/N; `remove` dry-runs, then `--execute` **and** the sticker's exact name. Same rights as `emoji` |
 | `automod` | The rules Discord applies by itself: `list --server <id>`; `create` writes one — the flags name the trigger (`--keyword`, `--regex`, `--preset`, `--mention-limit`, `--spam`) and what it then does (`--block`, `--alert`, `--timeout`), plus `--allow`, `--exempt-role`, `--exempt-channel` and `--enabled/--no-enabled`; `edit` changes one inside the trigger family it already has; `delete` dry-runs, then `--execute` **and** the rule's exact name. Needs **Manage Server**. See [AutoMod and channel settings](#automod-and-channel-settings) |
@@ -551,8 +551,10 @@ hole. `webhook create`, `emoji add` and `sticker add` preview and ask `y/N`.
 
 **Rights, by Discord's current names.** Listing emoji and stickers needs
 nothing — Discord shows both to every member. Listing webhooks needs **Manage
-Webhooks**, because a webhook's URL is a credential Discord shows to nobody
-else. Adding an expression needs **Create Expressions** and removing one needs
+Webhooks** on the server, because a webhook's URL is a credential Discord shows
+to nobody else; deleting one needs the same right **on that webhook's own
+channel**, because a channel overwrite can grant or take it away there and the
+channel is the only place Discord actually asks about. Adding an expression needs **Create Expressions** and removing one needs
 **Manage Expressions**: those are the names the API reports for what the app's
 own settings screen still calls Manage Emojis and Stickers, and naming the
 older alias would ask for a right no preflight could ever see held.
@@ -603,7 +605,9 @@ that rule filtered. Creating and editing preview and ask `y/N`.
 field already at the asked value is not a change at all (the command says so
 and touches nothing), and the evidence it reports afterwards is the before and
 after fetched from Discord rather than the change it asked for — so a readback
-that disagrees is `unverified`, not `ok`. A field the channel's type does not
+that disagrees is `unverified`, not `ok`. Under `--json`, `result.channel` is
+the channel as it now is, `result.before` is what it was, and `result.changed`
+is what moved. A field the channel's type does not
 have — a topic on a category, slow mode on a stage — is refused by name before
 anything is sent, because Discord answers that with a 400 that names neither.
 

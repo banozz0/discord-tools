@@ -5,7 +5,8 @@ import asyncio
 import sys
 from functools import partial
 from pathlib import Path
-from typing import Sequence
+from dataclasses import dataclass
+from typing import Callable, Sequence
 
 from discord_tools import archive as archive_store
 from discord_tools import integrations
@@ -3251,49 +3252,72 @@ async def _run_audit_log(client, args, config, out) -> Outcome:
 # live in integrations.py.
 
 
-class _Expressions:
-    """One of the three integration families: how to list it and how to remove one."""
+@dataclass(frozen=True)
+class _Integration:
+    """One of the three integration families, and everything that differs about it.
 
-    def __init__(self, what: str, *, flag: str, listing: str, remove: str, row, screen) -> None:
-        self.what = what
-        self.flag = flag
-        self.listing = listing
-        self.remove = remove
-        self.row = row
-        self.screen = screen
+    The whole difference between a webhook, an emoji and a sticker lives here,
+    so the shapes below read as one shape. The seam calls are held as functions
+    rather than as method names: a name looked up with `getattr` is a call no
+    grep of this file against the seam would ever find.
+    """
+
+    what: str
+    verbs: str
+    removal: str
+    listing: Callable
+    remove: Callable
+    row: Callable
+    screen: Callable
+
+    @property
+    def rights(self) -> str:
+        return f"{self.what}-{self.removal}"
 
 
-EXPRESSIONS = {
-    "webhook": _Expressions("webhook", flag="webhook", listing="list_webhooks", remove="delete_webhook",
-                            row=integrations.webhook_row, screen=integrations.format_webhooks),
-    "emoji": _Expressions("emoji", flag="emoji", listing="list_emojis", remove="delete_emoji",
-                          row=integrations.emoji_row, screen=integrations.format_emojis),
-    "sticker": _Expressions("sticker", flag="sticker", listing="list_stickers", remove="delete_sticker",
-                            row=integrations.sticker_row, screen=integrations.format_stickers),
+INTEGRATIONS = {
+    "webhook": _Integration(
+        what="webhook", verbs="list, create, delete", removal="delete",
+        listing=lambda client, server_id: client.list_webhooks(server_id),
+        remove=lambda client, server_id, row, reason: client.delete_webhook(server_id, int(row["id"]), reason=reason),
+        row=integrations.webhook_row, screen=integrations.format_webhooks,
+    ),
+    "emoji": _Integration(
+        what="emoji", verbs="list, add, remove", removal="remove",
+        listing=lambda client, server_id: client.list_emojis(server_id),
+        remove=lambda client, server_id, row, reason: client.delete_emoji(server_id, int(row["id"]), reason=reason),
+        row=integrations.emoji_row, screen=integrations.format_emojis,
+    ),
+    "sticker": _Integration(
+        what="sticker", verbs="list, add, remove", removal="remove",
+        listing=lambda client, server_id: client.list_stickers(server_id),
+        remove=lambda client, server_id, row, reason: client.delete_sticker(server_id, int(row["id"]), reason=reason),
+        row=integrations.sticker_row, screen=integrations.format_stickers,
+    ),
 }
+
+ADDS = {"emoji": lambda: _run_emoji_add, "sticker": lambda: _run_sticker_add}
 
 
 async def _run_integration(client, args, config, out, *, what: str) -> Outcome:
+    family = INTEGRATIONS[what]
     kind = getattr(args, f"{what}_kind")
-    verbs = "list, create, delete" if what == "webhook" else "list, add, remove"
     if kind is None:
-        raise ValueError(f"{what} needs one of: {verbs}.")
+        raise ValueError(f"{what} needs one of: {family.verbs}.")
     identity = await _identity(out, client, config)
     resolver = DiscordTargetResolver(client)
     if kind == "create":
         return await _run_webhook_create(client, args, out, identity=identity, resolver=resolver)
 
     server = await resolver.resolve(args.server, kind="guild")
-    family = EXPRESSIONS[what]
     if kind == "list":
-        return await _run_expression_list(client, args, out, identity=identity, resolver=resolver, server=server, family=family)
+        return await _run_integration_list(client, args, out, identity=identity, resolver=resolver, server=server, family=family)
     if kind == "add":
-        adder = _run_emoji_add if what == "emoji" else _run_sticker_add
-        return await adder(client, args, out, identity=identity, resolver=resolver, server=server)
-    return await _run_expression_remove(client, args, out, identity=identity, resolver=resolver, server=server, family=family)
+        return await ADDS[what]()(client, args, out, identity=identity, resolver=resolver, server=server)
+    return await _run_integration_remove(client, args, out, identity=identity, resolver=resolver, server=server, family=family)
 
 
-async def _run_expression_list(client, args, out, *, identity, resolver, server, family) -> Outcome:
+async def _run_integration_list(client, args, out, *, identity, resolver, server, family) -> Outcome:
     """The three listings. Each preflights the right Discord itself checks and
     attaches no plan: nothing changed, so nothing is audited."""
     server_id = int(server.ids["guild"])
@@ -3302,7 +3326,7 @@ async def _run_expression_list(client, args, out, *, identity, resolver, server,
     )
     if refusal is not None:
         return Outcome(status="refused", target=server, error=refusal)
-    found = await getattr(client, family.listing)(server_id)
+    found = await family.listing(client, server_id)
     out.say(family.screen(found, server=server.title))
     rows = [family.row(entry) for entry in found]
     for row in rows:
@@ -3314,24 +3338,46 @@ async def _run_expression_list(client, args, out, *, identity, resolver, server,
     )
 
 
-async def _run_expression_remove(client, args, out, *, identity, resolver, server, family) -> Outcome:
+async def _removal_target(resolver, server, row, *, family):
+    """What the removal's preflight is measured against, and what it reports.
+
+    An emoji and a sticker are the server's, so the server is both. A webhook
+    belongs to one channel, and Manage Webhooks is a right a channel overwrite
+    can grant or take away — so the probe has to ask about *that channel*, or a
+    bot holding the right only there is refused a delete Discord would allow,
+    and one denied it there passes preflight and eats a 403 instead.
+    """
+    if family.what != "webhook":
+        return server, server
+    target = integrations.webhook_target(server, row)
+    if not row.get("channel_id"):
+        # A webhook whose channel this bot cannot see: the server is the only
+        # place left to ask about, and Discord will have the last word.
+        return target, server
+    try:
+        return target, await resolver.resolve(int(row["channel_id"]))
+    except (TargetError, ClientError, PermissionError):
+        return target, server
+
+
+async def _run_integration_remove(client, args, out, *, identity, resolver, server, family) -> Outcome:
     """The three removals: dry-run, then the exact name typed back. No `--yes`
     exists on any of them, so none is ever unattended."""
     server_id = int(server.ids["guild"])
-    rows = await getattr(client, family.listing)(server_id)
-    row = integrations.find(rows, getattr(args, family.flag), what=family.what, server=server)
-    target = integrations.webhook_target(server, row) if family.what == "webhook" else server
+    rows = await family.listing(client, server_id)
+    row = integrations.find(rows, getattr(args, family.what), what=family.what, server=server)
+    target, where = await _removal_target(resolver, server, row, family=family)
 
     async def build():
-        live = await resolver.resolve(server_id, kind="guild")
+        _again, live = await _removal_target(resolver, server, row, family=family)
         return await _plan(
             client,
             command=out.command,
             identity=identity,
-            targets=(live,) if family.what != "webhook" else (live, target),
-            mutations=(Mutation(op=family.remove, rid=target.rid, params={"name": row["name"], "id": int(row["id"])}),),
+            targets=(live,) if live is target else (live, target),
+            mutations=(Mutation(op=f"{family.removal}_{family.what}", rid=target.rid, params={"name": row["name"], "id": int(row["id"])}),),
             approval="typed_name",
-            rights=plans.REQUIRED_RIGHTS[f"{family.what}-{'delete' if family.what == 'webhook' else 'remove'}"],
+            rights=plans.REQUIRED_RIGHTS[family.rights],
         )
 
     write = await build()
@@ -3339,16 +3385,16 @@ async def _run_expression_remove(client, args, out, *, identity, resolver, serve
         out.say(plans.format_preflight(write.plan))
         return Outcome(status="refused", target=target, plan=write.plan, error=write.refusal)
 
-    verb = "Delete" if family.what == "webhook" else "Remove"
+    verb = family.removal.capitalize()
     preview = integrations.format_removal(
-        row, what=family.what, heading=f"{verb} the {family.what} {row['name']} from {server.title} ({server_id})",
+        row, what=family.what, heading=f"{verb} the {family.what} {row['name']} from {where.title} ({where.ids[where.kind]})",
         reason=write.reason,
     )
     result = {family.what: family.row(row), "dry_run": not args.execute}
     if not args.execute:
         out.say(plans.format_preflight(write.plan))
         out.say(preview)
-        out.say(f"Dry-run. Add --execute to {verb.lower()} it; it will ask for its exact name.")
+        out.say(f"Dry-run. Add --execute to {family.removal} it; it will ask for its exact name.")
         return Outcome(status="ok", target=target, plan=None, result=result)
 
     stopped = _gate_typed(
@@ -3358,11 +3404,11 @@ async def _run_expression_remove(client, args, out, *, identity, resolver, serve
     if stopped is not None:
         return stopped
     await _drift_guard(out, write, build)()
-    await getattr(client, family.remove)(server_id, int(row["id"]), reason=write.reason)
+    await family.remove(client, server_id, row, write.reason)
     out.say(f"{verb}d the {family.what} {row['name']} ({row['id']}).")
 
     async def readback():
-        if any(int(entry["id"]) == int(row["id"]) for entry in await getattr(client, family.listing)(server_id)):
+        if any(int(entry["id"]) == int(row["id"]) for entry in await family.listing(client, server_id)):
             raise ClientError(f"{family.what} {row['name']} ({row['id']}) is still listed")
         return f"{family.what} {row['name']} ({row['id']}) is no longer listed on server {server_id}"
 
@@ -3459,10 +3505,10 @@ async def _add_expression(client, args, out, *, identity, resolver, server, what
     await _drift_guard(out, write, build)()
     made = await call(data, filename, write.reason)
     out.say(f"Added the {what} {made['name']} ({made['id']}) to {server.title}.")
-    family = EXPRESSIONS[what]
+    family = INTEGRATIONS[what]
 
     async def readback():
-        listed = await getattr(client, family.listing)(server_id)
+        listed = await family.listing(client, server_id)
         if not any(int(entry["id"]) == int(made["id"]) for entry in listed):
             raise ClientError(f"{what} {made['id']} is not listed on server {server_id}")
         return f"{what} {made['name']} ({made['id']}) is listed on server {server.title} ({server_id})"
@@ -3702,18 +3748,31 @@ async def _run_channel(client, args, config, out) -> Outcome:
     await client.edit_channel(channel_id, reason=write.reason, **fields)
     out.say(f"Edited {before['type']} channel {before['name']} ({channel_id}).")
 
+    # What the readback saw, so `result.channel` reports the channel as it now
+    # is rather than as it was: a caller reading it after a successful write
+    # would otherwise get the old values back under a name that says current.
+    seen: dict = {}
+
     async def readback():
         """The diff, read back from Discord rather than assumed from the write."""
         after = await client.channel_settings(channel_id)
         wrong = {key: after.get(key) for key, value in fields.items() if after.get(key) != value}
         if wrong:
             raise ClientError(f"the channel reads back with {wrong}")
+        seen.update(after)
         return "; ".join(f"{key} {before.get(key)!r} -> {after.get(key)!r}" for key in fields)
 
     evidence = await plans.read_back("the channel could not be read back", readback)
     return Outcome(
         status="ok", target=target, plan=write.plan,
-        result={"channel": settings.channel_row(before), "changed": dict(fields)}, evidence=evidence,
+        result={
+            # `before` when the readback failed — and then `evidence` says
+            # `unverified`, so nothing here claims to be current on its own.
+            "channel": settings.channel_row(seen or before),
+            "before": settings.channel_row(before),
+            "changed": dict(fields),
+        },
+        evidence=evidence,
     )
 
 

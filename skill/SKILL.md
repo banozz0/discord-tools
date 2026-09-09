@@ -432,6 +432,13 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
   None of the three names is unique on a server, so a shared name is refused as
   `TARGET_AMBIGUOUS` with both IDs listed. Pass the ID when the listing shows
   two.
+- **A webhook delete is checked on the webhook's own channel**, not on the
+  server: Manage Webhooks is channel-overridable and the channel is where
+  Discord asks. `PERMISSION_DENIED` there names the channel; relay it rather
+  than retrying against the server.
+- **`channel edit` reports three things under `--json`:** `result.channel` is
+  the channel as it now is, `result.before` is what it was, `result.changed` is
+  what moved.
 - **Adding an expression and removing one need different rights.** *Create
   Expressions* to add an emoji or a sticker, *Manage Expressions* to remove one
   — Discord's current names for what its settings screen still calls Manage

@@ -318,3 +318,72 @@ def test_a_group_with_no_subcommand_says_which_verbs_it_has():
     for what, verbs in (("webhook", "list, create, delete"), ("emoji", "list, add, remove"), ("sticker", "list, add, remove")):
         with pytest.raises(ValueError, match=f"{what} needs one of: {verbs}"):
             go(["--json", what], agency())
+
+
+# -- which place a removal's preflight asks about ------------------------------------
+#
+# Manage Webhooks is a right a channel overwrite can grant or take away, and a
+# webhook belongs to one channel — so the probe has to ask about that channel.
+# Asking the server instead refuses a delete Discord would allow, and allows one
+# it would refuse. Nothing in the envelope names the place that was asked, so
+# each of these proves it the way a user would feel it: by holding the right in
+# one place and not the other.
+
+
+def test_a_webhook_delete_is_preflighted_against_the_webhooks_own_channel(monkeypatch):
+    """Manage Webhooks held only on the channel is enough, because that is the
+    only place Discord actually asks about."""
+    client = agency(
+        guild_permissions={10: {"view_channel": True}},
+        permissions={101: {"manage_webhooks": True, "view_channel": True}},
+    )
+    code, body, stderr = go(["--json", "webhook", "delete", "--server", "10", "--webhook", "700"], client)
+    assert (code, body["status"]) == (0, "ok"), body
+    assert "Permissions  manage_webhooks — held" in stderr
+    answer(monkeypatch, "deploy bot")
+    code, body, _stderr = go(["--json", "webhook", "delete", "--server", "10", "--webhook", "700", "--execute"], client)
+    assert (code, body["status"]) == (0, "ok") and client.deleted_webhooks == [700]
+
+
+def test_a_webhook_delete_denied_on_its_channel_is_refused_even_with_the_right_server_wide():
+    """The mirror, and the one that was wrong: server-wide is not the question."""
+    client = agency(
+        guild_permissions={10: {"manage_webhooks": True, "view_channel": True}},
+        permissions={101: {"view_channel": True}},
+    )
+    code, body, stderr = go(["--json", "webhook", "delete", "--server", "10", "--webhook", "700"], client)
+    assert (code, body["error"]["code"]) == (2, "PERMISSION_DENIED"), body
+    assert "The bot is missing manage_webhooks on " in body["error"]["message"]
+    assert "deploys" in body["error"]["message"], "the refusal names the channel, not the server"
+    assert "Permissions  manage_webhooks — MISSING manage_webhooks" in stderr
+    assert writes(client) == []
+
+
+def test_a_webhook_whose_channel_cannot_be_resolved_falls_back_to_the_server(monkeypatch):
+    """A channel the bot cannot see leaves the server as the only place to ask;
+    Discord still has the last word, and the delete is not refused here."""
+    orphan = {"id": 702, "name": "orphan", "type": "incoming", "channel_id": None,
+              "channel": None, "creator": None, "url": None}
+    client = agency(
+        webhooks={10: [orphan]},
+        guild_permissions={10: {"manage_webhooks": True, "view_channel": True}},
+        permissions={101: {"view_channel": True}},
+    )
+    answer(monkeypatch, "orphan")
+    code, body, _stderr = go(["--json", "webhook", "delete", "--server", "10", "--webhook", "702", "--execute"], client)
+    assert (code, body["status"]) == (0, "ok"), body
+    assert client.deleted_webhooks == [702]
+
+
+def test_an_emoji_and_a_sticker_removal_are_preflighted_against_the_server(monkeypatch):
+    """Neither belongs to a channel, so neither has a channel to ask about: the
+    right held server-wide is enough even where every channel denies it."""
+    client = agency(
+        guild_permissions={10: {"manage_expressions": True, "view_channel": True}},
+        permissions={101: {"view_channel": True}},
+    )
+    for argv, label in (REMOVALS["emoji remove"], REMOVALS["sticker remove"]):
+        answer(monkeypatch, label)
+        code, body, _stderr = go(["--json", *argv, "--execute"], client)
+        assert (code, body["status"]) == (0, "ok"), argv
+    assert (client.deleted_emojis, client.deleted_stickers) == ([800], [810])

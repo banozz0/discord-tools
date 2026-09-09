@@ -25,12 +25,24 @@ STRUCTURE_REMAP = ("4", "6")
 LEAVE = ("4", "7")
 CLEAR = ("5",)
 MANAGE = ("6",)
-ROLE_LIST = ("6", "1")
-ROLE_CREATE = ("6", "2")
-ROLE_EDIT = ("6", "3")
-ROLE_DELETE = ("6", "4")
-PERMISSION_SHOW = ("6", "5")
-PERMISSION_SET = ("6", "6")
+# Manage holds four subgroups: Roles, Permissions, Members, Invites, then the
+# audit log and the row that has not landed.
+ROLE_LIST = ("6", "1", "1")
+ROLE_CREATE = ("6", "1", "2")
+ROLE_EDIT = ("6", "1", "3")
+ROLE_DELETE = ("6", "1", "4")
+PERMISSION_SHOW = ("6", "2", "1")
+PERMISSION_SET = ("6", "2", "2")
+MEMBER_LIST = ("6", "3", "1")
+MEMBER_KICK = ("6", "3", "2")
+MEMBER_BAN = ("6", "3", "3")
+MEMBER_UNBAN = ("6", "3", "4")
+MEMBER_TIMEOUT = ("6", "3", "5")
+MEMBER_NICK = ("6", "3", "6")
+INVITE_LIST = ("6", "4", "1")
+INVITE_CREATE = ("6", "4", "2")
+INVITE_REVOKE = ("6", "4", "3")
+AUDIT_LOG = ("6", "5")
 WATCH = ("7",)
 PROFILES = ("8", "1")
 SWITCH_PROFILE = ("8", "1", "2")
@@ -594,11 +606,11 @@ def test_archive_search_flow_asks_a_date_again_too():
 
 def test_role_create_flow_never_passes_yes_and_backs_out_of_a_single_server():
     # Manage -> create -> (single server auto-picked) -> name -> no colour -> not hoisted -> not mentionable -> no permissions -> exit
-    code, calls, _output = drive([ROLE_CREATE, "Helpers", "1", "1", "1", "1", "0"])
+    code, calls, _output = drive([ROLE_CREATE, "Helpers", "1", "1", "1", "1", "0", "0"])
     assert code == 0
     assert [(args.command, args.role_kind, args.name, args.yes) for args in calls] == [("role", "create", "Helpers", False)]
     # A blank name backs out of the flow rather than looping on a picker that answers itself.
-    code, calls, _output = drive([ROLE_CREATE, "", "0", "0"])
+    code, calls, _output = drive([ROLE_CREATE, "", "0", "0", "0"])
     assert code == 0 and calls == []
 
 
@@ -609,12 +621,95 @@ def test_role_delete_flow_dry_runs_before_offering_execute_and_backing_out_never
         {"id": 5, "name": "Crew", "colour": 0, "hoist": False, "mentionable": False, "permissions": "0", "position": 1, "managed": False},
     ]
     # Roles are listed highest first: row 1 is Crew, row 2 @everyone.
-    code, calls, _output = drive([ROLE_DELETE, "1", "1", "0"], session=session)
+    code, calls, _output = drive([ROLE_DELETE, "1", "1", "0", "0"], session=session)
     assert code == 0
     assert [(args.role_kind, args.role, args.execute) for args in calls] == [("delete", "5", False), ("delete", "5", True)]
     # Backing out of the dry-run screen returns to the role list, never to the execute.
-    code, calls, _output = drive([ROLE_DELETE, "1", "0", "0", "0", "0"])
+    code, calls, _output = drive([ROLE_DELETE, "1", "0", "0", "0", "0", "0"])
     assert code == 0 and [args.execute for args in calls] == [False]
+
+
+def test_member_list_flow_builds_the_command():
+    code, calls, output = drive([MEMBER_LIST, "0"])
+    assert code == 0
+    assert [(args.command, args.member_kind, args.server) for args in calls] == [("member", "list", 1)]
+    assert "Main › Members: list › Ops" in screens(output)
+
+
+@pytest.mark.parametrize("row,verb", [(MEMBER_KICK, "kick"), (MEMBER_BAN, "ban")])
+def test_a_removal_flow_dry_runs_before_offering_execute_and_never_passes_yes(row, verb):
+    # single server auto-picked -> member 1 -> reason -> dry-run -> for real -> exit
+    code, calls, output = drive([row, "1", "raiding", "1", "0", "0"])
+    assert code == 0
+    assert [(args.member_kind, args.member, args.reason, args.execute) for args in calls] == [
+        (verb, "7", "raiding", False),
+        (verb, "7", "raiding", True),
+    ]
+    assert not any(getattr(args, "yes", False) for args in calls), "the menu never answers a typed gate"
+    assert "the next screen asks for their exact username" in screens(output)
+
+
+@pytest.mark.parametrize("row", [MEMBER_KICK, MEMBER_BAN])
+def test_backing_out_of_a_removals_dry_run_never_executes(row):
+    code, calls, _output = drive([row, "1", "raiding", "0", "0", "0", "0", "0"])
+    assert code == 0 and [args.execute for args in calls] == [False]
+
+
+def test_timeout_flow_carries_the_time_and_the_reason():
+    code, calls, _output = drive([MEMBER_TIMEOUT, "1", "2h", "cool off", "0", "0"])
+    assert [(args.member_kind, args.member, args.until, args.reason, args.yes) for args in calls] == [
+        ("timeout", "7", "2h", "cool off", False)
+    ]
+
+
+def test_nick_flow_sets_one_and_clears_one():
+    code, calls, _output = drive([MEMBER_NICK, "1", "1", "Sven M", "0", "0"])
+    assert [(args.member_kind, args.nick) for args in calls] == [("nick", "Sven M")]
+    # Row 2 is "clear it", which is the empty nickname the command takes.
+    code, calls, _output = drive([MEMBER_NICK, "1", "2", "0", "0"])
+    assert [(args.member_kind, args.nick) for args in calls] == [("nick", "")]
+
+
+def test_unban_flow_picks_from_the_ban_list_and_says_so_when_it_is_empty():
+    session = make_session(make_client(bans={1: [{"id": 60, "username": "spammer", "display_name": "spammer", "reason": "raiding"}]}))
+    code, calls, output = drive([MEMBER_UNBAN, "1", "0", "0", "0", "0"], session=session)
+    assert code == 0
+    assert [(args.member_kind, args.member, args.yes) for args in calls] == [("unban", "60", False)]
+    assert "raiding" in screens(output)
+
+    code, calls, output = drive([MEMBER_UNBAN, "", "0", "0", "0"])
+    assert calls == [] and "Nobody is banned from Ops." in screens(output)
+
+
+def test_invite_flows_build_their_commands():
+    code, calls, _output = drive([INVITE_LIST, "0"])
+    assert [(args.command, args.invite_kind, args.server) for args in calls] == [("invite", "list", 1)]
+
+    # channel 1 -> one day -> unlimited -> permanent
+    code, calls, _output = drive([INVITE_CREATE, "1", "2", "1", "1", "0", "0"])
+    assert [(args.invite_kind, args.channel, args.max_age, args.max_uses, args.temporary, args.yes) for args in calls] == [
+        ("create", 10, 86400, 0, False, False)
+    ]
+
+
+def test_invite_revoke_flow_dry_runs_before_offering_execute():
+    session = make_session(make_client(invites={1: [{"code": "abc123", "channel": "general", "uses": 2}]}))
+    code, calls, output = drive([INVITE_REVOKE, "1", "1", "0", "0"], session=session)
+    assert code == 0
+    assert [(args.invite_kind, args.code, args.execute) for args in calls] == [("revoke", "abc123", False), ("revoke", "abc123", True)]
+    assert not any(getattr(args, "yes", False) for args in calls)
+    assert "the next screen asks for its exact code" in screens(output)
+
+
+def test_audit_log_flow_filters_by_action_and_by_person():
+    code, calls, _output = drive([AUDIT_LOG, "1", "24h", "0"])
+    assert [(args.command, args.audit_log_kind, args.action, args.user, args.since) for args in calls] == [
+        ("audit-log", "list", None, None, "24h")
+    ]
+    code, calls, _output = drive([AUDIT_LOG, "2", "ban", "7d", "0"])
+    assert [(args.action, args.user) for args in calls] == [("ban", None)]
+    code, calls, _output = drive([AUDIT_LOG, "3", "7", "7d", "0"])
+    assert [(args.action, args.user) for args in calls] == [(None, 7)]
 
 
 def test_permission_show_flow_lists_channels_that_are_not_messageable_too():

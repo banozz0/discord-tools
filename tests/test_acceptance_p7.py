@@ -24,7 +24,8 @@ from discord_tools._core.redaction import find
 from discord_tools.cli import build_parser, run
 from discord_tools.config import Config
 from discord_tools.envelope import Run, command_name, echoed_args
-from discord_tools.models import ChannelInfo, ServerInfo
+from discord_tools.models import ChannelInfo, MemberInfo, ServerInfo
+import test_member_cli as member_cli
 from test_role_cli import MANAGE_ROLES, agency, answer, role, writes
 
 BOT_42 = "NDI.fake.sig"
@@ -158,7 +159,133 @@ def test_p7_the_bot_never_edits_its_own_top_role_even_as_administrator():
     assert writes(client) == []
 
 
-# -- 6. every Manage row is reachable and shortcuts no gate ---------------------------------------
+# -- 6. the same four things, for members, invites and the audit log -----------------------------
+#
+# The specification's row is one row for the whole pack, and moderation is the
+# other half of it: the right is named before any mutation, a member the
+# hierarchy cannot reach is refused, a timeout with no end is refused, and
+# every executed write carries an audit line and an audit-log reason.
+
+MEMBER_WRITES = {
+    "member kick": (["member", "kick", "--server", "10", "--member", "50", "--reason", "raiding", "--execute"], "ana"),
+    "member ban": (["member", "ban", "--server", "10", "--member", "52", "--reason", "raiding", "--execute"], "bo"),
+    "member timeout": (["member", "timeout", "--server", "10", "--member", "53", "--until", "2h", "--reason", "cool off", "--yes"], None),
+    "member nick": (["member", "nick", "--server", "10", "--member", "53", "--nick", "Cee", "--yes"], None),
+    "member unban": (["member", "unban", "--server", "10", "--member", "54", "--yes"], None),
+    "invite create": (["invite", "create", "--channel", "101", "--yes"], None),
+    "invite revoke": (["invite", "revoke", "--server", "10", "--code", "abc123", "--execute"], "abc123"),
+}
+
+
+def moderated(**overrides):
+    """The same Agency, plus two members the bot can reach, one live invite and
+    one standing ban for the unban to lift."""
+    fields = dict(
+        invites={10: [{"code": "abc123", "channel_id": 101, "channel": "deploys", "inviter": "sven", "uses": 1, "max_uses": 0, "max_age": 0, "temporary": False, "expires_at": None}]},
+        bans={10: [{"id": 54, "username": "dee", "display_name": "dee", "reason": "raiding"}]},
+    )
+    fields.update(overrides)
+    client = member_cli.agency(**fields)
+    client.guild_members[10].extend([member_cli.person(52, "bo"), member_cli.person(53, "cee")])
+    return client
+
+
+def typed(monkeypatch, words):
+    """One answer per prompt, in order: each write asks for its own label."""
+    queue = iter(words)
+    monkeypatch.setattr("builtins.input", lambda _prompt="": next(queue))
+
+
+@pytest.mark.parametrize("name", list(MEMBER_WRITES))
+def test_p7_a_missing_right_is_named_before_any_moderation_mutation(name):
+    client = moderated(default_permissions={"view_channel": True})
+    argv, _label = MEMBER_WRITES[name]
+    code, body, _stderr = go(["--json", *argv], client)
+    assert (code, body["error"]["code"]) == (2, "PERMISSION_DENIED"), (name, body)
+    assert "The bot is missing" in body["error"]["message"]
+    assert member_cli.writes(client) == [] and client.deleted_invites == [] and client.created_invites == []
+
+
+@pytest.mark.parametrize("verb", ["kick", "ban", "timeout", "nick"])
+def test_p7_a_member_the_hierarchy_cannot_reach_is_refused_with_both_positions(verb):
+    """51 is a Moderator, above the bot's own top role; the owner and the bot
+    itself are refused by the same check, before any position is compared."""
+    client = moderated()
+    extra = {"timeout": ["--until", "2h"], "nick": ["--nick", "x"]}.get(verb, [])
+    tail = ["--reason", "x", "--execute"] if verb in ("kick", "ban") else ["--yes"]
+    code, body, _stderr = go(["--json", "member", verb, "--server", "10", "--member", "51", *extra, *tail], client)
+    assert (code, body["error"]["code"]) == (2, "HIERARCHY_DENIED"), body
+    assert "Harrybot sits at position 2" in body["error"]["message"] and "at position 3" in body["error"]["message"]
+    assert member_cli.writes(client) == []
+
+
+def test_p7_a_timeout_without_until_is_refused():
+    """Refused by the parser, before a client exists to refuse it later — and
+    a time nobody can set is refused before the preview is even drawn."""
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["member", "timeout", "--server", "10", "--member", "50"])
+    client = moderated()
+    with pytest.raises(ValueError, match="maximum timeout is 28 days"):
+        go(["--json", "member", "timeout", "--server", "10", "--member", "50", "--until", "29d", "--yes"], client)
+    assert client.timeouts == []
+
+
+def test_p7_every_executed_moderation_write_has_an_audit_line_and_an_audit_reason(home_is_a_tmp_dir, monkeypatch):
+    client = moderated()
+    typed(monkeypatch, [label for _argv, label in MEMBER_WRITES.values() if label])
+    plan_ids = {}
+    for name, (argv, _label) in MEMBER_WRITES.items():
+        code, body, _stderr = go(["--json", *argv], client)
+        assert (code, body["status"]) == (0, "ok"), (name, body)
+        assert body["evidence"]["readback"] and not body["evidence"]["readback"].startswith("unverified")
+        plan_ids[name] = body["plan"]["plan_id"]
+
+    lines = audit_lines(home_is_a_tmp_dir)
+    assert [line["command"] for line in lines] == list(MEMBER_WRITES)
+    assert [line["approval"] for line in lines] == ["typed_name", "typed_name", "prompt_y", "prompt_y", "prompt_y", "prompt_y", "typed_name"]
+    assert all(line["status"] == "ok" and line["evidence"]["readback"] for line in lines)
+    assert all(line["plan_id"] == plan_ids[line["command"]] for line in lines)
+    assert find(json.dumps(lines)) == []
+    # Discord's own audit log got the plan line, with the moderator's words after
+    # it wherever a reason was given.
+    reasons = {
+        "member kick": "cli-tools member kick plan {}: raiding",
+        "member ban": "cli-tools member ban plan {}: raiding",
+        "member timeout": "cli-tools member timeout plan {}: cool off",
+        "member nick": "cli-tools member nick plan {}",
+        "member unban": "cli-tools member unban plan {}",
+        "invite create": "cli-tools invite create plan {}",
+        "invite revoke": "cli-tools invite revoke plan {}",
+    }
+    assert client.reasons == [reasons[name].format(plan_ids[name][:8]) for name in MEMBER_WRITES]
+
+
+def test_p7_a_moderation_read_and_a_dry_run_are_not_audited(home_is_a_tmp_dir):
+    client = moderated()
+    go(["--json", "member", "list", "--server", "10"], client)
+    go(["--json", "invite", "list", "--server", "10"], client)
+    go(["--json", "audit-log", "list", "--server", "10"], client)
+    go(["--json", "member", "kick", "--server", "10", "--member", "50", "--reason", "x"], client)
+    go(["--json", "invite", "revoke", "--server", "10", "--code", "abc123"], client)
+    assert audit_lines(home_is_a_tmp_dir) == []
+
+
+def test_p7_an_invite_link_appears_only_where_showing_one_is_the_point():
+    """`invite list` and `invite create` print the link; nothing else does, and a
+    link a moderator typed into an audit reason is hidden."""
+    client = moderated(
+        audit={10: [{"id": 9, "action": "invite_create", "created_at": "2026-09-09T10:00:00+00:00", "user_id": 1, "user": "sven", "target_id": None, "target": None, "reason": "come to https://discord.gg/abc123", "changes": {}}]}
+    )
+    for argv in (["invite", "list", "--server", "10"], ["invite", "create", "--channel", "101", "--yes"]):
+        _code, body, stderr = go(["--json", *argv], client)
+        assert "https://discord.gg/" in stderr and "discord.gg/" in json.dumps(body)
+
+    for argv in (["invite", "revoke", "--server", "10", "--code", "abc123"], ["audit-log", "list", "--server", "10"]):
+        _code, body, stderr = go(["--json", *argv], moderated(audit=client.audit))
+        assert "discord.gg/abc123" not in stderr and "discord.gg/abc123" not in json.dumps(body), argv
+
+
+# -- 7. every Manage row is reachable and shortcuts no gate ---------------------------------------
 
 
 def walk(answers):
@@ -182,19 +309,34 @@ def walk(answers):
         channels={10: [ChannelInfo(id=101, name="deploys", type="text")]},
         roles={10: [role(10, "@everyone", 0), role(12, "Members", 1), role(14, "Harrybot", 2)]},
         bot_roles={10: [14]},
+        members={10: [MemberInfo(id=50, username="ana", display_name="Ana R")]},
+        bans={10: [{"id": 54, "username": "dee", "display_name": "dee", "reason": "raiding"}]},
+        invites={10: [{"code": "abc123", "channel": "deploys", "uses": 1}]},
         default_permissions=MANAGE_ROLES,
     )
     asyncio.run(run_menu(read=read, write=printed.append, session=session, runner=runner))
     return printed, reached
 
 
+# Manage holds four subgroups and two plain rows; a family's number is learned
+# once and the pack that fills row 6 adds a row rather than shifting these.
 MANAGE_ROWS = {
-    "role list": [("6", "1")],
-    "role create": [("6", "2"), "Helpers", "1", "1", "1", "1"],
-    "role edit": [("6", "3"), "2", "1", "Crew"],
-    "role delete": [("6", "4"), "2"],
-    "permission show": [("6", "5"), "1"],
-    "permission set": [("6", "6"), "1", "2", "2", "send_messages"],
+    "role list": [("6", "1", "1")],
+    "role create": [("6", "1", "2"), "Helpers", "1", "1", "1", "1"],
+    "role edit": [("6", "1", "3"), "2", "1", "Crew"],
+    "role delete": [("6", "1", "4"), "2"],
+    "permission show": [("6", "2", "1"), "1"],
+    "permission set": [("6", "2", "2"), "1", "2", "2", "send_messages"],
+    "member list": [("6", "3", "1")],
+    "member kick": [("6", "3", "2"), "1", "raiding"],
+    "member ban": [("6", "3", "3"), "1", "raiding"],
+    "member unban": [("6", "3", "4"), "1"],
+    "member timeout": [("6", "3", "5"), "1", "2h", "cool off"],
+    "member nick": [("6", "3", "6"), "1", "1", "Sven"],
+    "invite list": [("6", "4", "1")],
+    "invite create": [("6", "4", "2"), "1", "2", "1", "1"],
+    "invite revoke": [("6", "4", "3"), "1"],
+    "audit-log list": [("6", "5"), "1", "24h"],
 }
 
 
@@ -203,12 +345,12 @@ def test_every_manage_row_is_reachable_and_shortcuts_no_gate(expected, answers):
     printed, reached = walk(answers)
     assert any(text == f"<{expected}>" for text in printed), (expected, printed[-3:])
     assert not any(getattr(args, "yes", False) for args in reached)
-    if expected == "role delete":
-        assert [args.execute for args in reached] == [False]
+    if expected in ("role delete", "member kick", "member ban", "invite revoke"):
+        assert [args.execute for args in reached] == [False], "the menu dry-runs first; the typed gate is inside the command"
 
 
 def test_the_menu_role_delete_dry_runs_then_asks_the_name_inside_the_command():
-    _printed, reached = walk([("6", "4"), "2", "1"])
+    _printed, reached = walk([("6", "1", "4"), "2", "1"])
     assert [(args.role_kind, args.server, args.role, args.execute) for args in reached] == [("delete", 10, "12", False), ("delete", 10, "12", True)]
 
 
@@ -216,20 +358,20 @@ def test_the_menu_builds_the_flags_arguments_for_roles_and_overwrites():
     _printed, reached = walk(MANAGE_ROWS["role create"])
     args = reached[0]
     assert (args.role_kind, args.server, args.name, args.colour, args.hoist, args.mentionable, args.permissions) == ("create", 10, "Helpers", None, False, False, None)
-    _printed, reached = walk([("6", "2"), "Helpers", "2", "FF8800", "2", "2", "2", "send_messages"])
+    _printed, reached = walk([("6", "1", "2"), "Helpers", "2", "FF8800", "2", "2", "2", "send_messages"])
     args = reached[0]
     assert (args.colour, args.hoist, args.mentionable, args.permissions) == ("FF8800", True, True, "send_messages")
     _printed, reached = walk(MANAGE_ROWS["role edit"])
     assert (reached[0].role_kind, reached[0].role, reached[0].name) == ("edit", "12", "Crew")
     _printed, reached = walk(MANAGE_ROWS["permission set"])
     assert (reached[0].permission_kind, reached[0].target, reached[0].role, reached[0].allow, reached[0].deny, reached[0].clear) == ("set", 101, "12", None, "send_messages", False)
-    _printed, reached = walk([("6", "6"), "1", "2", "4"])
+    _printed, reached = walk([("6", "2", "2"), "1", "2", "4"])
     assert (reached[0].clear, reached[0].allow, reached[0].deny) == (True, None, None)
     _printed, reached = walk(MANAGE_ROWS["permission show"])
     assert (reached[0].permission_kind, reached[0].target) == ("show", 101)
 
 
 def test_the_manage_rows_that_are_not_built_still_say_so():
-    printed, reached = walk([("6", "7")])
-    assert any("Not built yet - members, invites and webhooks" in text for text in printed)
+    printed, reached = walk([("6", "6")])
+    assert any("Not built yet - webhooks, emoji and AutoMod" in text for text in printed)
     assert reached == []

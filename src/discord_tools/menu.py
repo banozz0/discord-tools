@@ -232,9 +232,15 @@ _TYPE_AN_ID = "Type a channel or thread ID"
 
 
 def _ask_id(label: str, *, read, write) -> Any:
+    """A Discord ID typed by hand, or BACK.
+
+    `0` steps back here as it does on every other screen. It is also not an ID
+    Discord ever mints, so accepting it would only ever send the command a
+    target that cannot exist.
+    """
     while True:
         typed = ask_text(label, read=read, write=write)
-        if typed is BACK:
+        if typed is BACK or typed.strip() == "0":
             return BACK
         if typed.isdecimal():
             return int(typed)
@@ -1671,6 +1677,317 @@ async def _flow_permission_set(*, session, runner, read, write) -> bool:
         result = await _act(args, session=session, runner=runner, read=read, write=write, trail=where, rows=((STAY, "Set another"),))
         if result is not STAY:
             return result is not EXIT
+
+
+# -- members, invites and the audit log ----------------------------------------
+#
+# Ten rows under Manage, in four subgroups. Listing reads; timeout, nick,
+# unban and invite create ask their y/N inside the command (the menu never
+# passes --yes); kick, ban and invite revoke dry-run first and then ask for the
+# exact username or code inside the command, so the menu is no shorter a path
+# to a removal than the flags are.
+
+_TYPE_A_USER_ID = "Type a user ID"
+
+
+async def _pick_member(*, session, server, read, write, trail: str) -> Any:
+    """A member of `server`, or BACK.
+
+    The listing needs the Server Members intent, which most bots do not have
+    turned on; a typed ID is always there, and it is the whole screen when the
+    listing is refused.
+    """
+    client = await session.client()
+    try:
+        people = [member.to_dict() for member in await client.list_members(server.id)]
+    except MENU_ERRORS as exc:
+        write(f"Cannot list members: {exc}")
+        people = []
+    if not people:
+        typed = _ask_id(_TYPE_A_USER_ID, read=read, write=write)
+        return BACK if typed is BACK else {"id": typed, "username": str(typed), "display_name": str(typed)}
+    chosen = pick(
+        people,
+        title=crumb(trail, f"Pick a member of {server.name}"),
+        label=lambda row: f"{cell(str(row['display_name']), 28)}  {cell(str(row['username']), 24)}  {row['id']}",
+        read=read,
+        write=write,
+        extras=(Extra("manual", _TYPE_A_USER_ID),),
+    )
+    if chosen is BACK:
+        return BACK
+    if chosen == "manual":
+        typed = _ask_id(_TYPE_A_USER_ID, read=read, write=write)
+        return BACK if typed is BACK else {"id": typed, "username": str(typed), "display_name": str(typed)}
+    session.target = Target(
+        rid=str(_rid.make("dc", "member", server.id, chosen["id"])),
+        kind="member",
+        title=str(chosen["display_name"]),
+        path=(server.name, str(chosen["display_name"])),
+        platform="discord",
+        ids={"guild": str(server.id), "member": str(chosen["id"])},
+    )
+    return chosen
+
+
+async def _flow_member_list(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Members: list")
+    server = await _pick_server(session=session, read=read, write=write, trail=trail)
+    if server is BACK:
+        return True
+    args = _namespace(command="member", member_kind="list", server=server.id, format="json", output=None)
+    result = await _act(args, session=session, runner=runner, read=read, write=write, trail=crumb(trail, server.name), rows=(RUN_AGAIN,))
+    return result is not EXIT
+
+
+def _member_removal(verb: str, what: str):
+    """Kick and ban: pick, dry-run, then the same command with --execute, which
+    asks for the exact username itself."""
+
+    async def flow(*, session, runner, read, write) -> bool:
+        trail = crumb(MAIN, f"Members: {verb}")
+        while True:
+            server = await _pick_server(session=session, read=read, write=write, trail=trail)
+            if server is BACK:
+                return True
+            member = await _pick_member(session=session, server=server, read=read, write=write, trail=trail)
+            if member is BACK:
+                if await _single_server(session):
+                    return True
+                continue
+            where = crumb(trail, str(member["display_name"]))
+            reason = ask_text("Why? Discord stores this in the server's own audit log", read=read, write=write)
+            if reason is BACK:
+                continue
+            dry_run = _namespace(
+                command="member", member_kind=verb, server=server.id, member=str(member["id"]), reason=reason, execute=False
+            )
+            if await _call(dry_run, session=session, runner=runner, write=write) is None:
+                return after_action(read=read, write=write)
+            choice = choose(
+                [f"{what} for real - the next screen asks for their exact username"],
+                title=crumb(where, "Dry-run done"),
+                read=read,
+                write=write,
+                back_label="Back to the member list",
+            )
+            if choice is BACK:
+                continue
+            for_real = _namespace(**{**vars(dry_run), "execute": True})
+            result = await _act(for_real, session=session, runner=runner, read=read, write=write, trail=where, rows=((STAY, f"{what} another"),))
+            if result is not STAY:
+                return result is not EXIT
+
+    return flow
+
+
+_flow_member_kick = _member_removal("kick", "Kick them")
+_flow_member_ban = _member_removal("ban", "Ban them")
+
+
+async def _flow_member_timeout(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Members: timeout")
+    while True:
+        server = await _pick_server(session=session, read=read, write=write, trail=trail)
+        if server is BACK:
+            return True
+        member = await _pick_member(session=session, server=server, read=read, write=write, trail=trail)
+        if member is BACK:
+            if await _single_server(session):
+                return True
+            continue
+        where = crumb(trail, str(member["display_name"]))
+        until = ask_text("Until when? A duration like 30m, 2h or 7d, or an ISO 8601 time (28 days at most)", read=read, write=write)
+        if until is BACK:
+            continue
+        reason = ask_text("Why? Discord stores this in the server's own audit log", read=read, write=write)
+        if reason is BACK:
+            continue
+        args = _namespace(
+            command="member", member_kind="timeout", server=server.id, member=str(member["id"]), until=until, reason=reason or None, yes=False
+        )
+        result = await _act(args, session=session, runner=runner, read=read, write=write, trail=where, rows=((STAY, "Time out another"),))
+        if result is not STAY:
+            return result is not EXIT
+
+
+async def _flow_member_nick(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Members: nickname")
+    while True:
+        server = await _pick_server(session=session, read=read, write=write, trail=trail)
+        if server is BACK:
+            return True
+        member = await _pick_member(session=session, server=server, read=read, write=write, trail=trail)
+        if member is BACK:
+            if await _single_server(session):
+                return True
+            continue
+        where = crumb(trail, str(member["display_name"]))
+        choice = choose(["Set a nickname", "Clear it back to their username"], title=crumb(where, "Nickname"), read=read, write=write)
+        if choice is BACK:
+            continue
+        nick = ""
+        if choice == 0:
+            nick = ask_text("New nickname", read=read, write=write)
+            if nick is BACK:
+                continue
+        args = _namespace(command="member", member_kind="nick", server=server.id, member=str(member["id"]), nick=nick, reason=None, yes=False)
+        result = await _act(args, session=session, runner=runner, read=read, write=write, trail=where, rows=((STAY, "Rename another"),))
+        if result is not STAY:
+            return result is not EXIT
+
+
+async def _flow_member_unban(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Members: unban")
+    while True:
+        server = await _pick_server(session=session, read=read, write=write, trail=trail)
+        if server is BACK:
+            return True
+        client = await session.client()
+        try:
+            bans = await client.list_bans(server.id)
+        except MENU_ERRORS as exc:
+            write(f"Cannot read the ban list: {exc}")
+            return after_action(read=read, write=write)
+        if not bans:
+            write(f"Nobody is banned from {server.name}.")
+            return after_action(read=read, write=write)
+        chosen = pick(
+            bans,
+            title=crumb(trail, f"Pick a banned user of {server.name}"),
+            label=lambda row: f"{cell(str(row['username']), 28)}  {cell(str(row['id']), 20)}  {row.get('reason') or '(no reason recorded)'}",
+            read=read,
+            write=write,
+        )
+        if chosen is BACK:
+            if await _single_server(session):
+                return True
+            continue
+        args = _namespace(command="member", member_kind="unban", server=server.id, member=str(chosen["id"]), reason=None, yes=False)
+        result = await _act(
+            args, session=session, runner=runner, read=read, write=write, trail=crumb(trail, str(chosen["username"])), rows=((STAY, "Unban another"),)
+        )
+        if result is not STAY:
+            return result is not EXIT
+
+
+async def _flow_invite_list(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Invites: list")
+    server = await _pick_server(session=session, read=read, write=write, trail=trail)
+    if server is BACK:
+        return True
+    args = _namespace(command="invite", invite_kind="list", server=server.id)
+    result = await _act(args, session=session, runner=runner, read=read, write=write, trail=crumb(trail, server.name), rows=(RUN_AGAIN,))
+    return result is not EXIT
+
+
+_INVITE_AGES = (("One hour", 3600), ("One day", 86400), ("Seven days", 604800), ("Never expires", 0))
+_INVITE_USES = (("Unlimited", 0), ("Once", 1), ("Five times", 5), ("Ten times", 10))
+
+
+async def _flow_invite_create(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Invites: create")
+    while True:
+        picked = await _pick_channel(session=session, read=read, write=write, trail=trail)
+        if picked is BACK:
+            return True
+        where = crumb(trail, picked.title)
+        age = choose([label for label, _ in _INVITE_AGES], title=crumb(where, "Expires"), read=read, write=write)
+        if age is BACK:
+            continue
+        uses = choose([label for label, _ in _INVITE_USES], title=crumb(where, "How many people"), read=read, write=write)
+        if uses is BACK:
+            continue
+        temporary = choose(
+            ["Permanent membership", "Temporary - they lose their roles when they disconnect"],
+            title=crumb(where, "Membership"),
+            read=read,
+            write=write,
+        )
+        if temporary is BACK:
+            continue
+        args = _namespace(
+            command="invite", invite_kind="create", channel=picked.id, max_age=_INVITE_AGES[age][1],
+            max_uses=_INVITE_USES[uses][1], temporary=temporary == 1, yes=False,
+        )
+        result = await _act(args, session=session, runner=runner, read=read, write=write, trail=where, rows=((STAY, "Create another"),))
+        if result is not STAY:
+            return result is not EXIT
+
+
+async def _flow_invite_revoke(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Invites: revoke")
+    while True:
+        server = await _pick_server(session=session, read=read, write=write, trail=trail)
+        if server is BACK:
+            return True
+        client = await session.client()
+        try:
+            invites = await client.list_invites(server.id)
+        except MENU_ERRORS as exc:
+            write(f"Cannot read the invites: {exc}")
+            return after_action(read=read, write=write)
+        if not invites:
+            write(f"No invites on {server.name}.")
+            return after_action(read=read, write=write)
+        chosen = pick(
+            invites,
+            title=crumb(trail, f"Pick an invite to {server.name}"),
+            label=lambda row: f"{cell(str(row['code']), 16)}  {cell(str(row.get('channel') or '-'), 24)}  {int(row.get('uses') or 0)} use(s)",
+            read=read,
+            write=write,
+        )
+        if chosen is BACK:
+            if await _single_server(session):
+                return True
+            continue
+        where = crumb(trail, str(chosen["code"]))
+        dry_run = _namespace(command="invite", invite_kind="revoke", server=server.id, code=str(chosen["code"]), execute=False)
+        if await _call(dry_run, session=session, runner=runner, write=write) is None:
+            return after_action(read=read, write=write)
+        choice = choose(
+            ["Revoke it for real - the next screen asks for its exact code"],
+            title=crumb(where, "Dry-run done"),
+            read=read,
+            write=write,
+            back_label="Back to the invite list",
+        )
+        if choice is BACK:
+            continue
+        for_real = _namespace(**{**vars(dry_run), "execute": True})
+        result = await _act(for_real, session=session, runner=runner, read=read, write=write, trail=where, rows=((STAY, "Revoke another"),))
+        if result is not STAY:
+            return result is not EXIT
+
+
+async def _flow_audit_log(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Audit log")
+    while True:
+        server = await _pick_server(session=session, read=read, write=write, trail=trail)
+        if server is BACK:
+            return True
+        where = crumb(trail, server.name)
+        scope = choose(["Everything", "One action", "One person"], title=crumb(where, "What to show"), read=read, write=write)
+        if scope is BACK:
+            return True
+        action = user = None
+        if scope == 1:
+            action = ask_text("Action, in Discord's own snake_case (kick, ban, member_update, invite_create, ...)", read=read, write=write)
+            if action is BACK:
+                continue
+        if scope == 2:
+            typed = _ask_id(_TYPE_A_USER_ID, read=read, write=write)
+            if typed is BACK:
+                continue
+            user = typed
+        since = ask_text("Since when? A duration like 24h or 7d, an ISO 8601 time, or blank for everything", read=read, write=write)
+        if since is BACK:
+            continue
+        args = _namespace(
+            command="audit-log", audit_log_kind="list", server=server.id, action=action or None, user=user, since=since or None, limit=50
+        )
+        result = await _act(args, session=session, runner=runner, read=read, write=write, trail=where, rows=(RUN_AGAIN,))
+        return result is not EXIT
 
 
 async def _flow_clear(*, session, runner, read, write) -> bool:
@@ -3162,13 +3479,59 @@ async def run_menu(*, read=None, write=None, session=None, runner=None, profile:
             _group(
                 "Manage",
                 (
-                    ("Roles: list a server's roles", _flow_role_list),
-                    ("Roles: create a role", _flow_role_create),
-                    ("Roles: edit a role (name, colour, hoist, mentionable, permissions)", _flow_role_edit),
-                    ("Roles: delete a role (dry-run, then typed name)", _flow_role_delete),
-                    ("Permissions: show a channel's role overwrites", _flow_permission_show),
-                    ("Permissions: set a role's overwrite on a channel", _flow_permission_set),
-                    ("Members, invites and webhooks", _later("members, invites and webhooks")),
+                    # Four subgroups rather than sixteen rows, the way Watch is
+                    # arranged: the number of a family is learned once, and the
+                    # pack that adds webhooks and emoji adds a row here rather
+                    # than shifting everything below it.
+                    (
+                        "Roles (list, create, edit, delete)",
+                        _group(
+                            ("Manage", "Roles"),
+                            (
+                                ("List a server's roles", _flow_role_list),
+                                ("Create a role", _flow_role_create),
+                                ("Edit a role (name, colour, hoist, mentionable, permissions)", _flow_role_edit),
+                                ("Delete a role (dry-run, then typed name)", _flow_role_delete),
+                            ),
+                        ),
+                    ),
+                    (
+                        "Permissions (a channel's role overwrites)",
+                        _group(
+                            ("Manage", "Permissions"),
+                            (
+                                ("Show a channel's role overwrites", _flow_permission_show),
+                                ("Set a role's overwrite on a channel", _flow_permission_set),
+                            ),
+                        ),
+                    ),
+                    (
+                        "Members (list, kick, ban, unban, timeout, nickname)",
+                        _group(
+                            ("Manage", "Members"),
+                            (
+                                ("List a server's members", _flow_member_list),
+                                ("Kick a member (dry-run, then typed username)", _flow_member_kick),
+                                ("Ban a member (dry-run, then typed username)", _flow_member_ban),
+                                ("Lift a ban", _flow_member_unban),
+                                ("Time a member out until a moment you name", _flow_member_timeout),
+                                ("Set or clear a member's nickname", _flow_member_nick),
+                            ),
+                        ),
+                    ),
+                    (
+                        "Invites (list with links, create, revoke)",
+                        _group(
+                            ("Manage", "Invites"),
+                            (
+                                ("List them with their links", _flow_invite_list),
+                                ("Create one", _flow_invite_create),
+                                ("Revoke one (dry-run, then typed code)", _flow_invite_revoke),
+                            ),
+                        ),
+                    ),
+                    ("Audit log: who did what on a server", _flow_audit_log),
+                    ("Webhooks, emoji and AutoMod", _later("webhooks, emoji and AutoMod")),
                 ),
             ),
             True,

@@ -188,12 +188,12 @@ def test_the_root_is_section_14s_nine_rows():
 
 
 def test_a_row_whose_pack_has_not_landed_says_so_and_steps_back():
-    # Roles and permissions landed under Manage; members, invites and webhooks
-    # have not, and their row says so inside the group rather than hiding the
-    # role rows behind it.
-    printed = walk(["6", "7", "0", "0"])
+    # Roles, permissions, members, invites and the audit log landed under
+    # Manage; webhooks, emoji and AutoMod have not, and their row says so
+    # inside the group rather than hiding the rows above it.
+    printed = walk(["6", "6", "0", "0"])
     notice = next(index for index, text in enumerate(printed) if "Not built yet" in text)
-    assert "members, invites and webhooks" in printed[notice]
+    assert "webhooks, emoji and AutoMod" in printed[notice]
     # Straight back to the group, with no prompt in between: an Enter-to-continue
     # on a screen with nothing to decide eats the number you meant to press next.
     assert printed[notice + 1].split("\n")[0].endswith("Manage")
@@ -224,7 +224,7 @@ def test_the_rules_group_under_watch_steps_back_to_watch():
 
 
 def test_a_number_typed_after_that_notice_reaches_the_row_it_names():
-    printed = walk(["6", "7", "7"])
+    printed = walk(["6", "6", "6"])
     assert sum("Not built yet" in text for text in printed) == 2
 
 

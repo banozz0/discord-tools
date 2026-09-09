@@ -6,10 +6,11 @@ A local CLI for your own Discord servers, driven by a bot you own: discover
 server, channel and thread IDs, list server members, search and export
 messages, keep a local archive of history and search it offline, send messages,
 create and delete channels and threads, export a server's structure as a
-blueprint and apply it elsewhere, manage roles and permission overwrites, clear
-messages, watch a server live and act on what happens, schedule a post or a
-server event, and manage the bot's settings — with a guided setup that walks you through the Discord Developer
-Portal.
+blueprint and apply it elsewhere, manage roles and permission overwrites,
+moderate members, manage webhooks, emoji, stickers and AutoMod rules, edit a
+channel's settings, clear messages, watch a server live and act on what
+happens, schedule a post or a server event, and manage the bot's settings —
+with a guided setup that walks you through the Discord Developer Portal.
 
 One menu for humans, the same commands as flags for agents, and a safety
 gate on anything destructive. Bot-token auth only: Discord does not allow
@@ -51,6 +52,11 @@ scripts pass a subcommand.
 | `member` | Moderation: `list` (the `members` command by its group name); `kick` and `ban` dry-run, and for real take `--execute` **and** the member's exact username, with no `--yes` and a required `--reason`; `unban`, `timeout --until` (required, 28 days at most) and `nick` preview + y/N. Every write preflights the right Discord checks and refuses `HIERARCHY_DENIED` for the owner, the bot itself, or a member the bot's top role cannot reach. See [Members, invites and the audit log](#members-invites-and-the-audit-log) |
 | `invite` | `list --server <id>` prints every invite **with its link**; `create --channel <id>` makes one (`--max-age`, `--max-uses`, `--temporary`) behind a preview + y/N and prints the link once; `revoke` dry-runs, and for real takes `--execute` **and** the exact code, no `--yes`. Links appear in `list` and `create` and nowhere else |
 | `audit-log` | `list --server <id>` prints the server's own audit log, newest first, filtered by `--action`, `--user` and `--since`. Needs **View Audit Log**. This is Discord's log of everyone's changes; `audit.jsonl` in `~/.discord-tools/` is this tool's own log of its own writes |
+| `webhook` | `list --server <id>` shows every webhook **with its URL's token hidden**; `create --channel <id> --name <name>` makes one behind a preview + y/N and prints the whole URL only with `--reveal`, once, on screen; `delete` dry-runs, and for real takes `--execute` **and** the webhook's exact name, no `--yes`. Needs **Manage Webhooks**. See [Webhooks, emoji and stickers](#webhooks-emoji-and-stickers) |
+| `emoji` | `list --server <id>` shows every custom emoji with the text you paste to use it; `add --name --file` uploads one (PNG/JPG/GIF/WebP, 256 KiB) behind a preview + y/N; `remove` dry-runs, and for real takes `--execute` **and** the emoji's exact name, no `--yes`. Adding needs **Create Expressions**, removing **Manage Expressions**; listing needs nothing |
+| `sticker` | `list --server <id>`; `add --name --file --emoji` uploads one (PNG/APNG/Lottie JSON/GIF, 512 KiB, with the emoji Discord suggests it by) behind a preview + y/N; `remove` dry-runs, then `--execute` **and** the sticker's exact name. Same rights as `emoji` |
+| `automod` | The rules Discord applies by itself: `list --server <id>`; `create` writes one — the flags name the trigger (`--keyword`, `--regex`, `--preset`, `--mention-limit`, `--spam`) and what it then does (`--block`, `--alert`, `--timeout`), plus `--allow`, `--exempt-role`, `--exempt-channel` and `--enabled/--no-enabled`; `edit` changes one inside the trigger family it already has; `delete` dry-runs, then `--execute` **and** the rule's exact name. Needs **Manage Server**. See [AutoMod and channel settings](#automod-and-channel-settings) |
+| `channel` | `edit --channel <id>` changes a channel's or category's `--name`, `--topic`, `--nsfw/--no-nsfw`, `--slowmode` and `--position` behind a preview + y/N, then reads the diff back from Discord. Needs **Manage Channels**. A field the channel's type does not have is refused by name |
 | `watch` | Rules and the runner: `rules list/add/edit/remove/enable/disable/test` write and check the rules; `run` watches the server live over a gateway connection and acts on what happens; `status`, `stop` and `reload` drive a running one. macOS and Linux (the lock is a POSIX file lock). See [Watching a server](#watching-a-server) |
 | `schedule` | Runner-held scheduled posts: `post --channel --text --at | --every` stores one, `list` shows them, `cancel --id` removes one. They fire **only while `watch run` is up on this machine**, and every listing says so. See [The two guarantees](#the-two-guarantees) |
 | `event` | Server-held scheduled events: `list`, `create`, `edit` and `delete` for a server's Events tab. Discord holds these, so they happen with this machine off. `delete` dry-runs, then takes `--execute` **and** the event's exact name. See [The two guarantees](#the-two-guarantees) |
@@ -504,6 +510,104 @@ the command for that and it has its own gate. Invite links print in
 and a link a moderator typed into an audit reason is redacted on the way out.
 
 
+## Webhooks, emoji and stickers
+
+A webhook URL is a credential. Anyone holding one can post into that channel as
+anything they like — no token, no bot, no invite — for as long as the webhook
+exists. So this tool prints a whole URL exactly once, on one screen, to the
+person who asked for it, and rewrites the token segment everywhere else: in
+`webhook list`, in the `--json` envelope, in the echoed arguments, in the audit
+line, and in a delete's own preview.
+
+```bash
+discord-tools webhook list --server 1394...                                  # every URL ends in /<redacted>
+discord-tools webhook create --channel 1394... --name "ci" --reveal          # prints the whole URL, once
+discord-tools webhook delete --server 1394... --webhook "ci" --execute       # asks for its exact name
+discord-tools emoji list --server 1394...                                    # with <:name:id> to paste
+discord-tools emoji add --server 1394... --name parrot --file ./parrot.png   # preview + y/N
+discord-tools emoji remove --server 1394... --emoji parrot --execute         # asks for its exact name
+discord-tools sticker add --server 1394... --name wave --file ./wave.png --emoji 👋
+discord-tools sticker remove --server 1394... --sticker wave --execute
+```
+
+**Without `--reveal`, `webhook create` never shows the URL at all** — the
+webhook is made, and the command says to run it again with `--reveal` or read
+the URL in Server Settings → Integrations. Even with `--reveal`, the URL goes to
+the screen and never into the envelope, so a script that stores this run's
+output stores no credential.
+
+**Naming one.** A webhook, an emoji and a sticker are all named by whoever made
+them and none of the three names is unique, so `--webhook`, `--emoji` and
+`--sticker` take an ID **or** a name. A name that matches one row resolves; a
+name two rows share is `TARGET_AMBIGUOUS` with both IDs listed, because picking
+one of two things called `ci` is not a decision a tool should make about a
+delete.
+
+**The gates.** All three removals dry-run by default and for real take
+`--execute` **and** the exact name typed at a prompt — no `--yes` on any of
+them. A deleted webhook's URL cannot be brought back and everything posting
+through it stops; a removed emoji leaves every message that used it showing a
+hole. `webhook create`, `emoji add` and `sticker add` preview and ask `y/N`.
+
+**Rights, by Discord's current names.** Listing emoji and stickers needs
+nothing — Discord shows both to every member. Listing webhooks needs **Manage
+Webhooks**, because a webhook's URL is a credential Discord shows to nobody
+else. Adding an expression needs **Create Expressions** and removing one needs
+**Manage Expressions**: those are the names the API reports for what the app's
+own settings screen still calls Manage Emojis and Stickers, and naming the
+older alias would ask for a right no preflight could ever see held.
+
+**Bounds.** An emoji is at most 256 KiB and a sticker at most 512 KiB. Discord
+answers an oversized upload with a 400 that names neither the file nor the cap,
+so the file is measured before it is sent and the refusal names both.
+
+
+## AutoMod and channel settings
+
+AutoMod is the filtering Discord does by itself, with this machine off and the
+watcher down. A rule is **one trigger and a list of actions**, and the flags
+name the trigger by naming its configuration:
+
+```bash
+discord-tools automod list --server 1394...
+discord-tools automod create --server 1394... --name "no links" \
+    --regex 'https?://' --alert 1394... --timeout 600 --exempt-role 1401...
+discord-tools automod create --server 1394... --name "manners" --preset profanity --block "Not here."
+discord-tools automod edit --server 1394... --rule "no links" --no-enabled
+discord-tools automod delete --server 1394... --rule "no links" --execute      # asks for its exact name
+
+discord-tools channel edit --channel 1394... --topic "what shipped" --slowmode 30
+discord-tools channel edit --channel 1394... --name releases --no-nsfw
+```
+
+`--keyword` and `--regex` make a keyword rule, `--preset` a preset rule,
+`--mention-limit` a mention rule, and `--spam` the one that needs no
+configuration. Two families at once is a refusal, not a guess. **Discord fixes
+a rule's trigger when it is created and never changes it**, so an edit
+describing a different family is refused by name — delete the rule and write
+the one you want — while anything inside the family it already has can change.
+Every field the flags do not name keeps the value it had.
+
+**The actions never delete.** The three a rule may take are blocking the
+message before it posts (`--block`, optionally with what the author is told),
+alerting a channel (`--alert`), and timing the author out (`--timeout`, one
+second to 28 days). This is the same closed, non-destructive list `watch`
+keeps: a rule this tool writes cannot remove anything.
+
+**Deleting a rule is `typed_name`** — dry-run, then `--execute` and the rule's
+exact name, with no `--yes` — because Discord stops applying it the moment it
+goes and nothing announces that the server has quietly stopped filtering what
+that rule filtered. Creating and editing preview and ask `y/N`.
+
+**`channel edit` reads a diff back.** Only the fields you give are sent, a
+field already at the asked value is not a change at all (the command says so
+and touches nothing), and the evidence it reports afterwards is the before and
+after fetched from Discord rather than the change it asked for — so a readback
+that disagrees is `unverified`, not `ok`. A field the channel's type does not
+have — a topic on a category, slow mode on a stage — is refused by name before
+anything is sent, because Discord answers that with a 400 that names neither.
+
+
 ## Watching a server
 
 Everything above is one-shot: you run it, it acts, it exits. `watch run` is the
@@ -634,8 +738,9 @@ discord-tools --json send --channel 1542... --text "shipped" --yes
 The keys are the same whatever the command ran — `status`, `result`, `error`,
 `plan`, `evidence`, `meta` and the rest — so there is one parser to write, not
 one per command. `--jsonl` streams a record per line for `search`, `members`,
-`member list`, `invite list`, `audit-log list`, `discover` and `archive search`
-and closes with the same object.
+`member list`, `invite list`, `audit-log list`, `webhook list`, `emoji list`,
+`sticker list`, `automod list`, `discover` and `archive search` and closes with
+the same object.
 
 Exit codes say the same thing without parsing anything: **0** done, **1** not
 done (stopped at a gate, or a server clear that could not reach everything),
@@ -663,13 +768,21 @@ means it happened but could not be confirmed. Executed writes append one line
 to `~/.discord-tools/audit.jsonl` (mode 0600, no secrets), and Discord's own
 audit log records the change against `cli-tools <command> plan <id>` — with the
 moderator's `--reason` after it on a member write. A read that needs a right
-still preflights it (`invite list`, `audit-log list`) but writes no audit line:
-that file is a record of writes.
+still preflights it (`invite list`, `audit-log list`, `webhook list`,
+`automod list`) but writes no audit line: that file is a record of writes.
+
+**A webhook URL never reaches an envelope.** `webhook create --reveal` prints
+the whole URL to stderr, once, for a person; `result.webhook.url` and every
+later `webhook list` carry the token segment rewritten, and so do the echoed
+`args` and the audit line. There is no flag that puts a whole URL on stdout —
+if a script needs one, a person has to read it off the screen.
 
 `skill/SKILL.md` is a bundled agent skill describing the CLI surface and the
 rules an agent must follow (never `clear-messages`, `message delete`,
 `structure apply`, a role or permission write, a `member kick`/`member ban`, an
-`invite revoke --execute`, an `event delete --execute` or `watch run`,
+`invite revoke --execute`, a `webhook create`, a `webhook delete --execute`, an
+`emoji remove`/`sticker remove --execute`, an `automod delete --execute`, an
+`event delete --execute` or `watch run`,
 allowlist-gated sends, never print tokens). It updates in the same commit as any CLI-surface change.
 
 ## Development

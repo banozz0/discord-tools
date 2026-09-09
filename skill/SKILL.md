@@ -1,13 +1,13 @@
 ---
 name: discord-tools
-description: "Use when you need the real numeric ID of a Discord server, channel, or thread — 'what's the ID of that channel?', 'where do I send this?' — when the user wants a channel's messages searched or exported (JSON, CSV, JSONL, Markdown, HTML), when a history question can be answered from the local archive instead of a fresh fetch, when a message must be posted to a channel the user has allowlisted, when a message the user named should get a reply, a reaction, a pin, or be forwarded, copied or bookmarked, when a server's structure should be exported as a blueprint or compared with another server, when the user wants to see a server's roles or which role can do what in a channel, when a member should be kicked, banned, unbanned, timed out or renamed, when the user asks who is banned, what invites a server has or who did what on it, or when they want a message posted at a set time, an event put in a server's calendar, or a rule that alerts them when something happens in a server. Bot-token only; the bot sees only servers it was invited to."
-version: 1.10.0
+description: "Use when you need the real numeric ID of a Discord server, channel, or thread — 'what's the ID of that channel?', 'where do I send this?' — when the user wants a channel's messages searched or exported (JSON, CSV, JSONL, Markdown, HTML), when a history question can be answered from the local archive instead of a fresh fetch, when a message must be posted to a channel the user has allowlisted, when a message the user named should get a reply, a reaction, a pin, or be forwarded, copied or bookmarked, when a server's structure should be exported as a blueprint or compared with another server, when the user wants to see a server's roles or which role can do what in a channel, when a member should be kicked, banned, unbanned, timed out or renamed, when the user asks who is banned, what invites a server has, which webhooks post into it, what custom emoji or stickers it has, what Discord filters in it by itself, or who did what on it, when a channel's topic, slow mode, age gate, name or position should change, or when they want a message posted at a set time, an event put in a server's calendar, or a rule that alerts them when something happens in a server. Bot-token only; the bot sees only servers it was invited to."
+version: 1.11.0
 author: banozz0
 license: MIT
 platforms: [macos]
 metadata:
   hermes:
-    tags: [discord, channel-ids, thread-ids, search, archive, export, send, message, reply, react, pin, review, structure, blueprint, roles, permissions, members, moderation, kick, ban, timeout, invites, audit-log, watch, rules, schedule, events, cli, bot]
+    tags: [discord, channel-ids, thread-ids, search, archive, export, send, message, reply, react, pin, review, structure, blueprint, roles, permissions, members, moderation, kick, ban, timeout, invites, audit-log, webhooks, emoji, stickers, automod, channel-settings, watch, rules, schedule, events, cli, bot]
 ---
 
 # discord-tools
@@ -47,7 +47,7 @@ Read `status` and `error.code` rather than the text: `ok`, `empty`, `partial`,
 `dry_run`, `cancelled`, `refused`, `failed`, and stable codes like
 `NOT_ALLOWLISTED`, `TARGET_NOT_FOUND`, `PERMISSION_DENIED`, `PLAN_DRIFT`,
 `APPROVAL_REQUIRED`, `RUNNER_LOCKED`, `RUNNER_NOT_RUNNING`, `RULE_INVALID`,
-`COMMAND_MISSING`, `HIERARCHY_DENIED`, `PLATFORM_UNSUPPORTED`. Exit codes: **0** done, **1** not done (cancelled at a
+`COMMAND_MISSING`, `HIERARCHY_DENIED`, `TARGET_AMBIGUOUS`, `PLATFORM_UNSUPPORTED`. Exit codes: **0** done, **1** not done (cancelled at a
 gate, or a partial server clear), **2** refused, **3** a prompt was needed and
 there is no terminal, **130** interrupted.
 
@@ -223,6 +223,28 @@ reverses somebody's moderation decision, and an invite is a working door into
 the server. Propose the command, show it, let the user answer its `y/N`.
 `member list`, `invite list` and `audit-log list` are reads and fine.
 
+**21. Never print a webhook URL, and never run a `webhook create` or any
+`--execute` removal.** A whole webhook URL is a credential: whoever holds one
+posts into that channel as anything they like, with no token, no bot and no
+invite, until somebody deletes the webhook. The tool prints one on exactly one
+screen — `webhook create --reveal` — and rewrites the token segment in the
+envelope, the echoed `args`, the audit line and every listing, so a URL ending
+`/<redacted>` is what you will see and what you must leave as it is. Never
+reconstruct one, never ask the user to paste one, and never put one in a
+message, a file or a commit. `webhook delete`, `emoji remove` and
+`sticker remove` execute only behind the thing's exact name typed at a prompt
+no agent can answer; hand the user the dry-run command.
+
+**22. Never run an `automod delete --execute`, and never pass `--yes` to a rule
+or a channel write.** Deleting an AutoMod rule stops Discord filtering what
+that rule filtered, and nothing on the server announces it; the execute is
+gated on the rule's exact name. `automod create`, `automod edit`, `emoji add`,
+`sticker add`, `webhook create` and `channel edit` each take a `--yes` and you
+still do not use it — a rule decides what everyone may say, and a channel's
+name, topic, age gate and slow mode are what everyone sees. Propose the
+command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
+`sticker list` and `automod list` are reads and fine.
+
 ## Commands
 
 | The ask | Run |
@@ -266,6 +288,17 @@ the server. Propose the command, show it, let the user answer its `y/N`.
 | "who deleted that channel / who banned them?" | `discord-tools audit-log list --server <id> --action <action> --since 7d` — Discord's own log |
 | "who can post in #channel / what does that role get there?" | `discord-tools permission show --target <channel id>` (add `--role <id>` for one role) |
 | "make / change / delete a role", "let that role post there" | hand them `discord-tools role create ...`, `role edit ...`, `role delete --server <id> --role <id>` (the dry-run) or `permission set ...` — rule 16, they run it |
+| "what webhooks post into this server?" | `discord-tools webhook list --server <id>` — every URL ends `/<redacted>`; needs Manage Webhooks |
+| "make a webhook for CI" | hand them `discord-tools webhook create --channel <id> --name "ci" --reveal` — rule 21; the URL prints once, on their screen, and never to you |
+| "delete that webhook" | hand them `discord-tools webhook delete --server <id> --webhook <id or name>` (the dry-run) — rule 21, the execute is theirs |
+| "what custom emoji / stickers does this server have?" | `discord-tools emoji list --server <id>` or `sticker list --server <id>` — no permission needed |
+| "add this emoji / sticker" | hand them `discord-tools emoji add --server <id> --name <name> --file <path>` (or `sticker add ... --emoji 👋`) — rule 22, they answer its y/N |
+| "remove that emoji / sticker" | hand them `discord-tools emoji remove --server <id> --emoji <id or name>` (the dry-run) — rule 21, the execute is theirs |
+| "what does Discord filter here by itself?" | `discord-tools automod list --server <id>` — needs Manage Server |
+| "block links / that word automatically" | hand them `discord-tools automod create --server <id> --name "..." --regex 'https?://' --block` — rule 22, they answer its y/N |
+| "turn that rule off / change it" | hand them `discord-tools automod edit --server <id> --rule <id or name> --no-enabled` — rule 22; the trigger family cannot change |
+| "delete that AutoMod rule" | hand them `discord-tools automod delete --server <id> --rule <id or name>` (the dry-run) — rule 22, the execute is theirs |
+| "change that channel's topic / slow mode / name" | hand them `discord-tools channel edit --channel <id> --topic "..." --slowmode 30` — rule 22, they answer its y/N |
 | "what's on this server's calendar?" | `discord-tools event list --server <id>` — every event says **server-held** |
 | "put a standup in the server's events" | hand them `discord-tools event create --server <id> --name "..." --start 2026-10-01T09:00 --place stage_instance --channel <id>` — rule 18, they answer its y/N |
 | "cancel that event" | hand them `discord-tools event delete --server <id> --id <event id>` (the dry-run) — rule 18, the execute is theirs |
@@ -390,6 +423,29 @@ the server. Propose the command, show it, let the user answer its `y/N`.
   A revoke names the code, and a link found in an audit reason is redacted.
   Treat a link you do see as a working door: relay it only to the user who
   asked for it.
+- **A webhook URL you see is already rewritten.** `webhook list` and every
+  envelope end a URL in `/<redacted>`; that is the whole value, not a truncation
+  to fix. Only `webhook create --reveal` ever prints a real one, to the user's
+  screen, and it never reaches the envelope even then — so there is no flag that
+  hands a script a working URL, by design.
+- **A name works as well as an ID** for `--webhook`, `--emoji` and `--sticker`.
+  None of the three names is unique on a server, so a shared name is refused as
+  `TARGET_AMBIGUOUS` with both IDs listed. Pass the ID when the listing shows
+  two.
+- **Adding an expression and removing one need different rights.** *Create
+  Expressions* to add an emoji or a sticker, *Manage Expressions* to remove one
+  — Discord's current names for what its settings screen still calls Manage
+  Emojis and Stickers. Listing either needs nothing.
+- **An AutoMod rule's trigger cannot change.** Discord fixes it at creation, so
+  an `edit` whose flags describe a different family (keywords on a preset rule,
+  say) is refused by name. Relay that: the fix is a new rule, not a retry.
+  An AutoMod rule is Discord's own filtering and runs with the watcher down —
+  do not confuse it with a `watch` rule, which is a row on the user's machine
+  that fires only while `watch run` is up.
+- **`channel edit` reports the diff it read back from Discord**, not the diff it
+  asked for; a readback beginning `unverified:` means the write happened and
+  could not be confirmed. A field the channel's type does not have — a topic on
+  a category — is `PLATFORM_UNSUPPORTED` and names the field.
 - **`audit-log list` is Discord's log, not this tool's.** It shows everyone's
   changes on the server and needs View Audit Log.
   `~/.discord-tools/audit.jsonl` is the separate local record of what this tool
@@ -465,6 +521,15 @@ the server. Propose the command, show it, let the user answer its `y/N`.
   They remove a real person from a real server, or kill a link everyone is
   holding, and are gated on a typed username or code no agent can supply. Hand
   the user the dry-run command instead.
+- **`webhook create`, and `webhook delete`, `emoji remove` or `sticker remove`
+  with `--execute`** — rule 21. A whole webhook URL is a credential and the
+  three removals are gated on a typed name no agent can supply. Hand the user
+  the command. The three listings are reads and fine.
+- **`automod delete --execute`** — rule 22. It stops Discord filtering and
+  nothing on the server says so. `automod list` is a read and is fine.
+- **`--yes` on `automod create`, `automod edit`, `emoji add`, `sticker add`,
+  `webhook create` or `channel edit`** — rule 22. What a server filters and
+  what a channel is are the user's decisions to confirm.
 - **`--yes` on `member timeout`, `member nick`, `member unban` or `invite
   create`** — rule 20. A timeout, a rename, a reversed ban and a new door into
   the server are each the user's decision to confirm.

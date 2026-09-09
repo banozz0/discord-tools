@@ -410,3 +410,34 @@ Architecture decisions with more context than fits here go to `docs/adr/`.
   **audit line**, which is this tool's local record of its own writes in
   `~/.discord-tools/audit.jsonl`. A read that needs a right preflights it and
   writes no audit line.
+- **Webhook** — a URL that posts into one channel (`dc:webhook:<id>`), and the
+  only **credential** this tool ever hands a person. Whoever holds the whole
+  URL can post there as anything they like, with no token, no bot and no
+  invite. So the whole URL exists on exactly one screen — `webhook create
+  --reveal` — and every other path carries the **rewritten** form, whose token
+  segment core's own redaction pass replaced. The seam reports it whole,
+  because deciding who may see it is the rim's job.
+- **Expression** — Discord's own word for a custom **emoji** or **sticker**: a
+  picture the server holds. Neither has a rid kind, so both stay what the
+  blueprint already treats them as — things a server holds — and the server is
+  the target their plan and audit line name. Adding one needs *Create
+  Expressions* and removing one *Manage Expressions*: the names the API
+  reports for what the app's settings screen still calls Manage Emojis and
+  Stickers.
+- **AutoMod rule** — a filter Discord applies by itself, with the watcher down
+  and this machine off. One **trigger family** (keyword, keyword preset, spam,
+  mention spam) and a list of **actions**, and the flags name the family by
+  naming its configuration. Discord fixes the family at creation and never
+  changes it, so an edit describing a different one is refused by name. Told
+  apart from a **watch rule**, which is a row on this machine that only fires
+  while `watch run` is up.
+- **Rule action** — one of the three things an AutoMod rule may do: block the
+  message before it posts, alert a channel, or time the author out. The same
+  closed, non-destructive list `watch` keeps; none of the three removes
+  anything.
+- **Channel settings** — what one channel or category *is*: name, topic, age
+  gate, slow mode, position. Read one at a time by `channel_settings` rather
+  than through the whole server's structure, and edited by `channel edit`,
+  whose evidence is the **diff read back from Discord** rather than the diff it
+  asked for. A field the channel's type does not carry is refused by name
+  before anything is sent.

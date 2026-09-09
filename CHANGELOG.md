@@ -1,5 +1,100 @@
 # Changelog
 
+## 0.16.0 — 2026-09-09
+
+The rest of a server's administration: the webhooks that post into it, the
+emoji and stickers people use in it, the AutoMod rules Discord applies to it by
+itself, and what one channel actually is. One of those four is a secret, and
+this release is mostly about handling it properly.
+
+### Webhooks
+
+- **A webhook URL is a credential.** Anyone holding one can post into that
+  channel as anything they like — no token, no bot, no invite — for as long as
+  the webhook exists. So the whole URL is printed **exactly once**, by
+  `webhook create --reveal`, on the screen, to the person who asked for it.
+- **Everywhere else it is rewritten.** `webhook list`, the `--json` envelope,
+  the echoed `args`, the local audit line and a delete's own preview all show
+  the URL ending in `/<redacted>`. Even with `--reveal` the whole URL goes to
+  the screen and never into the envelope, so a script that stores this run's
+  output stores no credential.
+- **Without `--reveal`, `webhook create` shows no URL at all.** The webhook is
+  made and the command says to run it again with `--reveal`, or to read the URL
+  in Server Settings → Integrations. There is no flag that puts a whole URL on
+  stdout.
+- **`webhook delete`** dry-runs by default and for real takes `--execute` **and**
+  the webhook's exact name typed at a prompt. There is no `--yes`: everything
+  posting through that URL stops at once, and Discord cannot bring the same URL
+  back.
+
+### Emoji and stickers
+
+- **`emoji list`** shows every custom emoji with the `<:name:id>` you paste into
+  a message; **`sticker list`** shows every sticker with the emoji it suggests.
+  Neither needs a permission — Discord shows both to every member.
+- **`emoji add`** and **`sticker add`** upload from a file behind a preview and
+  a `y/N`. An emoji is at most 256 KiB and a sticker at most 512 KiB; Discord
+  answers an oversized upload with a 400 that names neither the file nor the
+  cap, so the file is measured first and the refusal names both.
+- **`emoji remove`** and **`sticker remove`** dry-run, then take `--execute` and
+  the exact name. A removed emoji leaves every message that used it showing a
+  broken image, and every reaction using it gone.
+- **Rights are named as Discord names them now:** adding needs **Create
+  Expressions** and removing needs **Manage Expressions**. Those are what the
+  API reports for what the app's own settings screen still calls Manage Emojis
+  and Stickers, and asking for the older alias would name a right no permission
+  check could ever see held.
+- **A name works as well as an ID.** `--webhook`, `--emoji` and `--sticker` take
+  either. None of the three names is unique on a server, so a name two rows
+  share is refused as `TARGET_AMBIGUOUS` with both IDs listed rather than
+  picking one for you.
+
+### AutoMod
+
+- **`automod list/create/edit/delete`** manage the rules Discord applies by
+  itself, with this machine off and the watcher down.
+- **The flags name the trigger.** `--keyword` and `--regex` make a keyword rule,
+  `--preset` a preset one, `--mention-limit` a mention one, and `--spam` the one
+  that needs no configuration. Two families at once is a refusal, not a guess.
+- **Discord fixes a rule's trigger when it is created and never changes it**, so
+  an `edit` describing a different family is refused by name — delete it and
+  write the rule you want — while anything inside the family it already has can
+  change. Every field the flags do not name keeps the value it had.
+- **The actions never delete.** A rule may block the message before it posts
+  (`--block`, optionally with what the author is told), alert a channel
+  (`--alert`), or time the author out (`--timeout`, one second to 28 days). This
+  is the same closed, non-destructive list `watch` keeps.
+- **`automod delete`** dry-runs, then takes `--execute` and the rule's exact
+  name, with no `--yes`: Discord stops applying it the moment it goes, and
+  nothing announces that the server has quietly stopped filtering.
+
+### Channel settings
+
+- **`channel edit`** changes a channel's or category's `--name`, `--topic`,
+  `--nsfw/--no-nsfw`, `--slowmode` and `--position` behind a preview and a
+  `y/N`, then reads the diff back **from Discord** — so a readback that
+  disagrees with what was asked is reported `unverified`, not `ok`.
+- Only the fields you give are sent, and a field already at the asked value is
+  not a change at all: the command says so and touches nothing.
+- A field the channel's type does not have — a topic on a category, slow mode on
+  a stage — is refused by name before anything is sent, because Discord answers
+  that with a 400 that names neither the field nor the type.
+
+### The menu
+
+- **Manage's last "not built yet" row is filled.** Webhooks, Emoji and stickers,
+  AutoMod and Channel settings are rows 6 to 9; the pack took the placeholder's
+  own number rather than pushing a row in below, so the numbers you learned for
+  Roles, Permissions, Members, Invites and the Audit log are the numbers they
+  still are.
+- Every listing reads; every add, the webhook create, both rule writes and the
+  channel edit ask their `y/N` inside the command; and the three removals and
+  the rule delete dry-run first and then ask for the exact name inside the
+  command. The menu is never a shorter path past a gate.
+- Where a value is optional, "none" and "clear it" are rows of their own — a
+  blank line cancels a text prompt everywhere in this menu and cannot also mean
+  something.
+
 ## 0.15.0 — 2026-09-09
 
 Moderation: the everyday admin job. Members can be kicked, banned, unbanned,

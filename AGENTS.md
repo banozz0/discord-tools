@@ -39,7 +39,16 @@ caps at 28 days, nick; the hierarchy check refuses the owner, the bot itself
 and a top role it cannot reach) · invite (list with links, create, revoke
 behind the typed code; links print in list and create and nowhere else) ·
 audit-log (Discord's own log, filtered by action, user and time; not the local
-audit.jsonl) · watch (rules the
+audit.jsonl) · webhook (list with every URL's token hidden, create printing the
+whole URL once and only with --reveal, delete behind the typed name; the URL
+never reaches an envelope, an args echo or an audit line) · emoji and sticker
+(list, add from a file under Discord's own size cap, remove behind the typed
+name; adding needs Create Expressions and removing Manage Expressions) ·
+automod (Discord's own filtering, which runs with the watcher down: list,
+create whose flags name the trigger family, edit inside the family Discord
+fixed at creation, delete behind the typed name; the three actions never
+delete) · channel edit (name, topic, nsfw, slowmode, position, with the diff
+read back from Discord) · watch (rules the
 runner acts on — a closed action list that never downloads, sends, edits or
 deletes — and run/status/stop/reload; only run logs in, and it is the one
 gateway) · schedule (runner-held posts, which fire only while the runner is
@@ -109,7 +118,14 @@ member's exact username, no `--yes`, with `--reason` required and stored as
 Discord's own audit reason; `invite revoke` is the same behind the exact code.
 `member timeout` needs `--until` and refuses past 28 days; `member unban`,
 `member nick` and `invite create` preview + y/N. A ban deletes no messages —
-`clear-messages` is that command. `event delete` dry-runs
+`clear-messages` is that command. `webhook delete`, `emoji remove`,
+`sticker remove` and `automod delete` each dry-run by default and execute only
+with `--execute` + the thing's exact name, no `--yes`; `webhook create`,
+`emoji add`, `sticker add`, `automod create`, `automod edit` and `channel edit`
+preview + y/N. A webhook URL is a credential: the whole one is printed by
+`webhook create --reveal` and nowhere else, and core's redaction pass rewrites
+the token segment in every envelope, args echo, audit line and listing.
+`event delete` dry-runs
 by default and executes only with `--execute` + the event's exact name, no
 `--yes`; `event create`, `event edit`, `schedule post`, `schedule cancel` and
 every rule write preview + y/N. A rule's actions are a closed list and none of

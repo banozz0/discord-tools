@@ -2,10 +2,10 @@
 discord-tools --help
 ========================================================================
 usage: discord-tools [-h] [--profile PROFILE] [--json] [--jsonl]
-                     {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,review,structure,role,permission,member,invite,audit-log,message,watch,schedule,event,bot} ...
+                     {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,review,structure,role,permission,member,invite,audit-log,webhook,emoji,sticker,automod,channel,message,watch,schedule,event,bot} ...
 
 positional arguments:
-  {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,review,structure,role,permission,member,invite,audit-log,message,watch,schedule,event,bot}
+  {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,review,structure,role,permission,member,invite,audit-log,webhook,emoji,sticker,automod,channel,message,watch,schedule,event,bot}
     auth                Guided bot setup: Developer Portal walkthrough, token check, invite URL
     doctor              Check token, message-content intent, servers, and channel permissions
     discover            List the server -> channel -> thread tree with IDs
@@ -32,6 +32,13 @@ positional arguments:
     invite              A server's invites: list them with their links, create one, revoke one
     audit-log           The server's own audit log: who did what, filtered by action, by person or
                         by time
+    webhook             A server's webhooks: list them with their URLs hidden, create one, delete
+                        one
+    emoji               A server's custom emoji: list them, add one from a file, remove one
+    sticker             A server's stickers: list them, add one from a file, remove one
+    automod             The server's own AutoMod rules, which Discord runs itself: list, create,
+                        edit, delete
+    channel             A channel's own settings: name, topic, age gate, slow mode, position
     message             Act on messages a channel holds: reply, edit, delete, forward, copy,
                         react, pin, poll, typing, bookmark
     watch               Rules and the runner: watch a server live and act on what happens (macOS
@@ -987,3 +994,271 @@ options:
   --user USER      Only entries by this user ID
   --since TIME     Only entries after this ISO 8601 time, or a duration back like 24h
   --limit LIMIT    How many entries at most (default: 50)
+
+========================================================================
+discord-tools webhook --help
+========================================================================
+usage: discord-tools webhook [-h] {list,create,delete} ...
+
+positional arguments:
+  {list,create,delete}
+    list                Every webhook, each URL's token hidden (needs Manage Webhooks)
+    create              Create a webhook on a channel (preview + y/N); --reveal prints its URL
+                        once
+    delete              Delete a webhook (dry-run by default; --execute asks for its exact name)
+
+options:
+  -h, --help            show this help message and exit
+
+========================================================================
+discord-tools webhook list --help
+========================================================================
+usage: discord-tools webhook list [-h] --server SERVER
+
+options:
+  -h, --help       show this help message and exit
+  --server SERVER  Server ID
+
+========================================================================
+discord-tools webhook create --help
+========================================================================
+usage: discord-tools webhook create [-h] --channel CHANNEL --name NAME [--reveal] [--yes]
+
+options:
+  -h, --help         show this help message and exit
+  --channel CHANNEL  Channel ID the webhook posts into
+  --name NAME        What Discord shows as the poster's name by default
+  --reveal           Print the whole URL once, on screen. Without it the URL is never shown, here
+                     or anywhere else
+  --yes              Skip the y/N prompt
+
+========================================================================
+discord-tools webhook delete --help
+========================================================================
+usage: discord-tools webhook delete [-h] --server SERVER --webhook WEBHOOK [--execute]
+
+options:
+  -h, --help         show this help message and exit
+  --server SERVER    Server ID
+  --webhook WEBHOOK  Webhook ID, or its exact name when only one has it
+  --execute          Delete for real after typing the webhook's exact name (no --yes exists)
+
+========================================================================
+discord-tools emoji --help
+========================================================================
+usage: discord-tools emoji [-h] {list,add,remove} ...
+
+positional arguments:
+  {list,add,remove}
+    list             Every custom emoji with the text you paste to use it
+    add              Add a custom emoji from an image file (preview + y/N)
+    remove           Remove a custom emoji (dry-run by default; --execute asks for its exact name)
+
+options:
+  -h, --help         show this help message and exit
+
+========================================================================
+discord-tools emoji list --help
+========================================================================
+usage: discord-tools emoji list [-h] --server SERVER
+
+options:
+  -h, --help       show this help message and exit
+  --server SERVER  Server ID
+
+========================================================================
+discord-tools emoji add --help
+========================================================================
+usage: discord-tools emoji add [-h] --server SERVER --name NAME --file PATH [--yes]
+
+options:
+  -h, --help       show this help message and exit
+  --server SERVER  Server ID
+  --name NAME      What it is typed as, between colons
+  --file PATH      Image file (.png, .jpg, .jpeg, .gif, .webp), at most 256 KiB
+  --yes            Skip the y/N prompt
+
+========================================================================
+discord-tools emoji remove --help
+========================================================================
+usage: discord-tools emoji remove [-h] --server SERVER --emoji EMOJI [--execute]
+
+options:
+  -h, --help       show this help message and exit
+  --server SERVER  Server ID
+  --emoji EMOJI    Emoji ID, or its exact name when only one has it
+  --execute        Remove for real after typing the emoji's exact name (no --yes exists)
+
+========================================================================
+discord-tools sticker --help
+========================================================================
+usage: discord-tools sticker [-h] {list,add,remove} ...
+
+positional arguments:
+  {list,add,remove}
+    list             Every sticker with the emoji it suggests
+    add              Add a sticker from a file (preview + y/N)
+    remove           Remove a sticker (dry-run by default; --execute asks for its exact name)
+
+options:
+  -h, --help         show this help message and exit
+
+========================================================================
+discord-tools sticker list --help
+========================================================================
+usage: discord-tools sticker list [-h] --server SERVER
+
+options:
+  -h, --help       show this help message and exit
+  --server SERVER  Server ID
+
+========================================================================
+discord-tools sticker add --help
+========================================================================
+usage: discord-tools sticker add [-h] --server SERVER --name NAME --file PATH --emoji EMOJI
+                                 [--description DESCRIPTION] [--yes]
+
+options:
+  -h, --help            show this help message and exit
+  --server SERVER       Server ID
+  --name NAME           What the sticker is called
+  --file PATH           Sticker file (.png, .apng, .json, .gif), at most 512 KiB
+  --emoji EMOJI         The unicode emoji Discord suggests it by; Discord requires one
+  --description DESCRIPTION
+                        What it shows, for people using a screen reader
+  --yes                 Skip the y/N prompt
+
+========================================================================
+discord-tools sticker remove --help
+========================================================================
+usage: discord-tools sticker remove [-h] --server SERVER --sticker STICKER [--execute]
+
+options:
+  -h, --help         show this help message and exit
+  --server SERVER    Server ID
+  --sticker STICKER  Sticker ID, or its exact name when only one has it
+  --execute          Remove for real after typing the sticker's exact name (no --yes exists)
+
+========================================================================
+discord-tools automod --help
+========================================================================
+usage: discord-tools automod [-h] {list,create,edit,delete} ...
+
+positional arguments:
+  {list,create,edit,delete}
+    list                Every rule, what it watches for and what it then does (needs Manage
+                        Server)
+    create              Write a rule Discord applies itself (preview + y/N)
+    edit                Change a rule, inside the trigger family it already has (preview + y/N)
+    delete              Delete a rule (dry-run by default; --execute asks for its exact name)
+
+options:
+  -h, --help            show this help message and exit
+
+========================================================================
+discord-tools automod list --help
+========================================================================
+usage: discord-tools automod list [-h] --server SERVER
+
+options:
+  -h, --help       show this help message and exit
+  --server SERVER  Server ID
+
+========================================================================
+discord-tools automod create --help
+========================================================================
+usage: discord-tools automod create [-h] --server SERVER --name NAME [--keyword TEXT]
+                                    [--regex PATTERN] [--preset {profanity,sexual_content,slurs}]
+                                    [--mention-limit N] [--spam] [--allow TEXT]
+                                    [--block [MESSAGE]] [--alert CHANNEL] [--timeout SECONDS]
+                                    [--exempt-role ID] [--exempt-channel ID]
+                                    [--enabled | --no-enabled] [--yes]
+
+options:
+  -h, --help            show this help message and exit
+  --server SERVER       Server ID
+  --name NAME           What the rule is called
+  --keyword TEXT        A word or phrase to catch; repeat for more
+  --regex PATTERN       A pattern to catch; repeat for more, at most 10
+  --preset {profanity,sexual_content,slurs}
+                        One of Discord's own lists; repeat for more
+  --mention-limit N     Catch a message mentioning more than N people (1 to 50)
+  --spam                Catch what Discord itself judges to be spam
+  --allow TEXT          An exception to a keyword or preset rule; repeat for more
+  --block [MESSAGE]     Stop the message posting, optionally telling the author why
+  --alert CHANNEL       Post a copy into this channel ID
+  --timeout SECONDS     Time the author out (1 second to 28 days)
+  --exempt-role ID      A role the rule ignores; repeat for more
+  --exempt-channel ID   A channel the rule ignores; repeat for more
+  --enabled, --no-enabled
+                        Turn it on, or off
+  --yes                 Skip the y/N prompt
+
+========================================================================
+discord-tools automod edit --help
+========================================================================
+usage: discord-tools automod edit [-h] --server SERVER --rule RULE [--name NAME] [--keyword TEXT]
+                                  [--regex PATTERN] [--preset {profanity,sexual_content,slurs}]
+                                  [--mention-limit N] [--spam] [--allow TEXT] [--block [MESSAGE]]
+                                  [--alert CHANNEL] [--timeout SECONDS] [--exempt-role ID]
+                                  [--exempt-channel ID] [--enabled | --no-enabled] [--yes]
+
+options:
+  -h, --help            show this help message and exit
+  --server SERVER       Server ID
+  --rule RULE           Rule ID, or its exact name
+  --name NAME           What the rule is called (renames it)
+  --keyword TEXT        A word or phrase to catch; repeat for more
+  --regex PATTERN       A pattern to catch; repeat for more, at most 10
+  --preset {profanity,sexual_content,slurs}
+                        One of Discord's own lists; repeat for more
+  --mention-limit N     Catch a message mentioning more than N people (1 to 50)
+  --spam                Catch what Discord itself judges to be spam
+  --allow TEXT          An exception to a keyword or preset rule; repeat for more
+  --block [MESSAGE]     Stop the message posting, optionally telling the author why
+  --alert CHANNEL       Post a copy into this channel ID
+  --timeout SECONDS     Time the author out (1 second to 28 days)
+  --exempt-role ID      A role the rule ignores; repeat for more
+  --exempt-channel ID   A channel the rule ignores; repeat for more
+  --enabled, --no-enabled
+                        Turn it on, or off
+  --yes                 Skip the y/N prompt
+
+========================================================================
+discord-tools automod delete --help
+========================================================================
+usage: discord-tools automod delete [-h] --server SERVER --rule RULE [--execute]
+
+options:
+  -h, --help       show this help message and exit
+  --server SERVER  Server ID
+  --rule RULE      Rule ID, or its exact name
+  --execute        Delete for real after typing the rule's exact name (no --yes exists)
+
+========================================================================
+discord-tools channel --help
+========================================================================
+usage: discord-tools channel [-h] {edit} ...
+
+positional arguments:
+  {edit}
+    edit      Change a channel's or category's settings (preview + y/N), then read the diff back
+
+options:
+  -h, --help  show this help message and exit
+
+========================================================================
+discord-tools channel edit --help
+========================================================================
+usage: discord-tools channel edit [-h] --channel CHANNEL [--name NAME] [--topic TOPIC]
+                                  [--nsfw | --no-nsfw] [--slowmode SECONDS] [--position N] [--yes]
+
+options:
+  -h, --help          show this help message and exit
+  --channel CHANNEL   Channel or category ID
+  --name NAME         New name
+  --topic TOPIC       New topic; an empty string clears it
+  --nsfw, --no-nsfw   Age-gate it, or not
+  --slowmode SECONDS  Seconds between one person's messages; 0 turns it off (at most 21600)
+  --position N        Where it sits in its list, counting from 0 at the top
+  --yes               Skip the y/N prompt

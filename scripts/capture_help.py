@@ -46,6 +46,11 @@ COMMANDS = [
     ("member", "unban"), ("member", "timeout"), ("member", "nick"),
     ("invite",), ("invite", "list"), ("invite", "create"), ("invite", "revoke"),
     ("audit-log",), ("audit-log", "list"),
+    ("webhook",), ("webhook", "list"), ("webhook", "create"), ("webhook", "delete"),
+    ("emoji",), ("emoji", "list"), ("emoji", "add"), ("emoji", "remove"),
+    ("sticker",), ("sticker", "list"), ("sticker", "add"), ("sticker", "remove"),
+    ("automod",), ("automod", "list"), ("automod", "create"), ("automod", "edit"), ("automod", "delete"),
+    ("channel",), ("channel", "edit"),
 ]
 
 BANNER = "=" * 72

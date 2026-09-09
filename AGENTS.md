@@ -32,7 +32,14 @@ the typed server name, never deleting; remap table offline) · role (list,
 create, edit, delete behind the typed role name; preflight names a missing
 Manage Roles, HIERARCHY_DENIED where the bot's top role cannot reach, never
 its own roles, never a right it lacks) · permission (show a channel's role
-overwrites, set one role's by merging allow and deny) · watch (rules the
+overwrites, set one role's by merging allow and deny) · member (list, the
+documented name for members; kick and ban behind the typed username with a
+required reason, no --yes; unban, timeout behind a required --until Discord
+caps at 28 days, nick; the hierarchy check refuses the owner, the bot itself
+and a top role it cannot reach) · invite (list with links, create, revoke
+behind the typed code; links print in list and create and nowhere else) ·
+audit-log (Discord's own log, filtered by action, user and time; not the local
+audit.jsonl) · watch (rules the
 runner acts on — a closed action list that never downloads, sends, edits or
 deletes — and run/status/stop/reload; only run logs in, and it is the one
 gateway) · schedule (runner-held posts, which fire only while the runner is
@@ -96,7 +103,13 @@ and never deletes anything on the target. `role delete` dry-runs by default
 and executes only with `--execute` + the role's exact name, no `--yes`; any
 role change touching Administrator is typed too; `role create`, `role edit`
 and `permission set` preview + y/N. The tool never edits or elevates its own
-roles and never grants a right the bot does not hold. `event delete` dry-runs
+roles and never grants a right the bot does not hold. `member kick` and
+`member ban` dry-run by default and execute only with `--execute` + the
+member's exact username, no `--yes`, with `--reason` required and stored as
+Discord's own audit reason; `invite revoke` is the same behind the exact code.
+`member timeout` needs `--until` and refuses past 28 days; `member unban`,
+`member nick` and `invite create` preview + y/N. A ban deletes no messages —
+`clear-messages` is that command. `event delete` dry-runs
 by default and executes only with `--execute` + the event's exact name, no
 `--yes`; `event create`, `event edit`, `schedule post`, `schedule cancel` and
 every rule write preview + y/N. A rule's actions are a closed list and none of

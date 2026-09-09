@@ -1,13 +1,13 @@
 ---
 name: discord-tools
-description: "Use when you need the real numeric ID of a Discord server, channel, or thread — 'what's the ID of that channel?', 'where do I send this?' — when the user wants a channel's messages searched or exported (JSON, CSV, JSONL, Markdown, HTML), when a history question can be answered from the local archive instead of a fresh fetch, when a message must be posted to a channel the user has allowlisted, when a message the user named should get a reply, a reaction, a pin, or be forwarded, copied or bookmarked, when a server's structure should be exported as a blueprint or compared with another server, when the user wants to see a server's roles or which role can do what in a channel, or when they want a message posted at a set time, an event put in a server's calendar, or a rule that alerts them when something happens in a server. Bot-token only; the bot sees only servers it was invited to."
-version: 1.9.0
+description: "Use when you need the real numeric ID of a Discord server, channel, or thread — 'what's the ID of that channel?', 'where do I send this?' — when the user wants a channel's messages searched or exported (JSON, CSV, JSONL, Markdown, HTML), when a history question can be answered from the local archive instead of a fresh fetch, when a message must be posted to a channel the user has allowlisted, when a message the user named should get a reply, a reaction, a pin, or be forwarded, copied or bookmarked, when a server's structure should be exported as a blueprint or compared with another server, when the user wants to see a server's roles or which role can do what in a channel, when a member should be kicked, banned, unbanned, timed out or renamed, when the user asks who is banned, what invites a server has or who did what on it, or when they want a message posted at a set time, an event put in a server's calendar, or a rule that alerts them when something happens in a server. Bot-token only; the bot sees only servers it was invited to."
+version: 1.10.0
 author: banozz0
 license: MIT
 platforms: [macos]
 metadata:
   hermes:
-    tags: [discord, channel-ids, thread-ids, search, archive, export, send, message, reply, react, pin, review, structure, blueprint, roles, permissions, watch, rules, schedule, events, cli, bot]
+    tags: [discord, channel-ids, thread-ids, search, archive, export, send, message, reply, react, pin, review, structure, blueprint, roles, permissions, members, moderation, kick, ban, timeout, invites, audit-log, watch, rules, schedule, events, cli, bot]
 ---
 
 # discord-tools
@@ -47,7 +47,7 @@ Read `status` and `error.code` rather than the text: `ok`, `empty`, `partial`,
 `dry_run`, `cancelled`, `refused`, `failed`, and stable codes like
 `NOT_ALLOWLISTED`, `TARGET_NOT_FOUND`, `PERMISSION_DENIED`, `PLAN_DRIFT`,
 `APPROVAL_REQUIRED`, `RUNNER_LOCKED`, `RUNNER_NOT_RUNNING`, `RULE_INVALID`,
-`COMMAND_MISSING`, `PLATFORM_UNSUPPORTED`. Exit codes: **0** done, **1** not done (cancelled at a
+`COMMAND_MISSING`, `HIERARCHY_DENIED`, `PLATFORM_UNSUPPORTED`. Exit codes: **0** done, **1** not done (cancelled at a
 gate, or a partial server clear), **2** refused, **3** a prompt was needed and
 there is no terminal, **130** interrupted.
 
@@ -206,6 +206,23 @@ user's machine off. A `schedule post` is **runner-held**: it fires *only while
 it does not fire at all. Never say "scheduled" without saying which. The tool
 prints the guarantee on every listing; quote it.
 
+**19. Never run `member kick`, `member ban` or `invite revoke --execute`.**
+A kick removes a real person from a real server and a ban stops them coming
+back on any invite, from any account they hold; a revoked invite stops working
+for everyone holding the link and Discord cannot bring the same code back. All
+three dry-run by default and execute only behind the member's exact username or
+the exact invite code typed at a prompt no agent can answer — there is no
+`--yes`, and under `--json` with no terminal they exit 3 with
+`APPROVAL_REQUIRED`. Hand the user the dry-run command and let them run the
+execute. Do not drive them through the menu, a pty, or a piped answer.
+
+**20. Never pass `--yes` to `member timeout`, `member nick`, `member unban` or
+`invite create`.** These take one, and you still do not: a timeout stops
+someone speaking, a nickname is what everyone sees them called, an unban
+reverses somebody's moderation decision, and an invite is a working door into
+the server. Propose the command, show it, let the user answer its `y/N`.
+`member list`, `invite list` and `audit-log list` are reads and fine.
+
 ## Commands
 
 | The ask | Run |
@@ -238,6 +255,15 @@ prints the guarantee on every listing; quote it.
 | "copy this server's structure to that one" | hand them `discord-tools structure apply --blueprint name.json --target <server id>` (the dry-run), then `--execute` — rule 15, they run it |
 | "what did that apply create?" | `discord-tools structure remap --apply-id <id>` — from the archive, no login |
 | "what roles does this server have / which is the bot's?" | `discord-tools role list --server <id>` — highest first, the bot's own marked |
+| "who's in that server / what's their user ID?" (group name) | `discord-tools member list --server <id>` — the same command as `members` |
+| "kick / ban that person" | hand them `discord-tools member kick --server <id> --member <user id> --reason "..."` (the dry-run), then `--execute` — rule 19, they run it |
+| "let them back in" | hand them `discord-tools member unban --server <id> --member <user id>` — rule 20, they answer its y/N |
+| "mute them for two hours" | hand them `discord-tools member timeout --server <id> --member <user id> --until 2h` — rule 20; `--until` is required and 28 days is the ceiling |
+| "rename them on this server" | hand them `discord-tools member nick --server <id> --member <user id> --nick "..."` — rule 20; `--nick ''` clears it |
+| "what invites does this server have?" | `discord-tools invite list --server <id>` — with their links; needs Manage Guild |
+| "make an invite to that channel" | hand them `discord-tools invite create --channel <id> --max-age 3600 --max-uses 5` — rule 20, they answer its y/N |
+| "kill that invite link" | hand them `discord-tools invite revoke --server <id> --code <code>` (the dry-run) — rule 19, the execute is theirs |
+| "who deleted that channel / who banned them?" | `discord-tools audit-log list --server <id> --action <action> --since 7d` — Discord's own log |
 | "who can post in #channel / what does that role get there?" | `discord-tools permission show --target <channel id>` (add `--role <id>` for one role) |
 | "make / change / delete a role", "let that role post there" | hand them `discord-tools role create ...`, `role edit ...`, `role delete --server <id> --role <id>` (the dry-run) or `permission set ...` — rule 16, they run it |
 | "what's on this server's calendar?" | `discord-tools event list --server <id>` — every event says **server-held** |
@@ -344,6 +370,30 @@ prints the guarantee on every listing; quote it.
   role and the fix (move the bot's role above it, or give the bot the right);
   relay that rather than retrying, because nothing on the command line changes
   it. `role list` prints the positions and the bot's top role.
+- **A member write can be valid and still impossible.** `HIERARCHY_DENIED` on
+  `member kick`, `ban`, `timeout` or `nick` means the target is the server
+  owner (Discord lets nobody moderate them), the bot itself (this tool never
+  moderates the account it is acting as), or a member whose top role is not
+  below the bot's — with both positions named. Relay it rather than retrying;
+  nothing on the command line changes it.
+- **`--reason` is required on `kick` and `ban`.** It is what the member sees
+  and what the next moderator reads, and it travels into Discord's own audit
+  log after this tool's plan line. Ask the user for the words; never invent
+  them.
+- **`--until` is required on `member timeout`** and takes a duration (`30m`,
+  `2h`, `7d`) or an ISO 8601 time. Anything past 28 days is refused — that is
+  Discord's own ceiling, not this tool's.
+- **A ban deletes no messages.** Discord can sweep a banned member's recent
+  history; this tool does not. If the user wants the messages gone too, that is
+  `clear-messages`, which is rule 5 and theirs to run.
+- **Invite links print in `invite list` and `invite create` and nowhere else.**
+  A revoke names the code, and a link found in an audit reason is redacted.
+  Treat a link you do see as a working door: relay it only to the user who
+  asked for it.
+- **`audit-log list` is Discord's log, not this tool's.** It shows everyone's
+  changes on the server and needs View Audit Log.
+  `~/.discord-tools/audit.jsonl` is the separate local record of what this tool
+  itself wrote.
 - **A rule can only ever do six things.** `alert`, `tag`, `bookmark`,
   `capture_metadata`, `archive`, `queue_review`. Nothing downloads, sends a
   message of its own, edits or deletes; a rule asking for anything else is
@@ -411,6 +461,13 @@ prints the guarantee on every listing; quote it.
   16. They change who can do what on a real server; `role delete` and anything
   touching Administrator are gated on a typed name no agent can supply. Hand
   the user the command. `role list` and `permission show` are reads and fine.
+- **`member kick`, `member ban` and `invite revoke --execute`** — rule 19.
+  They remove a real person from a real server, or kill a link everyone is
+  holding, and are gated on a typed username or code no agent can supply. Hand
+  the user the dry-run command instead.
+- **`--yes` on `member timeout`, `member nick`, `member unban` or `invite
+  create`** — rule 20. A timeout, a rename, a reversed ban and a new door into
+  the server are each the user's decision to confirm.
 - **`watch run`** — rule 17. It opens a gateway connection and does not
   return: started from a tool call it hangs the call. Hand the user the
   command. `watch status`, `watch rules list` and `watch rules test` are reads,

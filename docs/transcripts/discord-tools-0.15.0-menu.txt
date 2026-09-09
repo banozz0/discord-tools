@@ -1,6 +1,6 @@
-discord-tools 0.14.0 — the menu, recorded in a real terminal (pty, TERM=xterm-256color)
+discord-tools 0.15.0 — the menu, recorded in a real terminal (pty, TERM=xterm-256color)
 =====================================================================================
-Recorded by scripts/record_menu.py on 639390f. The menu code, the colour and the
+Recorded by scripts/record_menu.py on edf0af0. The menu code, the colour and the
 prompt rendering are the real ones; the Discord side is a canned session (no network, no
 token), so the server, channels, threads and messages below are invented. Keystrokes
 appear after each prompt. The .ansi sibling of this file is the same run with the colour

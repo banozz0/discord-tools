@@ -38,7 +38,7 @@ scripts pass a subcommand.
 | `doctor` | Checks Python, config, token, which bot the profile was set up as, the proxy, the file modes, the archive, the scanner, quarantine, the intent, joined servers; `--channel <id>` adds per-channel permission checks and a message-visibility probe |
 | `profiles` | Lists every stored bot by name and by the label `auth` recorded; `profiles remove --name <name>` drops one after you type its name back. Neither needs a working token |
 | `discover` | Prints the server → channel → thread tree with every ID; `--server <id>` narrows, `--json <path>` writes a file |
-| `members` | Lists a server's members (ID, username, display name, bot flag); `--output <name>` exports JSON/CSV. Needs the privileged **Server Members** intent enabled in the portal |
+| `members` | Lists a server's members (ID, username, display name, bot flag); `--output <name>` exports JSON/CSV. Needs the privileged **Server Members** intent enabled in the portal. `member list` is the same command under the group name and takes the same flags |
 | `search` | Searches a channel/thread's history locally (Discord gives bots no search API): `--keyword`, `--from-user`, `--since`, `--until`, `--limit`; `--output <name>` exports JSON, CSV, JSONL, Markdown or HTML (`--format`). `--archive` searches the local archive instead of fetching. The printed table previews long bodies at 70 characters — exports carry them whole |
 | `archive` | The local archive: `sync` fetches new history from everything the bot can read and resumes where it stopped; `status` shows scopes, rows and coverage; `search --query` is ranked full-text search with `--regex`, `--from`, `--since`, `--until`, `--context`; `export --format json/csv/jsonl/markdown/html --output` writes the same result; `retention --scope --keep 90d` and `forget --scope` prune it, dry-run by default and behind the scope's exact name. See [The archive](#the-archive) |
 | `review` | The review queue: attachments and links the archive saw, waiting. `list` shows them without contacting a host; `approve` asks y/N and fetches into quarantine (no `--yes`); `status` shows redirects, refreshes, sha256 and the verdict; `accept` shows the verdict and asks before moving a file into `media/`; `reject` deletes the bytes; `retry` resumes a failed fetch. See [The review queue](#the-review-queue) |
@@ -48,6 +48,9 @@ scripts pass a subcommand.
 | `structure` | Structure blueprints: `export --target <server id> --output <file>` writes a server's roles, categories, channels, overwrites, forum tags, AutoMod rules and settings as one deterministic file (never members, messages, webhooks, invites, bans or emoji); `diff` compares it with a server; `apply` dry-runs, and for real takes `--execute` **and** the server's exact name typed back, creates and edits with new IDs and never deletes; `remap --apply-id` prints the ID table. See [Structure blueprints](#structure-blueprints) |
 | `role` | `list --server <id>` (highest first, the bot's own marked); `create`, `edit` (name, colour, hoist, mentionable, the whole permission set as names) behind a preview + y/N; `delete` dry-runs, and for real takes `--execute` **and** the role's exact name, no `--yes`. Anything touching Administrator is typed too. Every write preflights Manage Roles, refuses `HIERARCHY_DENIED` where the bot's top role cannot reach, and never grants a right the bot lacks. See [Roles and permissions](#roles-and-permissions) |
 | `permission` | `show --target <channel or category id>` prints every role overwrite by name (`--names` lists the vocabulary); `set --target --role --allow --deny` merges into what the role has there, `--clear` removes it, preview + y/N. See [Roles and permissions](#roles-and-permissions) |
+| `member` | Moderation: `list` (the `members` command by its group name); `kick` and `ban` dry-run, and for real take `--execute` **and** the member's exact username, with no `--yes` and a required `--reason`; `unban`, `timeout --until` (required, 28 days at most) and `nick` preview + y/N. Every write preflights the right Discord checks and refuses `HIERARCHY_DENIED` for the owner, the bot itself, or a member the bot's top role cannot reach. See [Members, invites and the audit log](#members-invites-and-the-audit-log) |
+| `invite` | `list --server <id>` prints every invite **with its link**; `create --channel <id>` makes one (`--max-age`, `--max-uses`, `--temporary`) behind a preview + y/N and prints the link once; `revoke` dry-runs, and for real takes `--execute` **and** the exact code, no `--yes`. Links appear in `list` and `create` and nowhere else |
+| `audit-log` | `list --server <id>` prints the server's own audit log, newest first, filtered by `--action`, `--user` and `--since`. Needs **View Audit Log**. This is Discord's log of everyone's changes; `audit.jsonl` in `~/.discord-tools/` is this tool's own log of its own writes |
 | `watch` | Rules and the runner: `rules list/add/edit/remove/enable/disable/test` write and check the rules; `run` watches the server live over a gateway connection and acts on what happens; `status`, `stop` and `reload` drive a running one. macOS and Linux (the lock is a POSIX file lock). See [Watching a server](#watching-a-server) |
 | `schedule` | Runner-held scheduled posts: `post --channel --text --at | --every` stores one, `list` shows them, `cancel --id` removes one. They fire **only while `watch run` is up on this machine**, and every listing says so. See [The two guarantees](#the-two-guarantees) |
 | `event` | Server-held scheduled events: `list`, `create`, `edit` and `delete` for a server's Events tab. Discord holds these, so they happen with this machine off. `delete` dry-runs, then takes `--execute` **and** the event's exact name. See [The two guarantees](#the-two-guarantees) |
@@ -449,6 +452,58 @@ deny side and the other way round, a right named on neither side keeps what
 it had. `administrator` is a role permission and is refused as an overwrite;
 a thread has no overwrites of its own and the refusal names its parent.
 
+## Members, invites and the audit log
+
+Moderation is the everyday admin job, and the one where a valid command can
+still be impossible: Discord lets a bot act only on members below its own top
+role, and never on the server owner. This tool refuses those before it writes
+and says which it was, rather than relaying a 403.
+
+```bash
+discord-tools member list --server 1394...                                          # the `members` command by its group name
+discord-tools member kick --server 1394... --member 1401... --reason "raiding"      # dry-run: who, and the reason Discord will store
+discord-tools member kick --server 1394... --member 1401... --reason "raiding" --execute   # asks for their exact username
+discord-tools member ban  --server 1394... --member 1401... --reason "raiding" --execute   # same gate; they cannot rejoin on any invite
+discord-tools member unban --server 1394... --member 1401...                        # preview + y/N
+discord-tools member timeout --server 1394... --member 1401... --until 2h           # or 30m, 7d, or an ISO 8601 time
+discord-tools member nick --server 1394... --member 1401... --nick "Ana (ops)"      # --nick '' clears it
+discord-tools invite list --server 1394...                                          # every invite, with its link
+discord-tools invite create --channel 1394... --max-age 3600 --max-uses 5           # prints the link once
+discord-tools invite revoke --server 1394... --code abc123 --execute                # asks for the exact code
+discord-tools audit-log list --server 1394... --action ban --since 7d               # Discord's own log of everyone's changes
+```
+
+**Every write, in order:** preflight names the missing right —
+*Kick Members*, *Ban Members*, *Moderate Members*, *Manage Nicknames*,
+*Manage Guild* or *Create Instant Invite* — as `PERMISSION_DENIED` before
+anything is sent. Then the check a held right does not settle:
+`HIERARCHY_DENIED` for the server owner (Discord lets nobody moderate them),
+for the bot itself (this tool never moderates the account it is acting as),
+and for a member whose top role is not below the bot's, with both positions
+named. Then the gate, a drift check, the write, and a readback — the member as
+they now are, or the proof they are gone.
+
+**The gates.** Kicking, banning and revoking an invite dry-run by default and
+for real take `--execute` **and** the exact username or code typed at a
+prompt — no `--yes`, and no terminal means `APPROVAL_REQUIRED`. Timeout,
+nickname, unban and `invite create` preview and ask `y/N`, with `--yes`
+skipping the prompt the way `create --yes` does.
+
+**Reasons.** `--reason` is required on `kick` and `ban`, because it is what the
+member sees and what the next moderator reads. It is appended to this tool's
+own plan line, so the server's audit log shows
+`cli-tools member ban plan a1b2c3d4: raiding` — which tool acted, and why.
+`--reason` is optional on the rest.
+
+**Bounds and boundaries.** `--until` is required on `timeout` and is refused
+past 28 days, which is Discord's own ceiling; a mute with no end is one nobody
+remembers to lift. `ban` deletes no messages — Discord can sweep a banned
+member's recent history and this tool does not, because `clear-messages` is
+the command for that and it has its own gate. Invite links print in
+`invite list` and `invite create` and nowhere else: a revoke names the code,
+and a link a moderator typed into an audit reason is redacted on the way out.
+
+
 ## Watching a server
 
 Everything above is one-shot: you run it, it acts, it exits. `watch run` is the
@@ -579,7 +634,8 @@ discord-tools --json send --channel 1542... --text "shipped" --yes
 The keys are the same whatever the command ran — `status`, `result`, `error`,
 `plan`, `evidence`, `meta` and the rest — so there is one parser to write, not
 one per command. `--jsonl` streams a record per line for `search`, `members`,
-`discover` and `archive search` and closes with the same object.
+`member list`, `invite list`, `audit-log list`, `discover` and `archive search`
+and closes with the same object.
 
 Exit codes say the same thing without parsing anything: **0** done, **1** not
 done (stopped at a gate, or a server clear that could not reach everything),
@@ -605,12 +661,16 @@ Every write reports what permission it needed and held, which gate it passed,
 and what was read back afterwards — and a readback that begins `unverified:`
 means it happened but could not be confirmed. Executed writes append one line
 to `~/.discord-tools/audit.jsonl` (mode 0600, no secrets), and Discord's own
-audit log records the change against `cli-tools <command> plan <id>`.
+audit log records the change against `cli-tools <command> plan <id>` — with the
+moderator's `--reason` after it on a member write. A read that needs a right
+still preflights it (`invite list`, `audit-log list`) but writes no audit line:
+that file is a record of writes.
 
 `skill/SKILL.md` is a bundled agent skill describing the CLI surface and the
 rules an agent must follow (never `clear-messages`, `message delete`,
-`structure apply`, a role or permission write, an `event delete --execute` or
-`watch run`, allowlist-gated sends, never print tokens). It updates in the same commit as any CLI-surface change.
+`structure apply`, a role or permission write, a `member kick`/`member ban`, an
+`invite revoke --execute`, an `event delete --execute` or `watch run`,
+allowlist-gated sends, never print tokens). It updates in the same commit as any CLI-surface change.
 
 ## Development
 

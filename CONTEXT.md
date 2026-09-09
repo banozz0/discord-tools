@@ -381,3 +381,32 @@ Architecture decisions with more context than fits here go to `docs/adr/`.
 - **Late** — a schedule fired after a forward clock jump: once, marked, rather
   than once per missed interval. A backward jump re-plans from the new
   baseline instead.
+- **Member** — a person in one server (`dc:member:<guild>:<user>`). Fetched one
+  at a time by `get_member`, which Discord leaves open to every bot, so a kick
+  works on a server where the **Server Members** intent is off and only
+  `member list` does not. `member list` is `members` under the group name and
+  reads through the same code.
+- **Member label** — what a screen calls a member: the username, with the
+  nickname beside it when they differ (`Ana R (ana)`). Told apart from the
+  **typed label**, which is the username alone and is what a kick or a ban asks
+  to have typed back — a nickname changes under you, a username does not.
+- **Member hierarchy** — the check after preflight on every member write, and
+  the sibling of the role one: the **server owner** is refused because Discord
+  lets nobody moderate them, the **bot itself** because this tool never
+  moderates the account it is acting as, and a member whose top role is not
+  below the bot's because Discord will not allow it. All three are
+  `HIERARCHY_DENIED` with both positions named.
+- **Moderation reason** — the audit reason a member write sends: the plan's own
+  `cli-tools <command> plan <id8>` with the moderator's `--reason` after it,
+  capped at the 512 characters Discord's header takes. `--reason` is required
+  on `kick` and `ban` and optional elsewhere.
+- **Invite** — a link into a server (`dc:invite:<code>`). The **code** is the
+  identity; the **link** is built from it, and only `invite list` and `invite
+  create` print one. Everywhere else the code is shown alone and a link found
+  in text the tool did not build is redacted, because a link in a log line is
+  still a working door.
+- **Server audit log** — Discord's own record of everyone's changes on a
+  server, read by `audit-log list` behind *View Audit Log*. Told apart from the
+  **audit line**, which is this tool's local record of its own writes in
+  `~/.discord-tools/audit.jsonl`. A read that needs a right preflights it and
+  writes no audit line.

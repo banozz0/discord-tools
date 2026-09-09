@@ -1,5 +1,83 @@
 # Changelog
 
+## 0.15.0 — 2026-09-09
+
+Moderation: the everyday admin job. Members can be kicked, banned, unbanned,
+timed out and renamed; invites can be listed, made and revoked; and the
+server's own audit log can be read. Every write names the right it needs before
+it sends anything, refuses what Discord's hierarchy will not allow, and records
+why in a place the next moderator will look.
+
+### Members
+
+- **`member list`** is the `members` command under the group name, with the
+  same `--server`, `--format` and `--output` and the same Server Members intent
+  error. `members` keeps working exactly as it did.
+- **`member kick`** and **`member ban`** dry-run by default and for real take
+  `--execute` **and** the member's exact **username** typed at a prompt. There
+  is no `--yes`, so neither ever runs unattended. `--reason` is **required** on
+  both: it is what the member sees and what the next moderator reads.
+- **`member unban`** lifts a ban after a preview and a `y/N`, and shows what
+  they were banned for before it asks.
+- **`member timeout --until`** stops a member posting, reacting and speaking
+  until a moment you name. `--until` is required and takes a duration (`30m`,
+  `2h`, `7d`) or an ISO 8601 time; anything past **28 days** is refused,
+  because that is Discord's own ceiling and a mute with no end is one nobody
+  remembers to lift.
+- **`member nick`** sets a server nickname; `--nick ''` clears it back to the
+  username.
+- **A ban deletes no messages.** Discord can sweep a banned member's recent
+  history and this tool does not: `clear-messages` is the command for that, and
+  it has its own gate.
+
+### The check a held right does not settle
+
+- Preflight names the missing right — *Kick Members*, *Ban Members*, *Moderate
+  Members*, *Manage Nicknames*, *Manage Guild*, *Create Instant Invite*,
+  *View Audit Log* — as `PERMISSION_DENIED` before anything is sent.
+- Then `HIERARCHY_DENIED`, with the reason spelled out: the **server owner**,
+  whom Discord lets nobody moderate; the **bot itself**, which this tool never
+  moderates; or a member whose **top role is not below the bot's**, with both
+  positions named and the fix in the hint.
+
+### Invites
+
+- **`invite list`** prints every invite with its **link**, its uses and its
+  expiry (needs *Manage Guild*). **`invite create --channel`** makes one behind
+  a preview and a `y/N` — `--max-age` (default one day, `0` never expires),
+  `--max-uses` (default unlimited), `--temporary` — and prints the link once.
+- **`invite revoke`** dry-runs, and for real takes `--execute` **and** the
+  exact code typed at a prompt, with no `--yes`.
+- **Links appear in `list` and `create` and nowhere else.** A revoke names the
+  code; a link a moderator typed into an audit reason is redacted on the way
+  out.
+
+### The audit log
+
+- **`audit-log list --server`** prints Discord's own log of everyone's changes,
+  newest first, with `--action` (Discord's own snake_case names), `--user`,
+  `--since` (a duration or an ISO time) and `--limit`. Needs *View Audit Log*.
+- Not to be confused with `~/.discord-tools/audit.jsonl`, which is this tool's
+  local record of **its own** writes. A read that needs a right preflights it
+  and writes no local line: that file is a record of writes.
+- Discord's audit reason on a member write is this tool's plan line with the
+  moderator's words after it — `cli-tools member ban plan a1b2c3d4: raiding` —
+  so a change this tool made can be told apart, in the server, from one someone
+  made in the app, and the why travels with it.
+
+### The menu
+
+- **Manage is regrouped into four families**: Roles, Permissions, Members and
+  Invites are each a screen of their own, with the audit log beside them —
+  sixteen rows on one screen is not a menu. The nine root rows are unchanged.
+- Kick, ban and invite revoke dry-run first and ask for the typed label inside
+  the command, so the menu is no shorter a path to a removal than the flags
+  are. The member picker falls back to a typed ID when the Server Members
+  intent is off.
+- **Fixed:** typing `0` at a "type an ID" prompt was taken as user ID 0 rather
+  than as the step-back it is on every other screen, which could leave a screen
+  with nothing to list looping on itself.
+
 ## 0.14.0 — 2026-09-08
 
 Rules, a runner, and the two kinds of schedule. Everything before this was

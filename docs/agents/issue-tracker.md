@@ -1,7 +1,7 @@
 # Issue Tracker
 
 Issues for this repo live on the shared **Beads board** at
-`/Users/Shared/agent-board` — the fleet-wide queue Claude Code, Codex, and
+`/Users/sven/code/agent-board` — the fleet-wide queue Claude Code, Codex, and
 Hermes all read and write (via `bd` or the `beads` MCP tools).
 
 - Skills that "create an issue" (`to-tickets`, `to-spec`, `triage`) create a

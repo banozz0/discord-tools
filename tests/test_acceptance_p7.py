@@ -222,8 +222,9 @@ def test_p7_a_member_the_hierarchy_cannot_reach_is_refused_with_both_positions(v
 def test_p7_a_timeout_without_until_is_refused():
     """Refused by the parser, before a client exists to refuse it later — and
     a time nobody can set is refused before the preview is even drawn."""
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as caught:
         build_parser().parse_args(["member", "timeout", "--server", "10", "--member", "50"])
+    assert caught.value.code == 2
     client = moderated()
     with pytest.raises(ValueError, match="maximum timeout is 28 days"):
         go(["--json", "member", "timeout", "--server", "10", "--member", "50", "--until", "29d", "--yes"], client)

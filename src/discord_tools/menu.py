@@ -33,6 +33,7 @@ from discord_tools.prompts import (
     pick,
     with_banner,
 )
+from discord_tools import moderation
 from discord_tools.ui import crumb
 
 # What the menu turns into a printed line instead of an exit. Anything not
@@ -1972,7 +1973,7 @@ async def _flow_audit_log(*, session, runner, read, write) -> bool:
             return True
         action = user = None
         if scope == 1:
-            action = ask_text("Action, in Discord's own snake_case (kick, ban, member_update, invite_create, ...)", read=read, write=write)
+            action = ask_text(f"Action, in {moderation.AUDIT_ACTIONS_ARE}", read=read, write=write)
             if action is BACK:
                 continue
         if scope == 2:

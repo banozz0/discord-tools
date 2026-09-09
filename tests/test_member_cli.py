@@ -195,8 +195,9 @@ def test_an_id_that_is_not_a_member_is_target_not_found():
 
 
 def test_timeout_without_until_is_refused_by_the_parser():
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as caught:
         build_parser().parse_args(["member", "timeout", "--server", "10", "--member", "50"])
+    assert caught.value.code == 2, "argparse's own refusal, and the spec's exit code for one"
 
 
 @pytest.mark.parametrize("until,says", [("29d", "maximum timeout is 28 days"), ("2020-01-01T00:00:00+00:00", "in the past"), ("soon", "is not a time")])
@@ -263,6 +264,13 @@ def test_unban_lifts_a_ban_and_reads_the_ban_list_back():
     assert body["evidence"]["readback"] == "user 60 is no longer banned from server 10"
 
 
+def test_the_unban_preview_hides_a_link_somebody_typed_into_the_ban_reason(monkeypatch):
+    client = agency(bans={10: [{"id": 60, "username": "spammer", "display_name": "spammer", "reason": "raiding from https://discord.gg/abc123"}]})
+    answer(monkeypatch, "n")
+    _code, _body, stderr = go(["--json", "member", "unban", "--server", "10", "--member", "60"], client)
+    assert "discord.gg/abc123" not in stderr and "Banned for: raiding from discord.gg/<redacted>" in stderr
+
+
 def test_unbanning_somebody_who_is_not_banned_says_so():
     client = agency()
     code, body, _stderr = go(["--json", "member", "unban", "--server", "10", "--member", "60", "--yes"], client)
@@ -301,6 +309,17 @@ def test_invite_create_previews_the_terms_and_prints_the_link_once():
     assert client.created_invites[0]["max_age"] == 3600
     assert client.reasons == [f"cli-tools invite create plan {body['plan']['plan_id'][:8]}"]
     assert "is listed on server Agency" in body["evidence"]["readback"]
+
+
+def test_both_invite_previews_print_the_audit_reason_discord_will_store(monkeypatch):
+    """Section 13: every family's dry-run prints the audit reason that will be sent."""
+    client = agency(invites={10: [INVITE]})
+    answer(monkeypatch, "n")
+    _code, _body, stderr = go(["--json", "invite", "create", "--channel", "101"], client)
+    assert "Discord will record the reason: cli-tools invite create plan " in stderr
+    _code, _body, stderr = go(["--json", "invite", "revoke", "--server", "10", "--code", "abc123"], client)
+    assert "Discord will record the reason: cli-tools invite revoke plan " in stderr
+    assert client.created_invites == [] and client.deleted_invites == []
 
 
 def test_invite_revoke_dry_runs_then_takes_the_typed_code_and_never_prints_the_link(monkeypatch):

@@ -982,7 +982,7 @@ usage: discord-tools audit-log list [-h] --server SERVER [--action ACTION] [--us
 options:
   -h, --help       show this help message and exit
   --server SERVER  Server ID
-  --action ACTION  Only this action, in Discord's own snake_case (kick, ban, member_update,
+  --action ACTION  Only this action, in Discord's own snake_case names (kick, ban, member_update,
                    invite_create, ...)
   --user USER      Only entries by this user ID
   --since TIME     Only entries after this ISO 8601 time, or a duration back like 24h

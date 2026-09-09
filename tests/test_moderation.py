@@ -45,15 +45,11 @@ def test_a_member_target_carries_both_ids_and_an_invite_target_carries_the_code(
     assert (invite.rid, invite.kind, invite.title) == ("dc:invite:abc123", "invite", "abc123")
 
 
-def test_find_member_needs_an_id_and_says_so_when_it_is_a_name():
-    people = [member(42, "ana"), member(43, "bo")]
-    assert moderation.find_member(people, "43")["username"] == "bo"
+def test_a_member_reference_is_an_id_and_a_name_is_refused_rather_than_searched():
+    assert moderation.member_id("43") == 43 and moderation.member_id(" 43 ") == 43
     with pytest.raises(TargetError) as caught:
-        moderation.find_member(people, "ana")
+        moderation.member_id("ana")
     assert caught.value.code == "TARGET_NOT_FOUND" and "no way to look a member up by name" in str(caught.value)
-    with pytest.raises(TargetError) as caught:
-        moderation.find_member(people, "99")
-    assert caught.value.code == "TARGET_NOT_FOUND"
 
 
 # -- the hierarchy check --------------------------------------------------------------
@@ -87,6 +83,13 @@ def test_a_member_holding_nothing_but_everyone_is_reachable():
 
 
 NOW = datetime(2026, 9, 9, 12, 0, tzinfo=timezone.utc)
+
+
+def test_since_counts_a_duration_backwards_and_takes_an_iso_time():
+    assert NOW.astimezone() - moderation.parse_since("24h", now=NOW) == timedelta(hours=24)
+    assert moderation.parse_since("2026-09-01T00:00:00+00:00", now=NOW) == datetime(2026, 9, 1, tzinfo=timezone.utc)
+    with pytest.raises(ValueError, match="is not a time"):
+        moderation.parse_since("lately", now=NOW)
 
 
 def test_until_takes_a_duration_or_an_iso_time():
@@ -151,6 +154,11 @@ def test_the_invite_list_shows_the_link_and_the_row_only_carries_one_when_asked(
     assert "https://discord.gg/abc123" in moderation.format_invites(invites, server="Agency")
     assert "expires never" in moderation.format_invites(invites, server="Agency")
     assert moderation.invite_row(invites[0], link=True)["url"] == "https://discord.gg/abc123"
+    plan = moderation.format_invite_plan(channel="#deploys (101)", max_age=3600, max_uses=5, temporary=False, reason="cli-tools invite create plan abc12345")
+    assert "Discord will record the reason: cli-tools invite create plan abc12345" in plan
+    revoke = moderation.format_invite(invites[0], heading="Revoke", link=False, reason="cli-tools invite revoke plan abc12345")
+    assert "Discord will record the reason: cli-tools invite revoke plan abc12345" in revoke and "https://discord.gg/abc123" not in revoke
+    assert "Discord will record the reason" not in moderation.format_invite(invites[0], heading="Created", link=True)
     assert "url" not in moderation.invite_row(invites[0], link=False)
     assert "No invites on Agency" in moderation.format_invites([], server="Agency")
 

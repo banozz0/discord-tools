@@ -204,8 +204,6 @@ def _automod_kwargs(rule: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-# A scheduled event's three places, in Discord's own words. `external` is the
-# one that needs a location and an end time; the other two need a channel.
 def _member_dict(member: Any) -> dict[str, Any]:
     """One member in the shape the moderation rim reads: the ids, how Discord
     renders the name, the roles the hierarchy check measures, and a live timeout."""
@@ -274,6 +272,8 @@ def _audit_dict(entry: Any) -> dict[str, Any]:
     }
 
 
+# A scheduled event's three places, in Discord's own words. `external` is the
+# one that needs a location and an end time; the other two need a channel.
 EVENT_PLACES = ("voice", "stage_instance", "external")
 
 

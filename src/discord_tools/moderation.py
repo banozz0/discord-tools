@@ -57,6 +57,9 @@ INVITE_HOST = "discord.gg"
 # redaction pass knows the `/+hash` and `/joinchat/` spellings other platforms
 # use; this one is Discord's, so it lives with the commands that show it.
 INVITE_LINK = re.compile(r"(?:https?://)?(?:www\.)?(?:discord\.gg|discord(?:app)?\.com/invite)/([A-Za-z0-9-]{2,32})")
+# The vocabulary `audit-log --action` takes, said once: a flag's help and a
+# menu prompt both name it.
+AUDIT_ACTIONS_ARE = "Discord's own snake_case names (kick, ban, member_update, invite_create, ...)"
 
 
 # -- members as targets ---------------------------------------------------------
@@ -81,19 +84,24 @@ def typed_label(member: Mapping[str, Any]) -> str:
     return str(member["username"])
 
 
-def find_member(members: Sequence[Mapping[str, Any]], reference: str | int) -> dict[str, Any]:
-    """The member `reference` names in an already-fetched list, or `TARGET_NOT_FOUND`."""
+BY_ID_ONLY = "Run `discord-tools member list --server <id>` to see every member with their ID."
+
+
+def member_id(reference: str | int) -> int:
+    """The user ID `reference` spells, or `TARGET_NOT_FOUND`.
+
+    Discord gives a bot no way to look a single member up by name, so a name
+    here is a refusal rather than a search that would quietly pick the wrong
+    person.
+    """
     text = str(reference).strip()
     if not text.isdecimal():
         raise TargetError(
             "TARGET_NOT_FOUND",
             f"{text!r} is not a user ID. Discord gives a bot no way to look a member up by name.",
-            hint="Run `discord-tools member list --server <id>` to see every member with their ID.",
+            hint=BY_ID_ONLY,
         )
-    member = next((entry for entry in members if int(entry["id"]) == int(text)), None)
-    if member is None:
-        raise TargetError("TARGET_NOT_FOUND", f"No member with ID {text} here.", hint="Check the ID with `discord-tools member list --server <id>`.")
-    return dict(member)
+    return int(text)
 
 
 def member_target(server: Target, member: Mapping[str, Any]) -> Target:
@@ -131,17 +139,17 @@ def hierarchy(
     bot_id: int | None = None,
 ) -> Error | None:
     """The refusal when the right is held but cannot reach `member`, else None."""
-    label, member_id = member_label(member), int(member["id"])
-    if owner_id is not None and member_id == int(owner_id):
+    label, who = member_label(member), int(member["id"])
+    if owner_id is not None and who == int(owner_id):
         return Error(
             code="HIERARCHY_DENIED",
-            message=f"{label} ({member_id}) owns this server; Discord lets nobody {verb} the owner.",
+            message=f"{label} ({who}) owns this server; Discord lets nobody {verb} the owner.",
             hint="Ownership is transferred by the owner, in Server Settings, and by nothing else.",
         )
-    if bot_id is not None and member_id == int(bot_id):
+    if bot_id is not None and who == int(bot_id):
         return Error(
             code="HIERARCHY_DENIED",
-            message=f"{label} ({member_id}) is the bot itself; this tool never moderates the account it is acting as.",
+            message=f"{label} ({who}) is the bot itself; this tool never moderates the account it is acting as.",
             hint="Use `discord-tools leave-server` if the bot should not be here.",
         )
     by_id = {int(role["id"]): role for role in roles}
@@ -167,24 +175,36 @@ def hierarchy(
 # -- flags -----------------------------------------------------------------------
 
 
-def parse_until(text: str, *, now: datetime | None = None) -> datetime:
-    """`--until` as a moment: an ISO 8601 time, or a duration like `30m`, `2h`, `7d`.
+DURATION = re.compile(r"(\d+)\s*([mhd])", re.IGNORECASE)
+UNITS = {"m": "minutes", "h": "hours", "d": "days"}
 
-    Bounded at both ends. A time already past would lift the timeout the moment
-    it was set, and Discord itself refuses anything beyond 28 days.
+
+def _moment(text: str, *, from_: datetime, ahead: bool) -> datetime:
+    """`text` as a moment: an ISO 8601 time, or a duration counted from `from_`.
+
+    The one parser both `--until` and `--since` use. A duration goes forwards
+    for a deadline and backwards for a window; an absolute time is itself
+    either way.
+    """
+    raw = (text or "").strip()
+    duration = DURATION.fullmatch(raw)
+    if duration:
+        span = timedelta(**{UNITS[duration.group(2).lower()]: int(duration.group(1))})
+        return from_ + span if ahead else from_ - span
+    try:
+        return parse_at(raw)
+    except RunnerError as exc:
+        raise ValueError(f"{text!r} is not a time. Use an ISO 8601 time, or a duration like 30m, 2h or 7d ({exc}).") from exc
+
+
+def parse_until(text: str, *, now: datetime | None = None) -> datetime:
+    """`--until` as a moment, bounded at both ends.
+
+    A time already past would lift the timeout the moment it was set, and
+    Discord itself refuses anything beyond 28 days.
     """
     moment = (now or datetime.now(timezone.utc)).astimezone()
-    raw = (text or "").strip()
-    duration = re.fullmatch(r"(\d+)\s*([mhd])", raw, re.IGNORECASE)
-    if duration:
-        size = int(duration.group(1))
-        unit = duration.group(2).lower()
-        when = moment + timedelta(**{{"m": "minutes", "h": "hours", "d": "days"}[unit]: size})
-    else:
-        try:
-            when = parse_at(raw)
-        except RunnerError as exc:
-            raise ValueError(f"{text!r} is not a time. Use an ISO 8601 time, or a duration like 30m, 2h or 7d ({exc}).") from exc
+    when = _moment(text, from_=moment, ahead=True)
     if when <= moment:
         raise ValueError(f"{text!r} is {'now' if when == moment else 'in the past'}, so the timeout would be over before it began.")
     if when > moment + timedelta(days=MAX_TIMEOUT_DAYS):
@@ -192,17 +212,9 @@ def parse_until(text: str, *, now: datetime | None = None) -> datetime:
     return when
 
 
-def parse_since(text: str) -> datetime:
-    """`--since` as a moment: an ISO 8601 time, or a duration like `2h` back from now."""
-    raw = (text or "").strip()
-    duration = re.fullmatch(r"(\d+)\s*([mhd])", raw, re.IGNORECASE)
-    if duration:
-        size, unit = int(duration.group(1)), duration.group(2).lower()
-        return datetime.now(timezone.utc).astimezone() - timedelta(**{{"m": "minutes", "h": "hours", "d": "days"}[unit]: size})
-    try:
-        return parse_at(raw)
-    except RunnerError as exc:
-        raise ValueError(f"{text!r} is not a time. Use an ISO 8601 time, or a duration like 2h or 7d ({exc}).") from exc
+def parse_since(text: str, *, now: datetime | None = None) -> datetime:
+    """`--since` as a moment: an ISO 8601 time, or a duration counted back from now."""
+    return _moment(text, from_=(now or datetime.now(timezone.utc)).astimezone(), ahead=False)
 
 
 def moderation_reason(base: str, reason: str | None) -> str:
@@ -287,16 +299,6 @@ def format_member_plan(member: Mapping[str, Any], *, action: str, reason: str, d
     return "\n".join(lines)
 
 
-def format_bans(bans: Sequence[Mapping[str, Any]], *, server: str) -> str:
-    if not bans:
-        return f"Nobody is banned from {server}."
-    lines = [f"Banned from {server}", RULE]
-    for ban in bans:
-        lines.append(f"{int(ban['id']):<20}  {str(ban['username']):<32.32}  {ban.get('reason') or '(no reason recorded)'}")
-    lines.append(f"{len(bans)} ban(s)")
-    return "\n".join(lines)
-
-
 def invite_row(invite: Mapping[str, Any], *, link: bool) -> dict[str, Any]:
     row = {
         "code": invite["code"],
@@ -330,7 +332,7 @@ def format_invites(invites: Sequence[Mapping[str, Any]], *, server: str) -> str:
     return "\n".join(lines)
 
 
-def format_invite_plan(*, channel: str, max_age: int, max_uses: int, temporary: bool) -> str:
+def format_invite_plan(*, channel: str, max_age: int, max_uses: int, temporary: bool, reason: str) -> str:
     return "\n".join(
         [
             f"Create an invite to {channel}",
@@ -339,24 +341,26 @@ def format_invite_plan(*, channel: str, max_age: int, max_uses: int, temporary: 
             f"Uses         {'unlimited' if not max_uses else max_uses}",
             f"Membership   {'temporary — a member who leaves loses their roles' if temporary else 'permanent'}",
             RULE,
+            f"Discord will record the reason: {reason}",
             "Anyone holding the link can join this server.",
         ]
     )
 
 
-def format_invite(invite: Mapping[str, Any], *, heading: str, link: bool) -> str:
-    return "\n".join(
-        [
-            heading,
-            RULE,
-            f"Code         {invite['code']}",
-            f"Link         {invite_url(invite['code']) if link else f'{INVITE_HOST}/<hidden — `invite list` shows it>'}",
-            f"Channel      {invite.get('channel') or '-'}",
-            f"Uses         {int(invite.get('uses') or 0)} of {int(invite.get('max_uses') or 0) or 'unlimited'}",
-            f"Created by   {invite.get('inviter') or '-'}",
-            RULE,
-        ]
-    )
+def format_invite(invite: Mapping[str, Any], *, heading: str, link: bool, reason: str | None = None) -> str:
+    lines = [
+        heading,
+        RULE,
+        f"Code         {invite['code']}",
+        f"Link         {invite_url(invite['code']) if link else f'{INVITE_HOST}/<hidden — `invite list` shows it>'}",
+        f"Channel      {invite.get('channel') or '-'}",
+        f"Uses         {int(invite.get('uses') or 0)} of {int(invite.get('max_uses') or 0) or 'unlimited'}",
+        f"Created by   {invite.get('inviter') or '-'}",
+    ]
+    if reason is not None:
+        lines.append(f"Discord will record the reason: {reason}")
+    lines.append(RULE)
+    return "\n".join(lines)
 
 
 def audit_row(entry: Mapping[str, Any]) -> dict[str, Any]:

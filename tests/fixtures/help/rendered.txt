@@ -2,10 +2,10 @@
 discord-tools --help
 ========================================================================
 usage: discord-tools [-h] [--profile PROFILE] [--json] [--jsonl]
-                     {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,review,structure,role,permission,message,watch,schedule,event,bot} ...
+                     {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,review,structure,role,permission,member,invite,audit-log,message,watch,schedule,event,bot} ...
 
 positional arguments:
-  {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,review,structure,role,permission,message,watch,schedule,event,bot}
+  {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,review,structure,role,permission,member,invite,audit-log,message,watch,schedule,event,bot}
     auth                Guided bot setup: Developer Portal walkthrough, token check, invite URL
     doctor              Check token, message-content intent, servers, and channel permissions
     discover            List the server -> channel -> thread tree with IDs
@@ -27,6 +27,11 @@ positional arguments:
     role                A server's roles: list, create, edit (name, colour, hoist, mentionable,
                         permissions), delete (typed name)
     permission          Permission overwrites on a channel or category: show them, set one role's
+    member              A server's members: list, kick, ban, unban, timeout, nick. `members` is
+                        the older spelling of `member list`
+    invite              A server's invites: list them with their links, create one, revoke one
+    audit-log           The server's own audit log: who did what, filtered by action, by person or
+                        by time
     message             Act on messages a channel holds: reply, edit, delete, forward, copy,
                         react, pin, poll, typing, bookmark
     watch               Rules and the runner: watch a server live and act on what happens (macOS
@@ -807,3 +812,178 @@ options:
   --deny DENY      Permission names to deny, comma-separated
   --clear          Remove the role's overwrite entirely instead
   --yes            Skip the y/N prompt
+
+========================================================================
+discord-tools member --help
+========================================================================
+usage: discord-tools member [-h] {list,kick,ban,unban,timeout,nick} ...
+
+positional arguments:
+  {list,kick,ban,unban,timeout,nick}
+    list                Every visible member with their username and ID (needs the Server Members
+                        intent)
+    kick                Remove a member from the server (dry-run by default; --execute asks for
+                        their exact username)
+    ban                 Remove a member and stop them coming back (dry-run by default; --execute
+                        asks for their exact username)
+    unban               Lift a ban so the user can be invited back (preview + y/N)
+    timeout             Stop a member posting, reacting and speaking until a time you name
+                        (preview + y/N)
+    nick                Set or clear a member's nickname on this server (preview + y/N)
+
+options:
+  -h, --help            show this help message and exit
+
+========================================================================
+discord-tools member list --help
+========================================================================
+usage: discord-tools member list [-h] --server SERVER [--format {json,csv}] [--output OUTPUT]
+
+options:
+  -h, --help           show this help message and exit
+  --server SERVER      Server ID
+  --format {json,csv}  Export format
+  --output OUTPUT      Output file; relative names land in ~/.discord-tools/exports/. Prints a
+                       readable table when omitted
+
+========================================================================
+discord-tools member kick --help
+========================================================================
+usage: discord-tools member kick [-h] --server SERVER --member MEMBER --reason REASON [--execute]
+
+options:
+  -h, --help       show this help message and exit
+  --server SERVER  Server ID
+  --member MEMBER  User ID of the member
+  --reason REASON  Why; Discord stores it in the server's own audit log
+  --execute        Remove a member from the server for real after typing their exact username (no
+                   --yes exists)
+
+========================================================================
+discord-tools member ban --help
+========================================================================
+usage: discord-tools member ban [-h] --server SERVER --member MEMBER --reason REASON [--execute]
+
+options:
+  -h, --help       show this help message and exit
+  --server SERVER  Server ID
+  --member MEMBER  User ID of the member
+  --reason REASON  Why; Discord stores it in the server's own audit log
+  --execute        Remove a member and stop them coming back for real after typing their exact
+                   username (no --yes exists)
+
+========================================================================
+discord-tools member unban --help
+========================================================================
+usage: discord-tools member unban [-h] --server SERVER --member MEMBER [--reason REASON] [--yes]
+
+options:
+  -h, --help       show this help message and exit
+  --server SERVER  Server ID
+  --member MEMBER  User ID of the banned user
+  --reason REASON  Why; Discord stores it in the server's own audit log
+  --yes            Skip the y/N prompt
+
+========================================================================
+discord-tools member timeout --help
+========================================================================
+usage: discord-tools member timeout [-h] --server SERVER --member MEMBER --until TIME
+                                    [--reason REASON] [--yes]
+
+options:
+  -h, --help       show this help message and exit
+  --server SERVER  Server ID
+  --member MEMBER  User ID of the member
+  --until TIME     When it ends: an ISO 8601 time, or a duration like 30m, 2h, 7d. Required, and
+                   never more than 28 days (Discord's own limit)
+  --reason REASON  Why; Discord stores it in the server's own audit log
+  --yes            Skip the y/N prompt
+
+========================================================================
+discord-tools member nick --help
+========================================================================
+usage: discord-tools member nick [-h] --server SERVER --member MEMBER --nick NICK
+                                 [--reason REASON] [--yes]
+
+options:
+  -h, --help       show this help message and exit
+  --server SERVER  Server ID
+  --member MEMBER  User ID of the member
+  --nick NICK      The new nickname; an empty string clears it back to their username
+  --reason REASON  Why; Discord stores it in the server's own audit log
+  --yes            Skip the y/N prompt
+
+========================================================================
+discord-tools invite --help
+========================================================================
+usage: discord-tools invite [-h] {list,create,revoke} ...
+
+positional arguments:
+  {list,create,revoke}
+    list                Every invite with its link, uses and expiry (needs Manage Guild)
+    create              Create an invite to a channel and print its link once (preview + y/N)
+    revoke              Revoke an invite (dry-run by default; --execute asks for its exact code)
+
+options:
+  -h, --help            show this help message and exit
+
+========================================================================
+discord-tools invite list --help
+========================================================================
+usage: discord-tools invite list [-h] --server SERVER
+
+options:
+  -h, --help       show this help message and exit
+  --server SERVER  Server ID
+
+========================================================================
+discord-tools invite create --help
+========================================================================
+usage: discord-tools invite create [-h] --channel CHANNEL [--max-age SECONDS] [--max-uses N]
+                                   [--temporary] [--yes]
+
+options:
+  -h, --help         show this help message and exit
+  --channel CHANNEL  Channel ID the invite lands in
+  --max-age SECONDS  Seconds until it expires; 0 never expires (default: 86400, one day)
+  --max-uses N       How many people may use it; 0 is unlimited (default: 0)
+  --temporary        Members who join on it lose their roles when they disconnect
+  --yes              Skip the y/N prompt
+
+========================================================================
+discord-tools invite revoke --help
+========================================================================
+usage: discord-tools invite revoke [-h] --server SERVER --code CODE [--execute]
+
+options:
+  -h, --help       show this help message and exit
+  --server SERVER  Server ID
+  --code CODE      The invite code, as `invite list` prints it
+  --execute        Revoke for real after typing the exact code (no --yes exists)
+
+========================================================================
+discord-tools audit-log --help
+========================================================================
+usage: discord-tools audit-log [-h] {list} ...
+
+positional arguments:
+  {list}
+    list      Audit entries, newest first (needs View Audit Log)
+
+options:
+  -h, --help  show this help message and exit
+
+========================================================================
+discord-tools audit-log list --help
+========================================================================
+usage: discord-tools audit-log list [-h] --server SERVER [--action ACTION] [--user USER]
+                                    [--since TIME] [--limit LIMIT]
+
+options:
+  -h, --help       show this help message and exit
+  --server SERVER  Server ID
+  --action ACTION  Only this action, in Discord's own snake_case (kick, ban, member_update,
+                   invite_create, ...)
+  --user USER      Only entries by this user ID
+  --since TIME     Only entries after this ISO 8601 time, or a duration back like 24h
+  --limit LIMIT    How many entries at most (default: 50)

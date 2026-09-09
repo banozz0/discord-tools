@@ -99,6 +99,11 @@ class FakeClient:
         automod: dict[int, list[dict]] | None = None,
         bot_roles: dict[int, list[int]] | None = None,
         scheduled_events: dict[int, list[dict]] | None = None,
+        guild_members: dict[int, list[dict]] | None = None,
+        owners: dict[int, int] | None = None,
+        bans: dict[int, list[dict]] | None = None,
+        invites: dict[int, list[dict]] | None = None,
+        audit: dict[int, list[dict]] | None = None,
     ) -> None:
         self.identity = identity
         self.servers = servers or []
@@ -154,6 +159,28 @@ class FakeClient:
             k: [dict(row) for row in v] for k, v in (scheduled_events or {}).items()
         }
         self.deleted_events: list[int] = []
+        # Members in the richer shape the moderation commands read: roles, join
+        # date and a live timeout. A server named only in `members` gets the
+        # same people here with no roles, so a test says each fact once.
+        self.guild_members: dict[int, list[dict]] = {k: [dict(row) for row in v] for k, v in (guild_members or {}).items()}
+        for server_id, people in self.members.items():
+            self.guild_members.setdefault(
+                server_id,
+                [{"id": p.id, "username": p.username, "display_name": p.display_name, "bot": p.bot, "roles": [], "joined_at": None, "timed_out_until": None} for p in people],
+            )
+        # Who owns each server; Discord lets nobody moderate the owner.
+        self.owners: dict[int, int] = dict(owners or {})
+        self.bans: dict[int, list[dict]] = {k: [dict(row) for row in v] for k, v in (bans or {}).items()}
+        self.invites: dict[int, list[dict]] = {k: [dict(row) for row in v] for k, v in (invites or {}).items()}
+        self.audit: dict[int, list[dict]] = {k: [dict(row) for row in v] for k, v in (audit or {}).items()}
+        # Every moderation write in call order, beside the reason it carried.
+        self.kicked: list[tuple[int, int]] = []
+        self.banned: list[tuple[int, int]] = []
+        self.unbanned: list[tuple[int, int]] = []
+        self.timeouts: list[tuple[int, int, str]] = []
+        self.nicks: list[tuple[int, int, str | None]] = []
+        self.created_invites: list[dict] = []
+        self.deleted_invites: list[str] = []
         # Every structure write in call order: (method, id or name, fields).
         self.structure_writes: list[tuple] = []
         # A test's hook to make one write fail: called with (method, name_or_id),
@@ -465,6 +492,114 @@ class FakeClient:
 
     async def bot_role_ids(self, server_id):
         return [server_id, *self.bot_roles.get(server_id, [])]
+
+    # -- members, invites and the audit log ----------------------------------
+
+    async def guild_owner_id(self, server_id):
+        return self.owners.get(server_id)
+
+    def _member(self, server_id, user_id) -> dict:
+        from discord_tools.client import ClientError
+
+        found = next((row for row in self.guild_members.get(server_id, []) if int(row["id"]) == int(user_id)), None)
+        if found is None:
+            raise ClientError(f"No member with ID {user_id} in server {server_id}.")
+        return found
+
+    async def get_member(self, server_id, user_id):
+        return dict(self._member(server_id, user_id))
+
+    async def kick_member(self, server_id, user_id, *, reason=None):
+        self._maybe_fail("kick_member", user_id)
+        self._member(server_id, user_id)
+        self.guild_members[server_id] = [row for row in self.guild_members[server_id] if int(row["id"]) != int(user_id)]
+        self.kicked.append((server_id, user_id))
+        self.reasons.append(reason)
+
+    async def ban_member(self, server_id, user_id, *, reason=None):
+        self._maybe_fail("ban_member", user_id)
+        member = self._member(server_id, user_id)
+        self.guild_members[server_id] = [row for row in self.guild_members[server_id] if int(row["id"]) != int(user_id)]
+        self.bans.setdefault(server_id, []).append(
+            {"id": int(user_id), "username": member["username"], "display_name": member.get("display_name"), "reason": reason}
+        )
+        self.banned.append((server_id, user_id))
+        self.reasons.append(reason)
+
+    async def unban_member(self, server_id, user_id, *, reason=None):
+        from discord_tools.client import ClientError
+
+        self._maybe_fail("unban_member", user_id)
+        rows = self.bans.get(server_id, [])
+        if not any(int(row["id"]) == int(user_id) for row in rows):
+            raise ClientError(f"User {user_id} is not banned from server {server_id}.")
+        self.bans[server_id] = [row for row in rows if int(row["id"]) != int(user_id)]
+        self.unbanned.append((server_id, user_id))
+        self.reasons.append(reason)
+
+    async def list_bans(self, server_id):
+        return [dict(row) for row in self.bans.get(server_id, [])]
+
+    async def timeout_member(self, server_id, user_id, until, *, reason=None):
+        self._maybe_fail("timeout_member", user_id)
+        member = self._member(server_id, user_id)
+        member["timed_out_until"] = None if until is None else until.isoformat()
+        self.timeouts.append((server_id, user_id, member["timed_out_until"]))
+        self.reasons.append(reason)
+
+    async def set_member_nick(self, server_id, user_id, nick, *, reason=None):
+        self._maybe_fail("set_member_nick", user_id)
+        member = self._member(server_id, user_id)
+        member["display_name"] = nick or member["username"]
+        self.nicks.append((server_id, user_id, nick))
+        self.reasons.append(reason)
+
+    async def list_invites(self, server_id):
+        return [dict(row) for row in self.invites.get(server_id, [])]
+
+    async def create_invite(self, channel_id, *, max_age=0, max_uses=0, temporary=False, reason=None):
+        self._maybe_fail("create_invite", channel_id)
+        self.next_id += 1
+        channel = await self.get_channel(channel_id)
+        server_id = next((sid for sid, rows in self.channels.items() if any(c.id == channel_id for c in rows)), None)
+        made = {
+            "code": f"code{self.next_id}",
+            "channel_id": channel_id,
+            "channel": channel.name,
+            "inviter_id": self.identity.id,
+            "inviter": self.identity.username,
+            "uses": 0,
+            "max_uses": max_uses,
+            "max_age": max_age,
+            "temporary": temporary,
+            "created_at": None,
+            "expires_at": None,
+        }
+        self.invites.setdefault(server_id, []).append(dict(made))
+        self.created_invites.append(dict(made))
+        self.reasons.append(reason)
+        return made
+
+    async def delete_invite(self, server_id, code, *, reason=None):
+        from discord_tools.client import ClientError
+
+        self._maybe_fail("delete_invite", code)
+        rows = self.invites.get(server_id, [])
+        if not any(row["code"] == code for row in rows):
+            raise ClientError(f"No invite with code {code} on server {server_id}.")
+        self.invites[server_id] = [row for row in rows if row["code"] != code]
+        self.deleted_invites.append(code)
+        self.reasons.append(reason)
+
+    async def audit_log(self, server_id, *, action=None, user_id=None, since=None, limit=50):
+        rows = [dict(row) for row in self.audit.get(server_id, [])]
+        if action is not None:
+            rows = [row for row in rows if row["action"] == action]
+        if user_id is not None:
+            rows = [row for row in rows if int(row.get("user_id") or 0) == int(user_id)]
+        if since is not None:
+            rows = [row for row in rows if str(row.get("created_at") or "") >= str(since)]
+        return rows[:limit]
 
     async def channel_overwrites(self, channel_id):
         for server_id in {*self.channels, *self.structure}:

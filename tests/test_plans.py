@@ -393,7 +393,12 @@ def test_the_seam_methods_that_take_a_reason_are_the_ones_that_get_one():
               "delete_role",
               # Guild scheduled events: the server-held half of `watch`
               # (tests/test_watch_cli.py).
-              "create_scheduled_event", "edit_scheduled_event", "delete_scheduled_event"}
+              "create_scheduled_event", "edit_scheduled_event", "delete_scheduled_event",
+              # Members and invites. Each of these carries the plan's reason with
+              # the moderator's own words after it, and Discord shows that line
+              # in the server's audit log (tests/test_member_cli.py).
+              "kick_member", "ban_member", "unban_member", "timeout_member", "set_member_nick",
+              "create_invite", "delete_invite"}
     accepts = {
         name
         for name, member in inspect.getmembers(DiscordClient, inspect.isfunction)

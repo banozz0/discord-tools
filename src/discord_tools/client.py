@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Any, AsyncIterator, Iterable, Sequence
 
@@ -205,6 +206,74 @@ def _automod_kwargs(rule: dict[str, Any]) -> dict[str, Any]:
 
 # A scheduled event's three places, in Discord's own words. `external` is the
 # one that needs a location and an end time; the other two need a channel.
+def _member_dict(member: Any) -> dict[str, Any]:
+    """One member in the shape the moderation rim reads: the ids, how Discord
+    renders the name, the roles the hierarchy check measures, and a live timeout."""
+    user = getattr(member, "_user", None) or member
+    username = getattr(user, "name", "")
+    timed_out = getattr(member, "timed_out_until", None)
+    joined = getattr(member, "joined_at", None)
+    return {
+        "id": int(member.id),
+        "username": username,
+        "display_name": getattr(member, "nick", None) or getattr(user, "global_name", None) or username,
+        "bot": bool(getattr(user, "bot", False)),
+        "roles": [int(role.id) for role in getattr(member, "roles", ())],
+        "joined_at": joined.isoformat() if joined is not None else None,
+        "timed_out_until": timed_out.isoformat() if timed_out is not None else None,
+    }
+
+
+def _invite_dict(invite: Any) -> dict[str, Any]:
+    """One invite as a plain record. The code is the identity; the link is built
+    from it by the two commands whose purpose is to show one."""
+    channel = getattr(invite, "channel", None)
+    inviter = getattr(invite, "inviter", None)
+    expires = getattr(invite, "expires_at", None)
+    created = getattr(invite, "created_at", None)
+    return {
+        "code": invite.code,
+        "channel_id": int(channel.id) if channel is not None and getattr(channel, "id", None) else None,
+        "channel": getattr(channel, "name", None),
+        "inviter_id": int(inviter.id) if inviter is not None else None,
+        "inviter": getattr(inviter, "name", None),
+        "uses": int(getattr(invite, "uses", 0) or 0),
+        "max_uses": int(getattr(invite, "max_uses", 0) or 0),
+        "max_age": int(getattr(invite, "max_age", 0) or 0),
+        "temporary": bool(getattr(invite, "temporary", False)),
+        "created_at": created.isoformat() if created is not None else None,
+        "expires_at": expires.isoformat() if expires is not None else None,
+    }
+
+
+def _audit_changes(entry: Any) -> dict[str, Any]:
+    """What one entry changed, as `{field: [before, after]}` of printable values."""
+    before, after = getattr(entry, "before", None), getattr(entry, "after", None)
+    keys = {key for side in (before, after) for key, _value in (side or ())}
+    changes: dict[str, Any] = {}
+    for key in sorted(keys):
+        old, new = getattr(before, key, None), getattr(after, key, None)
+        changes[key] = [None if old is None else str(old), None if new is None else str(new)]
+    return changes
+
+
+def _audit_dict(entry: Any) -> dict[str, Any]:
+    target = getattr(entry, "target", None)
+    user = getattr(entry, "user", None)
+    created = getattr(entry, "created_at", None)
+    return {
+        "id": int(entry.id),
+        "action": _enum_name(getattr(entry, "action", None)) or str(getattr(entry, "action", "")),
+        "created_at": created.isoformat() if created is not None else None,
+        "user_id": int(user.id) if user is not None else None,
+        "user": getattr(user, "name", None),
+        "target_id": int(target.id) if target is not None and getattr(target, "id", None) else None,
+        "target": getattr(target, "name", None),
+        "reason": getattr(entry, "reason", None),
+        "changes": _audit_changes(entry),
+    }
+
+
 EVENT_PLACES = ("voice", "stage_instance", "external")
 
 
@@ -794,6 +863,137 @@ class DiscordClient:
         guild = await self._fetch_guild(server_id)
         member = await guild.fetch_member(self._client.user.id)
         return [int(role.id) for role in member.roles]
+
+    # -- members, invites and the server's own audit log -------------------
+
+    async def guild_owner_id(self, server_id: int) -> int | None:
+        """Who owns the server. Discord lets nobody moderate the owner, so the
+        member commands ask before they plan rather than after Discord refuses."""
+        guild = await self._fetch_guild(server_id)
+        return int(guild.owner_id) if guild.owner_id else None
+
+    async def get_member(self, server_id: int, user_id: int) -> dict[str, Any]:
+        """One member, with the roles the hierarchy check measures.
+
+        Fetched one at a time on purpose: this is the endpoint Discord leaves
+        open to every bot, so a kick or a ban needs no Server Members intent —
+        only the listing does.
+        """
+        guild = await self._fetch_guild(server_id)
+        try:
+            member = await guild.fetch_member(user_id)
+        except discord.NotFound as exc:
+            raise ClientError(f"No member with ID {user_id} in server {server_id}.") from exc
+        except discord.Forbidden as exc:
+            raise PermissionError(f"The bot cannot read member {user_id} in server {server_id}.") from exc
+        return _member_dict(member)
+
+    async def kick_member(self, server_id: int, user_id: int, *, reason: str | None = None) -> None:
+        guild = await self._fetch_guild(server_id)
+        await guild.kick(discord.Object(id=user_id), reason=reason)
+
+    async def ban_member(self, server_id: int, user_id: int, *, reason: str | None = None) -> None:
+        """Ban without deleting anything: Discord can sweep a banned member's
+        recent messages, and a moderation command that quietly erases history is
+        not one this tool offers. `clear-messages` is the command for that."""
+        guild = await self._fetch_guild(server_id)
+        await guild.ban(discord.Object(id=user_id), reason=reason, delete_message_seconds=0)
+
+    async def unban_member(self, server_id: int, user_id: int, *, reason: str | None = None) -> None:
+        guild = await self._fetch_guild(server_id)
+        try:
+            await guild.unban(discord.Object(id=user_id), reason=reason)
+        except discord.NotFound as exc:
+            raise ClientError(f"User {user_id} is not banned from server {server_id}.") from exc
+
+    async def list_bans(self, server_id: int) -> list[dict[str, Any]]:
+        """Everyone banned from the server, with the reason Discord stored."""
+        guild = await self._fetch_guild(server_id)
+        bans = []
+        async for entry in guild.bans(limit=None):
+            user = entry.user
+            bans.append(
+                {
+                    "id": int(user.id),
+                    "username": user.name,
+                    "display_name": getattr(user, "global_name", None) or user.name,
+                    "reason": entry.reason,
+                }
+            )
+        return bans
+
+    async def timeout_member(self, server_id: int, user_id: int, until: Any, *, reason: str | None = None) -> None:
+        guild = await self._fetch_guild(server_id)
+        member = await guild.fetch_member(user_id)
+        await member.edit(timed_out_until=until, reason=reason)
+
+    async def set_member_nick(self, server_id: int, user_id: int, nick: str | None, *, reason: str | None = None) -> None:
+        guild = await self._fetch_guild(server_id)
+        member = await guild.fetch_member(user_id)
+        await member.edit(nick=nick, reason=reason)
+
+    async def list_invites(self, server_id: int) -> list[dict[str, Any]]:
+        """Every invite to the server. Needs Manage Guild; Discord shows an
+        invite to nobody else."""
+        guild = await self._fetch_guild(server_id)
+        return [_invite_dict(invite) for invite in await guild.invites()]
+
+    async def create_invite(
+        self,
+        channel_id: int,
+        *,
+        max_age: int = 0,
+        max_uses: int = 0,
+        temporary: bool = False,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        channel = await self._fetch_channel(channel_id)
+        if not hasattr(channel, "create_invite"):
+            raise ClientError(f"Channel {channel_id} ({_channel_type_name(channel)}) cannot hold an invite.")
+        invite = await channel.create_invite(max_age=max_age, max_uses=max_uses, temporary=temporary, unique=True, reason=reason)
+        return _invite_dict(invite)
+
+    async def delete_invite(self, server_id: int, code: str, *, reason: str | None = None) -> None:
+        """Revoke by code, found in the server's own list so the caller never
+        has to hand a link back to Discord."""
+        guild = await self._fetch_guild(server_id)
+        invite = next((entry for entry in await guild.invites() if entry.code == code), None)
+        if invite is None:
+            raise ClientError(f"No invite with code {code} on server {server_id}.")
+        await invite.delete(reason=reason)
+
+    async def audit_log(
+        self,
+        server_id: int,
+        *,
+        action: str | None = None,
+        user_id: int | None = None,
+        since: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """The server's own audit log, newest first. Needs View Audit Log.
+
+        `since` is an ISO 8601 time; Discord pages this endpoint by snowflake,
+        so the time becomes the snowflake it would have been minted at.
+        """
+        guild = await self._fetch_guild(server_id)
+        kwargs: dict[str, Any] = {"limit": limit}
+        if action is not None:
+            resolved = getattr(discord.AuditLogAction, action, None)
+            if resolved is None:
+                raise ClientError(
+                    f"{action!r} is not a Discord audit action. Names are Discord's own in snake_case "
+                    "(kick, ban, member_update, invite_create, ...)."
+                )
+            kwargs["action"] = resolved
+        if user_id is not None:
+            kwargs["user"] = discord.Object(id=user_id)
+        if since is not None:
+            kwargs["after"] = discord.Object(id=discord.utils.time_snowflake(datetime.fromisoformat(since)))
+        try:
+            return [_audit_dict(entry) async for entry in guild.audit_logs(**kwargs)]
+        except discord.Forbidden as exc:
+            raise PermissionError(f"The bot cannot read the audit log of server {server_id}: it needs View Audit Log.") from exc
 
     async def channel_overwrites(self, channel_id: int) -> dict[str, Any]:
         """One channel's or category's permission overwrites, with the server they

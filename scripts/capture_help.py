@@ -42,6 +42,10 @@ COMMANDS = [
     ("structure",), ("structure", "export"), ("structure", "diff"), ("structure", "apply"), ("structure", "remap"),
     ("role",), ("role", "list"), ("role", "create"), ("role", "edit"), ("role", "delete"),
     ("permission",), ("permission", "show"), ("permission", "set"),
+    ("member",), ("member", "list"), ("member", "kick"), ("member", "ban"),
+    ("member", "unban"), ("member", "timeout"), ("member", "nick"),
+    ("invite",), ("invite", "list"), ("invite", "create"), ("invite", "revoke"),
+    ("audit-log",), ("audit-log", "list"),
 ]
 
 BANNER = "=" * 72

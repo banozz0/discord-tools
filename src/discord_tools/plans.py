@@ -77,6 +77,23 @@ REQUIRED_RIGHTS = {
     "role-delete": ("manage_roles",),
     "permission-show": (),
     "permission-set": ("manage_roles",),
+    # Members, invites and the audit log. Listing members needs no permission —
+    # Discord gates that on the Server Members intent instead, and has since
+    # `members` shipped. The rest name the right Discord itself checks, and the
+    # member writes then pass the hierarchy check a held right does not settle
+    # (moderation.hierarchy). `invite list`, `invite revoke` and `audit-log
+    # list` are reads and revocations that still need a right, so they
+    # preflight; only the writes among them are audited locally.
+    "member-list": (),
+    "member-kick": ("kick_members",),
+    "member-ban": ("ban_members",),
+    "member-unban": ("ban_members",),
+    "member-timeout": ("moderate_members",),
+    "member-nick": ("manage_nicknames",),
+    "invite-list": ("manage_guild",),
+    "invite-create": ("create_instant_invite",),
+    "invite-revoke": ("manage_guild",),
+    "audit-log-list": ("view_audit_log",),
     # Guild scheduled events: one right covers creating, editing and deleting
     # one, and listing them needs none - Discord shows a server's events to
     # every member.

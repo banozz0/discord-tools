@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Sequence
 
 from discord_tools import archive as archive_store
+from discord_tools import moderation
 from discord_tools import plans
 from discord_tools import review as review_store
 from discord_tools import roles as roles_rim
@@ -432,6 +433,80 @@ def build_parser() -> argparse.ArgumentParser:
     permission_set.add_argument("--deny", help="Permission names to deny, comma-separated")
     permission_set.add_argument("--clear", action="store_true", help="Remove the role's overwrite entirely instead")
     permission_set.add_argument("--yes", action="store_true", help="Skip the y/N prompt")
+
+    member_parser = subparsers.add_parser(
+        "member",
+        help="A server's members: list, kick, ban, unban, timeout, nick. `members` is the older spelling of `member list`",
+    )
+    member_kinds = member_parser.add_subparsers(dest="member_kind")
+    member_list = member_kinds.add_parser("list", help="Every visible member with their username and ID (needs the Server Members intent)")
+    member_list.add_argument("--server", required=True, type=snowflake, help="Server ID")
+    member_list.add_argument("--format", choices=("json", "csv"), default="json", help="Export format")
+    member_list.add_argument(
+        "--output", help="Output file; relative names land in ~/.discord-tools/exports/. Prints a readable table when omitted"
+    )
+    for verb, what in (("kick", "Remove a member from the server"), ("ban", "Remove a member and stop them coming back")):
+        parser_for_verb = member_kinds.add_parser(verb, help=f"{what} (dry-run by default; --execute asks for their exact username)")
+        parser_for_verb.add_argument("--server", required=True, type=snowflake, help="Server ID")
+        parser_for_verb.add_argument("--member", required=True, help="User ID of the member")
+        parser_for_verb.add_argument("--reason", required=True, help="Why; Discord stores it in the server's own audit log")
+        parser_for_verb.add_argument(
+            "--execute", action="store_true", help=f"{what} for real after typing their exact username (no --yes exists)"
+        )
+    member_unban = member_kinds.add_parser("unban", help="Lift a ban so the user can be invited back (preview + y/N)")
+    member_unban.add_argument("--server", required=True, type=snowflake, help="Server ID")
+    member_unban.add_argument("--member", required=True, help="User ID of the banned user")
+    member_unban.add_argument("--reason", help="Why; Discord stores it in the server's own audit log")
+    member_unban.add_argument("--yes", action="store_true", help="Skip the y/N prompt")
+    member_timeout = member_kinds.add_parser(
+        "timeout", help="Stop a member posting, reacting and speaking until a time you name (preview + y/N)"
+    )
+    member_timeout.add_argument("--server", required=True, type=snowflake, help="Server ID")
+    member_timeout.add_argument("--member", required=True, help="User ID of the member")
+    member_timeout.add_argument(
+        "--until",
+        required=True,
+        metavar="TIME",
+        help="When it ends: an ISO 8601 time, or a duration like 30m, 2h, 7d. Required, and never more than 28 days (Discord's own limit)",
+    )
+    member_timeout.add_argument("--reason", help="Why; Discord stores it in the server's own audit log")
+    member_timeout.add_argument("--yes", action="store_true", help="Skip the y/N prompt")
+    member_nick = member_kinds.add_parser("nick", help="Set or clear a member's nickname on this server (preview + y/N)")
+    member_nick.add_argument("--server", required=True, type=snowflake, help="Server ID")
+    member_nick.add_argument("--member", required=True, help="User ID of the member")
+    member_nick.add_argument("--nick", required=True, help="The new nickname; an empty string clears it back to their username")
+    member_nick.add_argument("--reason", help="Why; Discord stores it in the server's own audit log")
+    member_nick.add_argument("--yes", action="store_true", help="Skip the y/N prompt")
+
+    invite_parser = subparsers.add_parser("invite", help="A server's invites: list them with their links, create one, revoke one")
+    invite_kinds = invite_parser.add_subparsers(dest="invite_kind")
+    invite_list = invite_kinds.add_parser("list", help="Every invite with its link, uses and expiry (needs Manage Guild)")
+    invite_list.add_argument("--server", required=True, type=snowflake, help="Server ID")
+    invite_create = invite_kinds.add_parser("create", help="Create an invite to a channel and print its link once (preview + y/N)")
+    invite_create.add_argument("--channel", required=True, type=snowflake, help="Channel ID the invite lands in")
+    invite_create.add_argument(
+        "--max-age", type=int, default=86400, metavar="SECONDS", help="Seconds until it expires; 0 never expires (default: 86400, one day)"
+    )
+    invite_create.add_argument("--max-uses", type=int, default=0, metavar="N", help="How many people may use it; 0 is unlimited (default: 0)")
+    invite_create.add_argument(
+        "--temporary", action="store_true", help="Members who join on it lose their roles when they disconnect"
+    )
+    invite_create.add_argument("--yes", action="store_true", help="Skip the y/N prompt")
+    invite_revoke = invite_kinds.add_parser("revoke", help="Revoke an invite (dry-run by default; --execute asks for its exact code)")
+    invite_revoke.add_argument("--server", required=True, type=snowflake, help="Server ID")
+    invite_revoke.add_argument("--code", required=True, help="The invite code, as `invite list` prints it")
+    invite_revoke.add_argument("--execute", action="store_true", help="Revoke for real after typing the exact code (no --yes exists)")
+
+    audit_log_parser = subparsers.add_parser(
+        "audit-log", help="The server's own audit log: who did what, filtered by action, by person or by time"
+    )
+    audit_log_kinds = audit_log_parser.add_subparsers(dest="audit_log_kind")
+    audit_log_list = audit_log_kinds.add_parser("list", help="Audit entries, newest first (needs View Audit Log)")
+    audit_log_list.add_argument("--server", required=True, type=snowflake, help="Server ID")
+    audit_log_list.add_argument("--action", help="Only this action, in Discord's own snake_case (kick, ban, member_update, invite_create, ...)")
+    audit_log_list.add_argument("--user", type=snowflake, help="Only entries by this user ID")
+    audit_log_list.add_argument("--since", metavar="TIME", help="Only entries after this ISO 8601 time, or a duration back like 24h")
+    audit_log_list.add_argument("--limit", type=int, default=50, help="How many entries at most (default: 50)")
 
     message_parser = subparsers.add_parser(
         "message",
@@ -2542,6 +2617,511 @@ async def _run_permission(client, args, config, out) -> Outcome:
     )
 
 
+# -- members, invites and the audit log ---------------------------------------
+#
+# Three command groups over the moderation primitives. Every member write:
+# resolve the server and the member, preflight the right Discord itself
+# checks, then the hierarchy check a held right does not settle - the owner,
+# the bot itself, a top role that is not below the bot's - then the gate, the
+# drift check, the write carrying the plan's reason with the moderator's words
+# after it, and a readback. The rules and the screens live in moderation.py.
+#
+# `invite list`, `invite create`, `invite revoke` and `audit-log list` need a
+# right too, so they preflight; the two that only read attach no plan to their
+# outcome, because the local audit log is a record of writes and a log of
+# reads nobody made is a log nobody trusts.
+
+
+async def _moderation_plan(client, out, *, identity, resolver, server_id, command_key, approval, mutation, extra_target=None):
+    """Preflight the write against the server it happens in."""
+    live = await resolver.resolve(server_id, kind="guild")
+    targets = (live,) if extra_target is None else (live, extra_target)
+    return await _plan(
+        client,
+        command=out.command,
+        identity=identity,
+        targets=targets,
+        mutations=(mutation,),
+        approval=approval,
+        rights=plans.REQUIRED_RIGHTS[command_key],
+    )
+
+
+async def _preflight_read(client, out, *, identity, resolver, server_id, command_key) -> Error | None:
+    """The refusal a read owes its caller when the bot cannot make it, else None.
+
+    No plan comes back: nothing is being changed, so nothing is audited.
+    """
+    write = await _plan(
+        client,
+        command=out.command,
+        identity=identity,
+        targets=(await resolver.resolve(server_id, kind="guild"),),
+        mutations=(),
+        approval="prompt_y",
+        rights=plans.REQUIRED_RIGHTS[command_key],
+    )
+    if write.refusal is None:
+        out.say(plans.format_preflight(write.plan))
+    return write.refusal
+
+
+async def _gate_moderation_write(out, write, *, typed: str | None, yes: bool, preview: str, question: str, what: str, target, warning: str = "") -> Outcome | None:
+    """The refusal or cancellation that stops a member or invite write, or None.
+
+    `typed` names the label a kick, a ban or a revoke asks for; those have no
+    `--yes` to pass, so the only path past them is a person at a terminal.
+    """
+    if typed is not None:
+        refusal = out.approval_unavailable(
+            f"Run `discord-tools {out.command} --execute` in a terminal: it asks for the exact {what}, and there is deliberately no flag that answers for you."
+        )
+        if refusal is not None:
+            return Outcome(status="refused", target=target, plan=write.plan, error=refusal)
+        out.say(plans.format_preflight(write.plan))
+        if warning:
+            out.say(warning)
+        if not moderation.confirm_typed_label(preview, typed, what=what, write=out.say):
+            out.say(f"Cancelled: the {what} did not match.")
+            return Outcome(status="cancelled", target=target, plan=write.plan, result={"cancelled": True})
+        return None
+    if yes:
+        return None
+    refusal = out.approval_unavailable(f"Add --yes, or answer `{out.command}` in a terminal.")
+    if refusal is not None:
+        return Outcome(status="refused", target=target, plan=write.plan, error=refusal)
+    out.say(plans.format_preflight(write.plan))
+    if not roles_rim.confirm_role(preview, question, write=out.say):
+        return Outcome(status="cancelled", target=target, plan=write.plan, result={"cancelled": True})
+    return None
+
+
+async def _member_readback(client, server_id: int, member: dict, *, gone: bool) -> str:
+    """What the member looks like after the write, or the proof they are no longer here."""
+    label = moderation.member_label(member)
+    try:
+        now = await client.get_member(server_id, int(member["id"]))
+    except (ClientError, PermissionError):
+        if gone:
+            return f"{label} ({member['id']}) is no longer a member of server {server_id}"
+        raise
+    if gone:
+        raise ClientError(f"{label} ({member['id']}) is still a member of server {server_id}")
+    timeout = now.get("timed_out_until")
+    return (
+        f"member {moderation.member_label(now)} ({member['id']}) in server {server_id}: "
+        f"{'timed out until ' + str(timeout) if timeout else 'not timed out'}"
+    )
+
+
+async def _run_member(client, args, config, out) -> Outcome:
+    if args.member_kind is None:
+        raise ValueError("member needs one of: list, kick, ban, unban, timeout, nick.")
+    if args.member_kind == "list":
+        return await _run_members(client, args, out)
+
+    identity = await _identity(out, client, config)
+    resolver = DiscordTargetResolver(client)
+    server = await resolver.resolve(args.server, kind="guild")
+    server_id = int(server.ids["guild"])
+    if args.member_kind == "unban":
+        return await _run_member_unban(client, args, out, identity=identity, server=server, resolver=resolver)
+
+    member = await _resolve_member(client, server_id, args.member)
+    target = moderation.member_target(server, member)
+    verb = {"kick": "kick", "ban": "ban", "timeout": "time out", "nick": "rename"}[args.member_kind]
+    runner = {"kick": _run_member_removal, "ban": _run_member_removal, "timeout": _run_member_timeout, "nick": _run_member_nick}[args.member_kind]
+    return await runner(client, args, out, identity=identity, server=server, resolver=resolver, member=member, target=target, verb=verb)
+
+
+async def _resolve_member(client, server_id: int, reference: str) -> dict:
+    """The member `reference` names, or `TARGET_NOT_FOUND`.
+
+    One fetch, not a listing: this is the endpoint Discord leaves open to every
+    bot, so a kick works on a server where the Server Members intent is off and
+    `member list` does not.
+    """
+    user_id = _member_id(reference)
+    try:
+        return await client.get_member(server_id, user_id)
+    except ClientError as exc:
+        raise TargetError("TARGET_NOT_FOUND", str(exc), hint="Check the ID with `discord-tools member list --server <id>`.") from exc
+
+
+def _member_id(reference: str) -> int:
+    text = str(reference).strip()
+    if not text.isdecimal():
+        raise TargetError(
+            "TARGET_NOT_FOUND",
+            f"{text!r} is not a user ID. Discord gives a bot no way to look a member up by name.",
+            hint="Run `discord-tools member list --server <id>` to see every member with their ID.",
+        )
+    return int(text)
+
+
+async def _member_hierarchy(client, server_id: int, member: dict, *, verb: str) -> Error | None:
+    return moderation.hierarchy(
+        await client.list_roles(server_id),
+        await client.bot_role_ids(server_id),
+        member,
+        verb=verb,
+        owner_id=await client.guild_owner_id(server_id),
+        bot_id=int(getattr(await client.get_identity(), "id", 0)),
+    )
+
+
+async def _run_member_removal(client, args, out, *, identity, server, resolver, member, target, verb) -> Outcome:
+    """Kick and ban: the same shape, differing in what Discord does afterwards."""
+    server_id = int(server.ids["guild"])
+    banning = args.member_kind == "ban"
+    command_key = "member-ban" if banning else "member-kick"
+
+    async def build():
+        live = moderation.find_member([await client.get_member(server_id, int(member["id"]))], member["id"])
+        return await _moderation_plan(
+            client, out, identity=identity, resolver=resolver, server_id=server_id, command_key=command_key,
+            approval="typed_name", mutation=Mutation(op="ban_member" if banning else "kick_member", rid=target.rid, params={"reason": args.reason}),
+            extra_target=moderation.member_target(server, live),
+        )
+
+    write = await build()
+    refusal = write.refusal or await _member_hierarchy(client, server_id, member, verb=verb)
+    if refusal is not None:
+        return Outcome(status="refused", target=target, plan=write.plan, error=refusal)
+
+    reason = moderation.moderation_reason(write.reason, args.reason)
+    roles = await client.list_roles(server_id)
+    detail = (
+        "They cannot rejoin on any invite until somebody runs `member unban`."
+        if banning
+        else "Any unexpired invite lets them straight back in."
+    )
+    preview = "\n".join(
+        [
+            moderation.format_member(member, roles, heading=f"{'Ban' if banning else 'Kick'} from {server.title} ({server_id})"),
+            moderation.format_member_plan(member, action="Ban" if banning else "Kick", reason=reason, detail=detail),
+        ]
+    )
+    result = {"member": moderation.member_row(member, roles), "reason": args.reason, "dry_run": not args.execute}
+    if not args.execute:
+        out.say(plans.format_preflight(write.plan))
+        out.say(preview)
+        out.say(f"Dry-run. Add --execute to {verb} them; it will ask for their exact username.")
+        return Outcome(status="ok", target=target, plan=None, result=result)
+
+    stopped = await _gate_moderation_write(
+        out, write, typed=moderation.typed_label(member), yes=False, preview=preview, question="",
+        what="username", target=target, warning=moderation.BAN_WARNING if banning else moderation.KICK_WARNING,
+    )
+    if stopped is not None:
+        return stopped
+    drifted = await plans.drifted(write, build)
+    if drifted is not None:
+        raise plans.PlanDriftError(drifted)
+
+    if banning:
+        await client.ban_member(server_id, int(member["id"]), reason=reason)
+    else:
+        await client.kick_member(server_id, int(member["id"]), reason=reason)
+    out.say(f"{'Banned' if banning else 'Kicked'} {moderation.member_label(member)} ({member['id']}).")
+    evidence = await plans.read_back(
+        "the member list could not be read back", lambda: _member_readback(client, server_id, member, gone=True)
+    )
+    return Outcome(status="ok", target=target, plan=write.plan, result={**result, "dry_run": False}, evidence=evidence)
+
+
+async def _run_member_timeout(client, args, out, *, identity, server, resolver, member, target, verb) -> Outcome:
+    server_id = int(server.ids["guild"])
+    until = moderation.parse_until(args.until)
+
+    async def build():
+        live = moderation.find_member([await client.get_member(server_id, int(member["id"]))], member["id"])
+        return await _moderation_plan(
+            client, out, identity=identity, resolver=resolver, server_id=server_id, command_key="member-timeout",
+            approval="prompt_y", mutation=Mutation(op="timeout_member", rid=target.rid, params={"until": until.isoformat()}),
+            extra_target=moderation.member_target(server, live),
+        )
+
+    write = await build()
+    refusal = write.refusal or await _member_hierarchy(client, server_id, member, verb=verb)
+    if refusal is not None:
+        return Outcome(status="refused", target=target, plan=write.plan, error=refusal)
+
+    reason = moderation.moderation_reason(write.reason, args.reason)
+    preview = moderation.format_member_plan(
+        member, action="Time out", reason=reason,
+        detail=f"They cannot post, react or speak until {until.isoformat()}; Discord lifts it by itself.",
+    )
+    stopped = await _gate_moderation_write(
+        out, write, typed=None, yes=args.yes, preview=preview, question="Time them out?", what="username", target=target
+    )
+    if stopped is not None:
+        return stopped
+    drifted = await plans.drifted(write, build)
+    if drifted is not None:
+        raise plans.PlanDriftError(drifted)
+
+    await client.timeout_member(server_id, int(member["id"]), until, reason=reason)
+    out.say(f"Timed out {moderation.member_label(member)} ({member['id']}) until {until.isoformat()}.")
+    evidence = await plans.read_back("the member could not be read back", lambda: _member_readback(client, server_id, member, gone=False))
+    return Outcome(
+        status="ok", target=target, plan=write.plan,
+        result={"member_id": int(member["id"]), "until": until.isoformat(), "reason": args.reason}, evidence=evidence,
+    )
+
+
+async def _run_member_nick(client, args, out, *, identity, server, resolver, member, target, verb) -> Outcome:
+    server_id = int(server.ids["guild"])
+    nick = args.nick.strip() or None
+
+    async def build():
+        live = moderation.find_member([await client.get_member(server_id, int(member["id"]))], member["id"])
+        return await _moderation_plan(
+            client, out, identity=identity, resolver=resolver, server_id=server_id, command_key="member-nick",
+            approval="prompt_y", mutation=Mutation(op="set_member_nick", rid=target.rid, params={"nick": nick}),
+            extra_target=moderation.member_target(server, live),
+        )
+
+    write = await build()
+    refusal = write.refusal or await _member_hierarchy(client, server_id, member, verb=verb)
+    if refusal is not None:
+        return Outcome(status="refused", target=target, plan=write.plan, error=refusal)
+
+    reason = moderation.moderation_reason(write.reason, args.reason)
+    preview = moderation.format_member_plan(
+        member, action="Rename", reason=reason,
+        detail=f"Nickname  {member.get('display_name')} -> {nick or '(cleared, back to ' + str(member['username']) + ')'}",
+    )
+    stopped = await _gate_moderation_write(
+        out, write, typed=None, yes=args.yes, preview=preview, question="Rename them?", what="username", target=target
+    )
+    if stopped is not None:
+        return stopped
+    drifted = await plans.drifted(write, build)
+    if drifted is not None:
+        raise plans.PlanDriftError(drifted)
+
+    await client.set_member_nick(server_id, int(member["id"]), nick, reason=reason)
+    out.say(f"Renamed {member['username']} ({member['id']}) to {nick or member['username']}.")
+
+    async def readback():
+        now = await client.get_member(server_id, int(member["id"]))
+        if (now.get("display_name") or now["username"]) != (nick or now["username"]):
+            raise ClientError(f"the nickname reads back as {now.get('display_name')!r}")
+        return f"member {int(member['id'])} in server {server_id} is now shown as {now.get('display_name') or now['username']}"
+
+    evidence = await plans.read_back("the member could not be read back", readback)
+    return Outcome(status="ok", target=target, plan=write.plan, result={"member_id": int(member["id"]), "nick": nick}, evidence=evidence)
+
+
+def _find_ban(bans, user_id: int, *, server) -> dict:
+    ban = next((row for row in bans if int(row["id"]) == int(user_id)), None)
+    if ban is None:
+        raise TargetError(
+            "TARGET_NOT_FOUND",
+            f"User {user_id} is not banned from {server.title} ({server.ids['guild']}).",
+            hint="Nothing to lift. `discord-tools audit-log list --server <id> --action ban` shows who was banned and when.",
+        )
+    return dict(ban)
+
+
+async def _run_member_unban(client, args, out, *, identity, server, resolver) -> Outcome:
+    """Unban: the one member write whose target is not in the server to look up."""
+    server_id = int(server.ids["guild"])
+    user_id = _member_id(args.member)
+
+    async def build():
+        banned = _find_ban(await client.list_bans(server_id), user_id, server=server)
+        return await _moderation_plan(
+            client, out, identity=identity, resolver=resolver, server_id=server_id, command_key="member-unban",
+            approval="prompt_y", mutation=Mutation(op="unban_member", rid=str(_rid.make("dc", "member", server_id, user_id))),
+            extra_target=moderation.member_target(server, banned),
+        )
+
+    ban = _find_ban(await client.list_bans(server_id), user_id, server=server)
+    target = moderation.member_target(server, ban)
+    write = await build()
+    if write.refusal is not None:
+        return Outcome(status="refused", target=target, plan=write.plan, error=write.refusal)
+
+    reason = moderation.moderation_reason(write.reason, args.reason)
+    preview = moderation.format_member_plan(
+        ban, action="Unban", reason=reason,
+        detail=f"Banned for: {ban.get('reason') or '(no reason recorded)'}\nThey can be invited back; this does not invite them.",
+    )
+    stopped = await _gate_moderation_write(
+        out, write, typed=None, yes=args.yes, preview=preview, question="Lift the ban?", what="username", target=target
+    )
+    if stopped is not None:
+        return stopped
+    drifted = await plans.drifted(write, build)
+    if drifted is not None:
+        raise plans.PlanDriftError(drifted)
+
+    await client.unban_member(server_id, user_id, reason=reason)
+    out.say(f"Unbanned {moderation.member_label(ban)} ({user_id}).")
+
+    async def readback():
+        if any(int(row["id"]) == user_id for row in await client.list_bans(server_id)):
+            raise ClientError(f"user {user_id} is still banned")
+        return f"user {user_id} is no longer banned from server {server_id}"
+
+    evidence = await plans.read_back("the ban list could not be read back", readback)
+    return Outcome(status="ok", target=target, plan=write.plan, result={"member_id": user_id, "reason": args.reason}, evidence=evidence)
+
+
+async def _run_invite(client, args, config, out) -> Outcome:
+    if args.invite_kind is None:
+        raise ValueError("invite needs one of: list, create, revoke.")
+    identity = await _identity(out, client, config)
+    resolver = DiscordTargetResolver(client)
+    if args.invite_kind == "create":
+        return await _run_invite_create(client, args, out, identity=identity, resolver=resolver)
+
+    server = await resolver.resolve(args.server, kind="guild")
+    server_id = int(server.ids["guild"])
+    if args.invite_kind == "list":
+        refusal = await _preflight_read(client, out, identity=identity, resolver=resolver, server_id=server_id, command_key="invite-list")
+        if refusal is not None:
+            return Outcome(status="refused", target=server, error=refusal)
+        invites = await client.list_invites(server_id)
+        out.say(moderation.format_invites(invites, server=server.title))
+        rows = [moderation.invite_row(invite, link=True) for invite in invites]
+        for row in rows:
+            out.record("invite", row)
+        return Outcome(status="ok" if invites else "empty", target=server, result={"invites": [] if out.jsonl else rows, "matched": len(rows)})
+    return await _run_invite_revoke(client, args, out, identity=identity, server=server, resolver=resolver)
+
+
+async def _run_invite_create(client, args, out, *, identity, resolver) -> Outcome:
+    channel = await resolver.resolve(args.channel)
+    channel_id = int(channel.ids[channel.kind])
+    overwrites = await client.channel_overwrites(channel_id)
+    server = await resolver.resolve(int(overwrites["guild_id"]), kind="guild")
+
+    async def build():
+        live = await resolver.resolve(channel_id)
+        return await _plan(
+            client,
+            command=out.command,
+            identity=identity,
+            targets=(live,),
+            mutations=(Mutation(op="create_invite", rid=channel.rid, params={"max_age": args.max_age, "max_uses": args.max_uses, "temporary": bool(args.temporary)}),),
+            approval="prompt_y",
+            rights=plans.REQUIRED_RIGHTS["invite-create"],
+        )
+
+    write = await build()
+    if write.refusal is not None:
+        return Outcome(status="refused", target=channel, plan=write.plan, error=write.refusal)
+
+    preview = moderation.format_invite_plan(
+        channel=f"{channel.title} ({channel_id})", max_age=args.max_age, max_uses=args.max_uses, temporary=bool(args.temporary)
+    )
+    stopped = await _gate_moderation_write(
+        out, write, typed=None, yes=args.yes, preview=preview, question="Create it?", what="code", target=channel
+    )
+    if stopped is not None:
+        return stopped
+    drifted = await plans.drifted(write, build)
+    if drifted is not None:
+        raise plans.PlanDriftError(drifted)
+
+    made = await client.create_invite(
+        channel_id, max_age=args.max_age, max_uses=args.max_uses, temporary=bool(args.temporary), reason=write.reason
+    )
+    out.say(moderation.format_invite(made, heading=f"Created an invite to {channel.title}", link=True))
+
+    async def readback():
+        code = made["code"]
+        if not any(row["code"] == code for row in await client.list_invites(int(server.ids["guild"]))):
+            raise ClientError(f"invite {code} is not listed on server {server.title}")
+        return f"invite {code} is listed on server {server.title} ({server.ids['guild']})"
+
+    evidence = await plans.read_back("the invite list could not be read back", readback)
+    return Outcome(
+        status="ok", target=moderation.invite_target(server, made), plan=write.plan,
+        result={"invite": moderation.invite_row(made, link=True)}, evidence=evidence,
+    )
+
+
+async def _run_invite_revoke(client, args, out, *, identity, server, resolver) -> Outcome:
+    server_id = int(server.ids["guild"])
+    code = str(args.code).strip()
+    invites = await client.list_invites(server_id)
+    invite = next((row for row in invites if row["code"] == code), None)
+    if invite is None:
+        raise TargetError(
+            "TARGET_NOT_FOUND",
+            f"No invite with code {code} on {server.title} ({server_id}).",
+            hint="Run `discord-tools invite list --server <id>` to see every code.",
+        )
+    target = moderation.invite_target(server, invite)
+
+    async def build():
+        return await _moderation_plan(
+            client, out, identity=identity, resolver=resolver, server_id=server_id, command_key="invite-revoke",
+            approval="typed_name", mutation=Mutation(op="delete_invite", rid=target.rid), extra_target=target,
+        )
+
+    write = await build()
+    if write.refusal is not None:
+        return Outcome(status="refused", target=target, plan=write.plan, error=write.refusal)
+
+    # The code, never the link: a revoke is not one of the two commands whose
+    # purpose is to hand a working door to someone.
+    preview = moderation.format_invite(invite, heading=f"Revoke an invite to {server.title} ({server_id})", link=False)
+    result = {"invite": moderation.invite_row(invite, link=False), "dry_run": not args.execute}
+    if not args.execute:
+        out.say(plans.format_preflight(write.plan))
+        out.say(preview)
+        out.say("Dry-run. Add --execute to revoke it; it will ask for the exact code.")
+        return Outcome(status="ok", target=target, plan=None, result=result)
+
+    stopped = await _gate_moderation_write(
+        out, write, typed=code, yes=False, preview=preview, question="", what="code", target=target, warning=moderation.REVOKE_WARNING
+    )
+    if stopped is not None:
+        return stopped
+    drifted = await plans.drifted(write, build)
+    if drifted is not None:
+        raise plans.PlanDriftError(drifted)
+
+    await client.delete_invite(server_id, code, reason=write.reason)
+    out.say(f"Revoked invite {code}.")
+
+    async def readback():
+        if any(row["code"] == code for row in await client.list_invites(server_id)):
+            raise ClientError(f"invite {code} is still listed")
+        return f"invite {code} is no longer listed on server {server.title} ({server_id})"
+
+    evidence = await plans.read_back("the invite list could not be read back", readback)
+    return Outcome(status="ok", target=target, plan=write.plan, result={**result, "dry_run": False}, evidence=evidence)
+
+
+async def _run_audit_log(client, args, config, out) -> Outcome:
+    if args.audit_log_kind is None:
+        raise ValueError("audit-log needs: list.")
+    identity = await _identity(out, client, config)
+    resolver = DiscordTargetResolver(client)
+    server = await resolver.resolve(args.server, kind="guild")
+    server_id = int(server.ids["guild"])
+    refusal = await _preflight_read(client, out, identity=identity, resolver=resolver, server_id=server_id, command_key="audit-log-list")
+    if refusal is not None:
+        return Outcome(status="refused", target=server, error=refusal)
+
+    since = moderation.parse_since(args.since).isoformat() if args.since else None
+    entries = await client.audit_log(server_id, action=args.action, user_id=args.user, since=since, limit=args.limit)
+    out.say(moderation.format_audit(entries, server=server.title))
+    rows = [moderation.audit_row(entry) for entry in entries]
+    for row in rows:
+        out.record("audit", row)
+    return Outcome(
+        status="ok" if rows else "empty", target=server,
+        result={"entries": [] if out.jsonl else rows, "matched": len(rows), "since": since},
+    )
+
+
 # -- message operations ----------------------------------------------------
 #
 # One command group over messages a channel already holds. Every verb is a
@@ -3904,6 +4484,12 @@ READING = {
     "archive": _run_archive_sync,
     "review": _run_review,
 }
+# Subcommands that sit in a write group and only read. `members` has always
+# listed without the private-store check, and `member list` is the same
+# command by another name; an invite listing and an audit listing change
+# nothing either.
+READ_ONLY_IN_A_WRITE_GROUP = frozenset({"member list", "invite list", "audit-log list"})
+
 WRITING = {
     "send": _run_send,
     "schedule": _run_schedule_post,
@@ -3917,6 +4503,9 @@ WRITING = {
     "structure": lambda client, args, config, out: _run_structure(client, args, config, out),
     "role": _run_role,
     "permission": _run_permission,
+    "member": _run_member,
+    "invite": _run_invite,
+    "audit-log": _run_audit_log,
 }
 
 
@@ -3927,7 +4516,7 @@ async def _dispatch(client, args, config, out) -> int:
         raise ValueError(f"Unknown command: {args.command}")
 
     try:
-        if writer is not None:
+        if writer is not None and out.command not in READ_ONLY_IN_A_WRITE_GROUP:
             # Before any write, and before the identity call it would follow:
             # a token store other users can read is not one to act from.
             require_private_store()

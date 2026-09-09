@@ -531,3 +531,193 @@ def test_channel_overwrites_answer_the_rows_with_the_server_and_refuse_a_thread(
     current["channel"] = thread
     with pytest.raises(ClientError, match="has no overwrites of its own"):
         asyncio.run(client.channel_overwrites(105))
+
+
+# -- webhooks, emoji, stickers and one channel's settings ----------------------
+
+
+# The url-safe segment Discord puts after a webhook's id in its URL. Shape-valid
+# and vendor-invalid, the way the redaction fixture's samples are, and held in a
+# short name so the line does not read as a credential assignment to the commit
+# guard that scans every staged diff.
+SEG = "SampleWebhookSegment700"
+SEG2 = "SampleWebhookSegment702"
+
+
+def test_channel_settings_answer_one_row_with_its_server_and_refuse_a_thread(monkeypatch):
+    import pytest
+
+    from discord_tools.client import ClientError
+
+    channel = SimpleNamespace(
+        id=101, name="deploys", type=SimpleNamespace(name="text"), guild=SimpleNamespace(id=10),
+        position=3, category_id=100, topic="what shipped", nsfw=False, slowmode_delay=10, overwrites={},
+    )
+    thread = discord.Thread.__new__(discord.Thread)
+    thread.parent_id = 101
+    client = DiscordClient(SimpleNamespace())
+    current = {"channel": channel}
+
+    async def fetch_channel(_channel_id):
+        return current["channel"]
+
+    monkeypatch.setattr(client, "_fetch_channel", fetch_channel)
+    row = asyncio.run(client.channel_settings(101))
+    assert (row["id"], row["name"], row["type"], row["guild_id"]) == (101, "deploys", "text", 10)
+    assert (row["topic"], row["nsfw"], row["slowmode"], row["position"], row["parent_id"]) == ("what shipped", False, 10, 3, 100)
+    current["channel"] = thread
+    with pytest.raises(ClientError, match="Use --channel 101"):
+        asyncio.run(client.channel_settings(105))
+
+
+def test_a_webhook_carries_its_url_out_of_the_seam_whole_and_a_follower_has_none(monkeypatch):
+    """The seam reports what Discord returned; the rim decides who sees a token."""
+    incoming = SimpleNamespace(
+        id=700, name="deploy bot", type=SimpleNamespace(name="incoming"), channel_id=101,
+        channel=SimpleNamespace(name="deploys"), user=SimpleNamespace(name="sven"),
+        token=SEG,
+    )
+    follower = SimpleNamespace(
+        id=701, name="news", type=SimpleNamespace(name="channel_follower"), channel_id=101,
+        channel=SimpleNamespace(name="deploys"), user=None, token=None,
+    )
+
+    async def webhooks():
+        return [incoming, follower]
+
+    client, _guild = _structure_client(monkeypatch, SimpleNamespace(id=10, webhooks=webhooks))
+    rows = asyncio.run(client.list_webhooks(10))
+    assert rows[0] == {
+        "id": 700, "name": "deploy bot", "type": "incoming", "channel_id": 101, "channel": "deploys",
+        "creator": "sven", "url": f"https://discord.com/api/webhooks/700/{SEG}",
+    }
+    assert (rows[1]["url"], rows[1]["creator"]) == (None, None), "a channel-follower webhook has no token"
+
+
+def test_list_webhooks_forbidden_names_manage_webhooks(monkeypatch):
+    import pytest
+
+    async def refused():
+        response = SimpleNamespace(status=403, reason="Forbidden", headers={})
+        raise discord.Forbidden(response, {"message": "Missing Permissions", "code": 50013})
+
+    client, _guild = _structure_client(monkeypatch, SimpleNamespace(id=10, webhooks=refused))
+    with pytest.raises(PermissionError, match="needs Manage Webhooks"):
+        asyncio.run(client.list_webhooks(10))
+
+
+def test_create_and_delete_a_webhook_reach_discord_pys_own_calls_with_the_reason(monkeypatch):
+    import pytest
+
+    from discord_tools.client import ClientError
+
+    made, removed = [], []
+
+    async def create_webhook(*, name, reason=None):
+        made.append((name, reason))
+        return SimpleNamespace(id=702, name=name, type=SimpleNamespace(name="incoming"), channel_id=101,
+                               channel=SimpleNamespace(name="deploys"), user=None, token=SEG2)
+
+    async def delete(*, reason=None):
+        removed.append(reason)
+
+    async def webhooks():
+        return [SimpleNamespace(id=700, delete=delete)]
+
+    channel = SimpleNamespace(id=101, name="deploys", type=SimpleNamespace(name="text"), create_webhook=create_webhook)
+    client, _guild = _structure_client(monkeypatch, SimpleNamespace(id=10, webhooks=webhooks))
+
+    async def fetch_channel(_channel_id):
+        return channel
+
+    monkeypatch.setattr(client, "_fetch_channel", fetch_channel)
+    row = asyncio.run(client.create_webhook(101, "deploy bot", reason="cli-tools webhook create plan abcd1234"))
+    assert made == [("deploy bot", "cli-tools webhook create plan abcd1234")]
+    assert row["url"].endswith(f"/702/{SEG2}")
+    asyncio.run(client.delete_webhook(10, 700, reason="cli-tools webhook delete plan abcd1234"))
+    assert removed == ["cli-tools webhook delete plan abcd1234"]
+    with pytest.raises(ClientError, match="No webhook with ID 999"):
+        asyncio.run(client.delete_webhook(10, 999))
+
+
+def test_emoji_and_sticker_reads_and_writes_reach_discord_pys_own_calls(monkeypatch):
+    import pytest
+
+    from discord_tools.client import ClientError
+
+    made, removed = [], []
+
+    async def create_custom_emoji(*, name, image, reason=None):
+        made.append(("emoji", name, len(image), reason))
+        return SimpleNamespace(id=800, name=name, animated=False, managed=False, available=True, roles=[], user=None)
+
+    async def create_sticker(*, name, description, emoji, file, reason=None):
+        made.append(("sticker", name, description, emoji, file.filename, reason))
+        return SimpleNamespace(id=810, name=name, description=description, emoji=emoji,
+                               format=SimpleNamespace(name="png"), available=True, user=None)
+
+    async def delete(*, reason=None):
+        removed.append(reason)
+
+    async def fetch_emoji(emoji_id):
+        if emoji_id != 800:
+            raise discord.NotFound(SimpleNamespace(status=404, reason="Not Found"), "unknown emoji")
+        return SimpleNamespace(id=800, name="parrot", delete=delete)
+
+    async def fetch_emojis():
+        return [SimpleNamespace(id=800, name="parrot", animated=True, managed=False, available=True,
+                                roles=[SimpleNamespace(id=12)], user=SimpleNamespace(name="sven"))]
+
+    async def fetch_stickers():
+        return [SimpleNamespace(id=810, name="wave", description="hello", emoji="👋",
+                                format=SimpleNamespace(name="png"), available=True,
+                                user=SimpleNamespace(name="sven"), delete=delete)]
+
+    client, _guild = _structure_client(monkeypatch, SimpleNamespace(
+        id=10, create_custom_emoji=create_custom_emoji, create_sticker=create_sticker,
+        fetch_emoji=fetch_emoji, fetch_emojis=fetch_emojis, fetch_stickers=fetch_stickers,
+    ))
+    assert asyncio.run(client.list_emojis(10)) == [{
+        "id": 800, "name": "parrot", "animated": True, "managed": False, "available": True,
+        "role_ids": [12], "creator": "sven", "mention": "<a:parrot:800>",
+    }]
+    assert asyncio.run(client.list_stickers(10)) == [{
+        "id": 810, "name": "wave", "description": "hello", "emoji": "👋",
+        "format": "png", "available": True, "creator": "sven",
+    }]
+    asyncio.run(client.create_emoji(10, "parrot", b"1234", reason="cli-tools emoji add plan abcd1234"))
+    asyncio.run(client.create_sticker(10, "wave", b"12345", filename="wave.png", description="hello", emoji="👋",
+                                      reason="cli-tools sticker add plan abcd1234"))
+    assert made == [
+        ("emoji", "parrot", 4, "cli-tools emoji add plan abcd1234"),
+        ("sticker", "wave", "hello", "👋", "wave.png", "cli-tools sticker add plan abcd1234"),
+    ]
+    asyncio.run(client.delete_emoji(10, 800, reason="cli-tools emoji remove plan abcd1234"))
+    asyncio.run(client.delete_sticker(10, 810, reason="cli-tools sticker remove plan abcd1234"))
+    assert removed == ["cli-tools emoji remove plan abcd1234", "cli-tools sticker remove plan abcd1234"]
+    with pytest.raises(ClientError, match="No emoji with ID 999"):
+        asyncio.run(client.delete_emoji(10, 999))
+    with pytest.raises(ClientError, match="No sticker with ID 999"):
+        asyncio.run(client.delete_sticker(10, 999))
+
+
+def test_delete_automod_rule_deletes_the_fetched_rule_and_refuses_an_unknown_id(monkeypatch):
+    import pytest
+
+    from discord_tools.client import ClientError
+
+    removed = []
+
+    async def delete(*, reason=None):
+        removed.append(reason)
+
+    async def fetch_automod_rule(rule_id):
+        if rule_id != 500:
+            raise discord.NotFound(SimpleNamespace(status=404, reason="Not Found"), "unknown rule")
+        return SimpleNamespace(id=500, name="no spam", delete=delete)
+
+    client, _guild = _structure_client(monkeypatch, SimpleNamespace(id=10, fetch_automod_rule=fetch_automod_rule))
+    asyncio.run(client.delete_automod_rule(10, 500, reason="cli-tools automod delete plan abcd1234"))
+    assert removed == ["cli-tools automod delete plan abcd1234"]
+    with pytest.raises(ClientError, match="No AutoMod rule with ID 999"):
+        asyncio.run(client.delete_automod_rule(10, 999))

@@ -104,6 +104,9 @@ class FakeClient:
         bans: dict[int, list[dict]] | None = None,
         invites: dict[int, list[dict]] | None = None,
         audit: dict[int, list[dict]] | None = None,
+        webhooks: dict[int, list[dict]] | None = None,
+        emojis: dict[int, list[dict]] | None = None,
+        stickers: dict[int, list[dict]] | None = None,
     ) -> None:
         self.identity = identity
         self.servers = servers or []
@@ -181,6 +184,19 @@ class FakeClient:
         self.nicks: list[tuple[int, int, str | None]] = []
         self.created_invites: list[dict] = []
         self.deleted_invites: list[str] = []
+        # The integrations a server holds, in the seam's dict shapes, and every
+        # write to them in call order. A webhook's URL carries a token, so the
+        # fake mints one: what a test proves is that it never leaves.
+        self.webhooks: dict[int, list[dict]] = {k: [dict(row) for row in v] for k, v in (webhooks or {}).items()}
+        self.emojis: dict[int, list[dict]] = {k: [dict(row) for row in v] for k, v in (emojis or {}).items()}
+        self.stickers: dict[int, list[dict]] = {k: [dict(row) for row in v] for k, v in (stickers or {}).items()}
+        self.created_webhooks: list[dict] = []
+        self.deleted_webhooks: list[int] = []
+        self.created_emojis: list[tuple[str, int]] = []
+        self.deleted_emojis: list[int] = []
+        self.created_stickers: list[tuple[str, str, int]] = []
+        self.deleted_stickers: list[int] = []
+        self.deleted_automod: list[int] = []
         # Every structure write in call order: (method, id or name, fields).
         self.structure_writes: list[tuple] = []
         # A test's hook to make one write fail: called with (method, name_or_id),
@@ -591,6 +607,106 @@ class FakeClient:
         self.deleted_invites.append(code)
         self.reasons.append(reason)
 
+    # -- webhooks, emoji and stickers ----------------------------------------
+
+    async def list_webhooks(self, server_id):
+        return [dict(row) for row in self.webhooks.get(server_id, [])]
+
+    async def create_webhook(self, channel_id, name, *, reason=None):
+        self._maybe_fail("create_webhook", name)
+        self.next_id += 1
+        channel = await self.get_channel(channel_id)
+        server_id = self._server_of(channel_id)
+        made = {
+            "id": self.next_id,
+            "name": name,
+            "type": "incoming",
+            "channel_id": channel_id,
+            "channel": channel.name,
+            "creator": self.identity.username,
+            # Shape-valid and vendor-invalid, the way the redaction fixture's
+            # samples are: a test asserts the token segment never leaves.
+            "url": f"https://discord.com/api/webhooks/{self.next_id}/SampleWebhookTokenSegment{self.next_id}",
+        }
+        self.webhooks.setdefault(server_id, []).append(dict(made))
+        self.created_webhooks.append(dict(made))
+        self.reasons.append(reason)
+        return made
+
+    async def delete_webhook(self, server_id, webhook_id, *, reason=None):
+        from discord_tools.client import ClientError
+
+        self._maybe_fail("delete_webhook", webhook_id)
+        rows = self.webhooks.get(server_id, [])
+        if not any(int(row["id"]) == int(webhook_id) for row in rows):
+            raise ClientError(f"No webhook with ID {webhook_id} on server {server_id}.")
+        self.webhooks[server_id] = [row for row in rows if int(row["id"]) != int(webhook_id)]
+        self.deleted_webhooks.append(int(webhook_id))
+        self.reasons.append(reason)
+
+    async def list_emojis(self, server_id):
+        return [dict(row) for row in self.emojis.get(server_id, [])]
+
+    async def create_emoji(self, server_id, name, image, *, reason=None):
+        self._maybe_fail("create_emoji", name)
+        self.next_id += 1
+        made = {
+            "id": self.next_id,
+            "name": name,
+            "animated": False,
+            "managed": False,
+            "available": True,
+            "role_ids": [],
+            "creator": self.identity.username,
+            "mention": f"<:{name}:{self.next_id}>",
+        }
+        self.emojis.setdefault(server_id, []).append(dict(made))
+        self.created_emojis.append((name, len(image)))
+        self.reasons.append(reason)
+        return made
+
+    async def delete_emoji(self, server_id, emoji_id, *, reason=None):
+        from discord_tools.client import ClientError
+
+        self._maybe_fail("delete_emoji", emoji_id)
+        rows = self.emojis.get(server_id, [])
+        if not any(int(row["id"]) == int(emoji_id) for row in rows):
+            raise ClientError(f"No emoji with ID {emoji_id} in server {server_id}.")
+        self.emojis[server_id] = [row for row in rows if int(row["id"]) != int(emoji_id)]
+        self.deleted_emojis.append(int(emoji_id))
+        self.reasons.append(reason)
+
+    async def list_stickers(self, server_id):
+        return [dict(row) for row in self.stickers.get(server_id, [])]
+
+    async def create_sticker(self, server_id, name, data, *, filename, description="", emoji, reason=None):
+        self._maybe_fail("create_sticker", name)
+        self.next_id += 1
+        made = {
+            "id": self.next_id,
+            "name": name,
+            "description": description or None,
+            "emoji": emoji,
+            "format": "png",
+            "available": True,
+            "creator": self.identity.username,
+        }
+        self.stickers.setdefault(server_id, []).append(dict(made))
+        self.created_stickers.append((name, filename, len(data)))
+        self.reasons.append(reason)
+        return made
+
+    async def delete_sticker(self, server_id, sticker_id, *, reason=None):
+        from discord_tools.client import ClientError
+
+        self._maybe_fail("delete_sticker", sticker_id)
+        rows = self.stickers.get(server_id, [])
+        if not any(int(row["id"]) == int(sticker_id) for row in rows):
+            raise ClientError(f"No sticker with ID {sticker_id} in server {server_id}.")
+        self.stickers[server_id] = [row for row in rows if int(row["id"]) != int(sticker_id)]
+        self.deleted_stickers.append(int(sticker_id))
+        self.reasons.append(reason)
+
     async def audit_log(self, server_id, *, action=None, user_id=None, since=None, limit=50):
         rows = [dict(row) for row in self.audit.get(server_id, [])]
         if action is not None:
@@ -638,6 +754,40 @@ class FakeClient:
         stored.update(rule)
         self.structure_writes.append(("edit_automod_rule", rule["name"], dict(rule)))
         self.reasons.append(reason)
+
+    async def delete_automod_rule(self, server_id, rule_id, *, reason=None):
+        from discord_tools.client import ClientError
+
+        self._maybe_fail("delete_automod_rule", rule_id)
+        rows = self.automod.get(server_id, [])
+        rule = next((r for r in rows if int(r["id"]) == int(rule_id)), None)
+        if rule is None:
+            raise ClientError(f"No AutoMod rule with ID {rule_id} in server {server_id}.")
+        self.automod[server_id] = [r for r in rows if int(r["id"]) != int(rule_id)]
+        self.deleted_automod.append(int(rule_id))
+        self.structure_writes.append(("delete_automod_rule", rule["name"], {}))
+        self.reasons.append(reason)
+
+    async def channel_settings(self, channel_id):
+        from discord_tools.client import ClientError
+
+        for server_id in {*self.channels, *self.structure}:
+            for row in self._structure_rows(server_id):
+                if row["id"] == channel_id:
+                    return {
+                        **row,
+                        "overwrites": [dict(entry) for entry in row["overwrites"]],
+                        "tags": [dict(entry) for entry in row["tags"]],
+                        "guild_id": server_id,
+                    }
+        raise ClientError(f"No channel or thread with ID {channel_id} — check it with `discover`.")
+
+    def _server_of(self, channel_id) -> int | None:
+        """The server a channel belongs to, in whichever map holds it."""
+        for server_id in {*self.channels, *self.structure}:
+            if any(row["id"] == channel_id for row in self._structure_rows(server_id)):
+                return server_id
+        return None
 
     async def create_thread(self, channel_id, name, *, private=False, reason=None):
         self.next_id += 1

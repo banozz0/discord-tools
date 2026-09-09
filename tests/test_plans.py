@@ -398,7 +398,12 @@ def test_the_seam_methods_that_take_a_reason_are_the_ones_that_get_one():
               # the moderator's own words after it, and Discord shows that line
               # in the server's audit log (tests/test_member_cli.py).
               "kick_member", "ban_member", "unban_member", "timeout_member", "set_member_nick",
-              "create_invite", "delete_invite"}
+              "create_invite", "delete_invite",
+              # Integrations and automation policy: webhooks, emoji, stickers and
+              # the AutoMod rule a person deletes one at a time
+              # (tests/test_integration_cli.py, tests/test_settings_cli.py).
+              "create_webhook", "delete_webhook", "create_emoji", "delete_emoji",
+              "create_sticker", "delete_sticker", "delete_automod_rule"}
     accepts = {
         name
         for name, member in inspect.getmembers(DiscordClient, inspect.isfunction)

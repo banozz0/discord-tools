@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -201,6 +202,93 @@ def _automod_kwargs(rule: dict[str, Any]) -> dict[str, Any]:
         "enabled": bool(rule.get("enabled", False)),
         "exempt_roles": [discord.Object(id=role_id) for role_id in rule.get("exempt_role_ids", [])],
         "exempt_channels": [discord.Object(id=channel_id) for channel_id in rule.get("exempt_channel_ids", [])],
+    }
+
+
+def _structure_row(channel: Any) -> dict[str, Any]:
+    """One category or channel with the settings a blueprint carries and a
+    `channel edit` changes. Threads have none of their own."""
+    overwrites = []
+    for target, overwrite in channel.overwrites.items():
+        allow, deny = overwrite.pair()
+        is_role = isinstance(target, discord.Role) or getattr(target, "type", None) is discord.Role
+        overwrites.append(
+            {
+                "target_id": int(target.id),
+                "target_type": "role" if is_role else "member",
+                "allow": str(allow.value),
+                "deny": str(deny.value),
+            }
+        )
+    tags = [
+        {
+            "name": tag.name,
+            "moderated": bool(tag.moderated),
+            "emoji": _unicode_emoji(tag.emoji),
+            "custom_emoji": _custom_emoji_name(tag.emoji),
+        }
+        for tag in getattr(channel, "available_tags", None) or ()
+    ]
+    return {
+        "id": channel.id,
+        "name": channel.name,
+        "type": _channel_type_name(channel),
+        "position": int(getattr(channel, "position", 0) or 0),
+        "parent_id": getattr(channel, "category_id", None),
+        "topic": getattr(channel, "topic", None),
+        "nsfw": bool(getattr(channel, "nsfw", False)),
+        "slowmode": int(getattr(channel, "slowmode_delay", 0) or 0),
+        "bitrate": getattr(channel, "bitrate", None),
+        "user_limit": getattr(channel, "user_limit", None),
+        "overwrites": overwrites,
+        "tags": tags,
+        "default_reaction": _unicode_emoji(getattr(channel, "default_reaction_emoji", None)),
+    }
+
+
+def _webhook_dict(webhook: Any) -> dict[str, Any]:
+    """One webhook, URL and all.
+
+    The seam reports what Discord returned; who may see the token is the rim's
+    decision, and a seam that redacted here would leave `webhook create` no way
+    to show the URL the one time showing it is the point. A channel-follower
+    webhook carries no token and so has no URL.
+    """
+    token = getattr(webhook, "token", None)
+    return {
+        "id": int(webhook.id),
+        "name": webhook.name or "",
+        "type": _enum_name(getattr(webhook, "type", None)),
+        "channel_id": int(webhook.channel_id) if getattr(webhook, "channel_id", None) else None,
+        "channel": getattr(getattr(webhook, "channel", None), "name", None),
+        "creator": getattr(getattr(webhook, "user", None), "name", None),
+        "url": f"https://discord.com/api/webhooks/{int(webhook.id)}/{token}" if token else None,
+    }
+
+
+def _emoji_dict(emoji: Any) -> dict[str, Any]:
+    return {
+        "id": int(emoji.id),
+        "name": str(emoji.name),
+        "animated": bool(getattr(emoji, "animated", False)),
+        "managed": bool(getattr(emoji, "managed", False)),
+        "available": bool(getattr(emoji, "available", True)),
+        "role_ids": [int(role.id) for role in getattr(emoji, "roles", None) or ()],
+        "creator": getattr(getattr(emoji, "user", None), "name", None),
+        # What you paste into a message to use it.
+        "mention": f"<{'a' if getattr(emoji, 'animated', False) else ''}:{emoji.name}:{int(emoji.id)}>",
+    }
+
+
+def _sticker_dict(sticker: Any) -> dict[str, Any]:
+    return {
+        "id": int(sticker.id),
+        "name": str(sticker.name),
+        "description": getattr(sticker, "description", None) or None,
+        "emoji": getattr(sticker, "emoji", None) or None,
+        "format": _enum_name(getattr(sticker, "format", None)),
+        "available": bool(getattr(sticker, "available", True)),
+        "creator": getattr(getattr(sticker, "user", None), "name", None),
     }
 
 
@@ -735,50 +823,22 @@ class DiscordClient:
         not structure and are not listed."""
         guild = await self._fetch_guild(server_id)
         channels = await guild.fetch_channels()
-        rows = []
-        for channel in channels:
-            if isinstance(channel, discord.Thread):
-                continue
-            overwrites = []
-            for target, overwrite in channel.overwrites.items():
-                allow, deny = overwrite.pair()
-                is_role = isinstance(target, discord.Role) or getattr(target, "type", None) is discord.Role
-                overwrites.append(
-                    {
-                        "target_id": int(target.id),
-                        "target_type": "role" if is_role else "member",
-                        "allow": str(allow.value),
-                        "deny": str(deny.value),
-                    }
-                )
-            tags = [
-                {
-                    "name": tag.name,
-                    "moderated": bool(tag.moderated),
-                    "emoji": _unicode_emoji(tag.emoji),
-                    "custom_emoji": _custom_emoji_name(tag.emoji),
-                }
-                for tag in getattr(channel, "available_tags", None) or ()
-            ]
-            default_reaction = getattr(channel, "default_reaction_emoji", None)
-            rows.append(
-                {
-                    "id": channel.id,
-                    "name": channel.name,
-                    "type": _channel_type_name(channel),
-                    "position": int(getattr(channel, "position", 0) or 0),
-                    "parent_id": getattr(channel, "category_id", None),
-                    "topic": getattr(channel, "topic", None),
-                    "nsfw": bool(getattr(channel, "nsfw", False)),
-                    "slowmode": int(getattr(channel, "slowmode_delay", 0) or 0),
-                    "bitrate": getattr(channel, "bitrate", None),
-                    "user_limit": getattr(channel, "user_limit", None),
-                    "overwrites": overwrites,
-                    "tags": tags,
-                    "default_reaction": _unicode_emoji(default_reaction),
-                }
+        return [_structure_row(channel) for channel in channels if not isinstance(channel, discord.Thread)]
+
+    async def channel_settings(self, channel_id: int) -> dict[str, Any]:
+        """One channel's or category's settings, in the row shape a blueprint reads.
+
+        The read `channel edit` diffs against, and the reason it is one call
+        rather than the whole server's structure: a person editing one channel
+        should not pay for every other one to be fetched.
+        """
+        channel = await self._fetch_channel(channel_id)
+        if isinstance(channel, discord.Thread):
+            raise ClientError(
+                f"Channel {channel_id} is a thread; a thread's settings are its parent channel's. "
+                f"Use --channel {channel.parent_id}."
             )
-        return rows
+        return {**_structure_row(channel), "guild_id": int(channel.guild.id)}
 
     async def list_automod_rules(self, server_id: int) -> list[dict[str, Any]]:
         """The server's AutoMod rules. Discord gates the read on Manage Server."""
@@ -1077,11 +1137,95 @@ class DiscordClient:
         self, server_id: int, rule_id: int, rule: dict[str, Any], *, reason: str | None = None
     ) -> None:
         guild = await self._fetch_guild(server_id)
+        await (await self._fetch_automod_rule(guild, rule_id)).edit(reason=reason, **_automod_kwargs(rule))
+
+    async def delete_automod_rule(self, server_id: int, rule_id: int, *, reason: str | None = None) -> None:
+        guild = await self._fetch_guild(server_id)
+        await (await self._fetch_automod_rule(guild, rule_id)).delete(reason=reason)
+
+    async def _fetch_automod_rule(self, guild: Any, rule_id: int) -> Any:
         try:
-            existing = await guild.fetch_automod_rule(rule_id)
+            return await guild.fetch_automod_rule(rule_id)
         except discord.NotFound as exc:
-            raise ClientError(f"No AutoMod rule with ID {rule_id} in server {server_id}.") from exc
-        await existing.edit(reason=reason, **_automod_kwargs(rule))
+            raise ClientError(f"No AutoMod rule with ID {rule_id} in server {guild.id}.") from exc
+
+    # -- webhooks, emoji and stickers -------------------------------------
+
+    async def list_webhooks(self, server_id: int) -> list[dict[str, Any]]:
+        """Every webhook on the server, tokens included. Needs Manage Webhooks;
+        Discord shows a webhook's token to nobody else."""
+        guild = await self._fetch_guild(server_id)
+        try:
+            return [_webhook_dict(hook) for hook in await guild.webhooks()]
+        except discord.Forbidden as exc:
+            raise PermissionError(
+                f"Discord refused the webhooks of server {server_id}: reading them needs Manage Webhooks."
+            ) from exc
+
+    async def create_webhook(self, channel_id: int, name: str, *, reason: str | None = None) -> dict[str, Any]:
+        channel = await self._fetch_channel(channel_id)
+        if not hasattr(channel, "create_webhook"):
+            raise ClientError(f"Channel {channel_id} ({_channel_type_name(channel)}) cannot hold a webhook.")
+        return _webhook_dict(await channel.create_webhook(name=name, reason=reason))
+
+    async def delete_webhook(self, server_id: int, webhook_id: int, *, reason: str | None = None) -> None:
+        """Delete by id, found in the server's own list, so a caller never has to
+        hand a token back to Discord to remove one."""
+        guild = await self._fetch_guild(server_id)
+        hook = next((entry for entry in await guild.webhooks() if int(entry.id) == int(webhook_id)), None)
+        if hook is None:
+            raise ClientError(f"No webhook with ID {webhook_id} on server {server_id}.")
+        await hook.delete(reason=reason)
+
+    async def list_emojis(self, server_id: int) -> list[dict[str, Any]]:
+        guild = await self._fetch_guild(server_id)
+        return [_emoji_dict(emoji) for emoji in await guild.fetch_emojis()]
+
+    async def create_emoji(self, server_id: int, name: str, image: bytes, *, reason: str | None = None) -> dict[str, Any]:
+        guild = await self._fetch_guild(server_id)
+        return _emoji_dict(await guild.create_custom_emoji(name=name, image=image, reason=reason))
+
+    async def delete_emoji(self, server_id: int, emoji_id: int, *, reason: str | None = None) -> None:
+        guild = await self._fetch_guild(server_id)
+        try:
+            emoji = await guild.fetch_emoji(emoji_id)
+        except discord.NotFound as exc:
+            raise ClientError(f"No emoji with ID {emoji_id} in server {server_id}.") from exc
+        await emoji.delete(reason=reason)
+
+    async def list_stickers(self, server_id: int) -> list[dict[str, Any]]:
+        guild = await self._fetch_guild(server_id)
+        return [_sticker_dict(sticker) for sticker in await guild.fetch_stickers()]
+
+    async def create_sticker(
+        self,
+        server_id: int,
+        name: str,
+        data: bytes,
+        *,
+        filename: str,
+        description: str = "",
+        emoji: str,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        """A sticker from the bytes of a file. `emoji` is the unicode emoji Discord
+        makes a sticker's suggestion, and Discord requires one."""
+        guild = await self._fetch_guild(server_id)
+        made = await guild.create_sticker(
+            name=name,
+            description=description,
+            emoji=emoji,
+            file=discord.File(io.BytesIO(data), filename=filename),
+            reason=reason,
+        )
+        return _sticker_dict(made)
+
+    async def delete_sticker(self, server_id: int, sticker_id: int, *, reason: str | None = None) -> None:
+        guild = await self._fetch_guild(server_id)
+        sticker = next((entry for entry in await guild.fetch_stickers() if int(entry.id) == int(sticker_id)), None)
+        if sticker is None:
+            raise ClientError(f"No sticker with ID {sticker_id} in server {server_id}.")
+        await sticker.delete(reason=reason)
 
     # -- permissions ------------------------------------------------------
 

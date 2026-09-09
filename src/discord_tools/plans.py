@@ -94,6 +94,26 @@ REQUIRED_RIGHTS = {
     "invite-create": ("create_instant_invite",),
     "invite-revoke": ("manage_guild",),
     "audit-log-list": ("view_audit_log",),
+    # Integrations and policy. The names are Discord's own current ones:
+    # `manage_expressions` is what the API and discord.py report for what the
+    # app's own settings screen still calls Manage Emojis and Stickers, and
+    # `create_expressions` is the narrower right Discord split out of it —
+    # naming the alias instead would ask preflight for a right it can never see
+    # held. Listing emoji and stickers needs none: Discord shows both to every
+    # member. Listing webhooks does, because a webhook's URL is a credential
+    # and Discord shows it to nobody without Manage Webhooks.
+    "webhook-list": ("manage_webhooks",),
+    "webhook-create": ("manage_webhooks",),
+    "webhook-delete": ("manage_webhooks",),
+    "emoji-list": (),
+    "emoji-add": ("create_expressions",),
+    "emoji-remove": ("manage_expressions",),
+    "sticker-list": (),
+    "sticker-add": ("create_expressions",),
+    "sticker-remove": ("manage_expressions",),
+    "automod-list": ("manage_guild",),
+    "automod-write": ("manage_guild",),
+    "channel-edit": ("manage_channels",),
     # Guild scheduled events: one right covers creating, editing and deleting
     # one, and listing them needs none - Discord shows a server's events to
     # every member.

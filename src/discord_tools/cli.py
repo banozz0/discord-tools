@@ -8,10 +8,12 @@ from pathlib import Path
 from typing import Sequence
 
 from discord_tools import archive as archive_store
+from discord_tools import integrations
 from discord_tools import moderation
 from discord_tools import plans
 from discord_tools import review as review_store
 from discord_tools import roles as roles_rim
+from discord_tools import settings
 from discord_tools import structure as structure_store
 from discord_tools import watch as watch_rim
 from discord_tools._core import blueprint as blueprint_engine
@@ -507,6 +509,110 @@ def build_parser() -> argparse.ArgumentParser:
     audit_log_list.add_argument("--user", type=snowflake, help="Only entries by this user ID")
     audit_log_list.add_argument("--since", metavar="TIME", help="Only entries after this ISO 8601 time, or a duration back like 24h")
     audit_log_list.add_argument("--limit", type=int, default=50, help="How many entries at most (default: 50)")
+
+    webhook_parser = subparsers.add_parser(
+        "webhook", help="A server's webhooks: list them with their URLs hidden, create one, delete one"
+    )
+    webhook_kinds = webhook_parser.add_subparsers(dest="webhook_kind")
+    webhook_list = webhook_kinds.add_parser("list", help="Every webhook, each URL's token hidden (needs Manage Webhooks)")
+    webhook_list.add_argument("--server", required=True, type=snowflake, help="Server ID")
+    webhook_create = webhook_kinds.add_parser(
+        "create", help="Create a webhook on a channel (preview + y/N); --reveal prints its URL once"
+    )
+    webhook_create.add_argument("--channel", required=True, type=snowflake, help="Channel ID the webhook posts into")
+    webhook_create.add_argument("--name", required=True, help="What Discord shows as the poster's name by default")
+    webhook_create.add_argument(
+        "--reveal",
+        action="store_true",
+        help="Print the whole URL once, on screen. Without it the URL is never shown, here or anywhere else",
+    )
+    webhook_create.add_argument("--yes", action="store_true", help="Skip the y/N prompt")
+    webhook_delete = webhook_kinds.add_parser("delete", help="Delete a webhook (dry-run by default; --execute asks for its exact name)")
+    webhook_delete.add_argument("--server", required=True, type=snowflake, help="Server ID")
+    webhook_delete.add_argument("--webhook", required=True, help="Webhook ID, or its exact name when only one has it")
+    webhook_delete.add_argument("--execute", action="store_true", help="Delete for real after typing the webhook's exact name (no --yes exists)")
+
+    emoji_parser = subparsers.add_parser("emoji", help="A server's custom emoji: list them, add one from a file, remove one")
+    emoji_kinds = emoji_parser.add_subparsers(dest="emoji_kind")
+    emoji_list = emoji_kinds.add_parser("list", help="Every custom emoji with the text you paste to use it")
+    emoji_list.add_argument("--server", required=True, type=snowflake, help="Server ID")
+    emoji_add = emoji_kinds.add_parser("add", help="Add a custom emoji from an image file (preview + y/N)")
+    emoji_add.add_argument("--server", required=True, type=snowflake, help="Server ID")
+    emoji_add.add_argument("--name", required=True, help="What it is typed as, between colons")
+    emoji_add.add_argument("--file", required=True, metavar="PATH", help=f"Image file ({', '.join(integrations.EMOJI_SUFFIXES)}), at most 256 KiB")
+    emoji_add.add_argument("--yes", action="store_true", help="Skip the y/N prompt")
+    emoji_remove = emoji_kinds.add_parser("remove", help="Remove a custom emoji (dry-run by default; --execute asks for its exact name)")
+    emoji_remove.add_argument("--server", required=True, type=snowflake, help="Server ID")
+    emoji_remove.add_argument("--emoji", required=True, help="Emoji ID, or its exact name when only one has it")
+    emoji_remove.add_argument("--execute", action="store_true", help="Remove for real after typing the emoji's exact name (no --yes exists)")
+
+    sticker_parser = subparsers.add_parser("sticker", help="A server's stickers: list them, add one from a file, remove one")
+    sticker_kinds = sticker_parser.add_subparsers(dest="sticker_kind")
+    sticker_list = sticker_kinds.add_parser("list", help="Every sticker with the emoji it suggests")
+    sticker_list.add_argument("--server", required=True, type=snowflake, help="Server ID")
+    sticker_add = sticker_kinds.add_parser("add", help="Add a sticker from a file (preview + y/N)")
+    sticker_add.add_argument("--server", required=True, type=snowflake, help="Server ID")
+    sticker_add.add_argument("--name", required=True, help="What the sticker is called")
+    sticker_add.add_argument("--file", required=True, metavar="PATH", help=f"Sticker file ({', '.join(integrations.STICKER_SUFFIXES)}), at most 512 KiB")
+    sticker_add.add_argument("--emoji", required=True, help="The unicode emoji Discord suggests it by; Discord requires one")
+    sticker_add.add_argument("--description", default="", help="What it shows, for people using a screen reader")
+    sticker_add.add_argument("--yes", action="store_true", help="Skip the y/N prompt")
+    sticker_remove = sticker_kinds.add_parser("remove", help="Remove a sticker (dry-run by default; --execute asks for its exact name)")
+    sticker_remove.add_argument("--server", required=True, type=snowflake, help="Server ID")
+    sticker_remove.add_argument("--sticker", required=True, help="Sticker ID, or its exact name when only one has it")
+    sticker_remove.add_argument("--execute", action="store_true", help="Remove for real after typing the sticker's exact name (no --yes exists)")
+
+    automod_parser = subparsers.add_parser(
+        "automod", help="The server's own AutoMod rules, which Discord runs itself: list, create, edit, delete"
+    )
+    automod_kinds = automod_parser.add_subparsers(dest="automod_kind")
+    automod_list = automod_kinds.add_parser("list", help="Every rule, what it watches for and what it then does (needs Manage Server)")
+    automod_list.add_argument("--server", required=True, type=snowflake, help="Server ID")
+
+    def rule_flags(parser, *, creating: bool):
+        """The trigger, the actions and the exemptions, said once for create and edit.
+
+        A rule's trigger is named by the flags that configure it, because
+        Discord fixes it at creation and an edit can only change what is inside
+        the family the rule already has.
+        """
+        parser.add_argument("--server", required=True, type=snowflake, help="Server ID")
+        if not creating:
+            parser.add_argument("--rule", required=True, help="Rule ID, or its exact name")
+        parser.add_argument("--name", required=creating, help="What the rule is called" + ("" if creating else " (renames it)"))
+        parser.add_argument("--keyword", action="append", metavar="TEXT", help="A word or phrase to catch; repeat for more")
+        parser.add_argument("--regex", action="append", metavar="PATTERN", help=f"A pattern to catch; repeat for more, at most {settings.MAX_REGEX}")
+        parser.add_argument("--preset", action="append", choices=settings.PRESETS, help="One of Discord's own lists; repeat for more")
+        parser.add_argument("--mention-limit", type=int, metavar="N", help=f"Catch a message mentioning more than N people (1 to {settings.MAX_MENTIONS})")
+        parser.add_argument("--spam", action="store_true", help="Catch what Discord itself judges to be spam")
+        parser.add_argument("--allow", action="append", metavar="TEXT", help="An exception to a keyword or preset rule; repeat for more")
+        parser.add_argument("--block", nargs="?", const="", metavar="MESSAGE", help="Stop the message posting, optionally telling the author why")
+        parser.add_argument("--alert", type=snowflake, metavar="CHANNEL", help="Post a copy into this channel ID")
+        parser.add_argument("--timeout", type=int, metavar="SECONDS", help="Time the author out (1 second to 28 days)")
+        parser.add_argument("--exempt-role", action="append", metavar="ID", help="A role the rule ignores; repeat for more")
+        parser.add_argument("--exempt-channel", action="append", metavar="ID", help="A channel the rule ignores; repeat for more")
+        parser.add_argument("--enabled", action=argparse.BooleanOptionalAction, default=None, help="Turn it on, or off")
+        parser.add_argument("--yes", action="store_true", help="Skip the y/N prompt")
+
+    rule_flags(automod_kinds.add_parser("create", help="Write a rule Discord applies itself (preview + y/N)"), creating=True)
+    rule_flags(automod_kinds.add_parser("edit", help="Change a rule, inside the trigger family it already has (preview + y/N)"), creating=False)
+    automod_delete = automod_kinds.add_parser("delete", help="Delete a rule (dry-run by default; --execute asks for its exact name)")
+    automod_delete.add_argument("--server", required=True, type=snowflake, help="Server ID")
+    automod_delete.add_argument("--rule", required=True, help="Rule ID, or its exact name")
+    automod_delete.add_argument("--execute", action="store_true", help="Delete for real after typing the rule's exact name (no --yes exists)")
+
+    channel_parser = subparsers.add_parser(
+        "channel", help="A channel's own settings: name, topic, age gate, slow mode, position"
+    )
+    channel_kinds = channel_parser.add_subparsers(dest="channel_kind")
+    channel_edit = channel_kinds.add_parser("edit", help="Change a channel's or category's settings (preview + y/N), then read the diff back")
+    channel_edit.add_argument("--channel", required=True, type=snowflake, help="Channel or category ID")
+    channel_edit.add_argument("--name", help="New name")
+    channel_edit.add_argument("--topic", help="New topic; an empty string clears it")
+    channel_edit.add_argument("--nsfw", action=argparse.BooleanOptionalAction, default=None, help="Age-gate it, or not")
+    channel_edit.add_argument("--slowmode", type=int, metavar="SECONDS", help=f"Seconds between one person's messages; 0 turns it off (at most {settings.MAX_SLOWMODE})")
+    channel_edit.add_argument("--position", type=int, metavar="N", help="Where it sits in its list, counting from 0 at the top")
+    channel_edit.add_argument("--yes", action="store_true", help="Skip the y/N prompt")
 
     message_parser = subparsers.add_parser(
         "message",
@@ -3130,6 +3236,487 @@ async def _run_audit_log(client, args, config, out) -> Outcome:
     )
 
 
+# -- webhooks, emoji and stickers ---------------------------------------------
+#
+# Three command groups of the same three shapes, so the shapes are written
+# once. A listing preflights and reads; an add previews, asks y/N, writes and
+# reads back; a removal dry-runs, then takes the exact name typed back with no
+# `--yes`, and reads back the absence. What differs between a webhook, an
+# emoji and a sticker is which seam call each shape makes and which flag names
+# the thing — that is the table below, and nothing else.
+#
+# The one asymmetry is the secret. A webhook URL is a credential, so it exists
+# on exactly one screen — `webhook create --reveal` — and every other path,
+# result and audit line carries the rewritten form. The rules and the screens
+# live in integrations.py.
+
+
+class _Expressions:
+    """One of the three integration families: how to list it and how to remove one."""
+
+    def __init__(self, what: str, *, flag: str, listing: str, remove: str, row, screen) -> None:
+        self.what = what
+        self.flag = flag
+        self.listing = listing
+        self.remove = remove
+        self.row = row
+        self.screen = screen
+
+
+EXPRESSIONS = {
+    "webhook": _Expressions("webhook", flag="webhook", listing="list_webhooks", remove="delete_webhook",
+                            row=integrations.webhook_row, screen=integrations.format_webhooks),
+    "emoji": _Expressions("emoji", flag="emoji", listing="list_emojis", remove="delete_emoji",
+                          row=integrations.emoji_row, screen=integrations.format_emojis),
+    "sticker": _Expressions("sticker", flag="sticker", listing="list_stickers", remove="delete_sticker",
+                            row=integrations.sticker_row, screen=integrations.format_stickers),
+}
+
+
+async def _run_integration(client, args, config, out, *, what: str) -> Outcome:
+    kind = getattr(args, f"{what}_kind")
+    verbs = "list, create, delete" if what == "webhook" else "list, add, remove"
+    if kind is None:
+        raise ValueError(f"{what} needs one of: {verbs}.")
+    identity = await _identity(out, client, config)
+    resolver = DiscordTargetResolver(client)
+    if kind == "create":
+        return await _run_webhook_create(client, args, out, identity=identity, resolver=resolver)
+
+    server = await resolver.resolve(args.server, kind="guild")
+    family = EXPRESSIONS[what]
+    if kind == "list":
+        return await _run_expression_list(client, args, out, identity=identity, resolver=resolver, server=server, family=family)
+    if kind == "add":
+        adder = _run_emoji_add if what == "emoji" else _run_sticker_add
+        return await adder(client, args, out, identity=identity, resolver=resolver, server=server)
+    return await _run_expression_remove(client, args, out, identity=identity, resolver=resolver, server=server, family=family)
+
+
+async def _run_expression_list(client, args, out, *, identity, resolver, server, family) -> Outcome:
+    """The three listings. Each preflights the right Discord itself checks and
+    attaches no plan: nothing changed, so nothing is audited."""
+    server_id = int(server.ids["guild"])
+    refusal = await _preflight_read(
+        client, out, identity=identity, resolver=resolver, server_id=server_id, command_key=f"{family.what}-list"
+    )
+    if refusal is not None:
+        return Outcome(status="refused", target=server, error=refusal)
+    found = await getattr(client, family.listing)(server_id)
+    out.say(family.screen(found, server=server.title))
+    rows = [family.row(entry) for entry in found]
+    for row in rows:
+        out.record(family.what, row)
+    return Outcome(
+        status="ok" if rows else "empty",
+        target=server,
+        result={f"{family.what}s": [] if out.jsonl else rows, "matched": len(rows)},
+    )
+
+
+async def _run_expression_remove(client, args, out, *, identity, resolver, server, family) -> Outcome:
+    """The three removals: dry-run, then the exact name typed back. No `--yes`
+    exists on any of them, so none is ever unattended."""
+    server_id = int(server.ids["guild"])
+    rows = await getattr(client, family.listing)(server_id)
+    row = integrations.find(rows, getattr(args, family.flag), what=family.what, server=server)
+    target = integrations.webhook_target(server, row) if family.what == "webhook" else server
+
+    async def build():
+        live = await resolver.resolve(server_id, kind="guild")
+        return await _plan(
+            client,
+            command=out.command,
+            identity=identity,
+            targets=(live,) if family.what != "webhook" else (live, target),
+            mutations=(Mutation(op=family.remove, rid=target.rid, params={"name": row["name"], "id": int(row["id"])}),),
+            approval="typed_name",
+            rights=plans.REQUIRED_RIGHTS[f"{family.what}-{'delete' if family.what == 'webhook' else 'remove'}"],
+        )
+
+    write = await build()
+    if write.refusal is not None:
+        out.say(plans.format_preflight(write.plan))
+        return Outcome(status="refused", target=target, plan=write.plan, error=write.refusal)
+
+    verb = "Delete" if family.what == "webhook" else "Remove"
+    preview = integrations.format_removal(
+        row, what=family.what, heading=f"{verb} the {family.what} {row['name']} from {server.title} ({server_id})",
+        reason=write.reason,
+    )
+    result = {family.what: family.row(row), "dry_run": not args.execute}
+    if not args.execute:
+        out.say(plans.format_preflight(write.plan))
+        out.say(preview)
+        out.say(f"Dry-run. Add --execute to {verb.lower()} it; it will ask for its exact name.")
+        return Outcome(status="ok", target=target, plan=None, result=result)
+
+    stopped = _gate_typed(
+        out, write, typed=str(row["name"]), preview=preview, what=f"{family.what} name", target=target,
+        warning=integrations.WARNINGS[family.what],
+    )
+    if stopped is not None:
+        return stopped
+    await _drift_guard(out, write, build)()
+    await getattr(client, family.remove)(server_id, int(row["id"]), reason=write.reason)
+    out.say(f"{verb}d the {family.what} {row['name']} ({row['id']}).")
+
+    async def readback():
+        if any(int(entry["id"]) == int(row["id"]) for entry in await getattr(client, family.listing)(server_id)):
+            raise ClientError(f"{family.what} {row['name']} ({row['id']}) is still listed")
+        return f"{family.what} {row['name']} ({row['id']}) is no longer listed on server {server_id}"
+
+    evidence = await plans.read_back(f"the {family.what} list could not be read back", readback)
+    return Outcome(status="ok", target=target, plan=write.plan, result={**result, "dry_run": False}, evidence=evidence)
+
+
+async def _run_webhook_create(client, args, out, *, identity, resolver) -> Outcome:
+    """The one write whose result is a secret.
+
+    The URL reaches the screen only under `--reveal`, and reaches the envelope,
+    the audit line and every later listing with its token segment rewritten —
+    so a script that stores this run's output stores no credential.
+    """
+    channel = await resolver.resolve(args.channel)
+    channel_id = int(channel.ids[channel.kind])
+    server = await resolver.resolve(await _guild_of(client, channel_id), kind="guild")
+
+    async def build():
+        live = await resolver.resolve(channel_id)
+        return await _plan(
+            client,
+            command=out.command,
+            identity=identity,
+            targets=(live,),
+            mutations=(Mutation(op="create_webhook", rid=channel.rid, params={"name": args.name}),),
+            approval="prompt_y",
+            rights=plans.REQUIRED_RIGHTS["webhook-create"],
+        )
+
+    write = await build()
+    if write.refusal is not None:
+        out.say(plans.format_preflight(write.plan))
+        return Outcome(status="refused", target=channel, plan=write.plan, error=write.refusal)
+
+    preview = integrations.format_webhook_plan(
+        channel=f"{channel.title} ({channel_id})", name=args.name, reason=write.reason, reveal=bool(args.reveal)
+    )
+    stopped = _gate_prompt(out, write, yes=args.yes, preview=preview, question="Create it?", target=channel)
+    if stopped is not None:
+        return stopped
+    await _drift_guard(out, write, build)()
+    made = await client.create_webhook(channel_id, args.name, reason=write.reason)
+    out.say(integrations.format_webhook(made, heading=f"Created a webhook on {channel.title}", reveal=bool(args.reveal)))
+    if not args.reveal:
+        out.say("The URL was not printed. Run `webhook create --reveal` next time, or read it in Server Settings → Integrations.")
+
+    async def readback():
+        if not any(int(entry["id"]) == int(made["id"]) for entry in await client.list_webhooks(int(server.ids["guild"]))):
+            raise ClientError(f"webhook {made['id']} is not listed on server {server.title}")
+        return f"webhook {made['name']} ({made['id']}) is listed on server {server.title} ({server.ids['guild']})"
+
+    evidence = await plans.read_back("the webhook list could not be read back", readback)
+    return Outcome(
+        status="ok",
+        target=integrations.webhook_target(server, made),
+        plan=write.plan,
+        # The rewritten row, always: `--reveal` prints to a screen, never into
+        # a result somebody's script would keep.
+        result={"webhook": integrations.webhook_row(made), "revealed": bool(args.reveal)},
+        evidence=evidence,
+    )
+
+
+async def _add_expression(client, args, out, *, identity, resolver, server, what, limit, suffixes, detail, call) -> Outcome:
+    """What `emoji add` and `sticker add` share: read and measure the file, plan
+    against the server, preview, ask, write, read back."""
+    server_id = int(server.ids["guild"])
+    data, filename = integrations.read_image(args.file, limit=limit, what=what, suffixes=suffixes)
+
+    async def build():
+        live = await resolver.resolve(server_id, kind="guild")
+        return await _plan(
+            client,
+            command=out.command,
+            identity=identity,
+            targets=(live,),
+            mutations=(Mutation(op=f"create_{what}", rid=live.rid, params={"name": args.name, "bytes": len(data)}),),
+            approval="prompt_y",
+            rights=plans.REQUIRED_RIGHTS[f"{what}-add"],
+        )
+
+    write = await build()
+    if write.refusal is not None:
+        out.say(plans.format_preflight(write.plan))
+        return Outcome(status="refused", target=server, plan=write.plan, error=write.refusal)
+
+    preview = integrations.format_expression_plan(
+        what=what, name=args.name, filename=filename, size=len(data), reason=write.reason, detail=detail
+    )
+    stopped = _gate_prompt(out, write, yes=args.yes, preview=preview, question=f"Add the {what}?", target=server)
+    if stopped is not None:
+        return stopped
+    await _drift_guard(out, write, build)()
+    made = await call(data, filename, write.reason)
+    out.say(f"Added the {what} {made['name']} ({made['id']}) to {server.title}.")
+    family = EXPRESSIONS[what]
+
+    async def readback():
+        listed = await getattr(client, family.listing)(server_id)
+        if not any(int(entry["id"]) == int(made["id"]) for entry in listed):
+            raise ClientError(f"{what} {made['id']} is not listed on server {server_id}")
+        return f"{what} {made['name']} ({made['id']}) is listed on server {server.title} ({server_id})"
+
+    evidence = await plans.read_back(f"the {what} list could not be read back", readback)
+    return Outcome(status="ok", target=server, plan=write.plan, result={what: family.row(made)}, evidence=evidence)
+
+
+async def _run_emoji_add(client, args, out, *, identity, resolver, server) -> Outcome:
+    return await _add_expression(
+        client, args, out, identity=identity, resolver=resolver, server=server, what="emoji",
+        limit=integrations.MAX_EMOJI_BYTES, suffixes=integrations.EMOJI_SUFFIXES,
+        detail=f"Typed as    :{args.name}:",
+        call=lambda data, _filename, reason: client.create_emoji(int(server.ids["guild"]), args.name, data, reason=reason),
+    )
+
+
+async def _run_sticker_add(client, args, out, *, identity, resolver, server) -> Outcome:
+    return await _add_expression(
+        client, args, out, identity=identity, resolver=resolver, server=server, what="sticker",
+        limit=integrations.MAX_STICKER_BYTES, suffixes=integrations.STICKER_SUFFIXES,
+        detail=f"Suggested by {args.emoji}",
+        call=lambda data, filename, reason: client.create_sticker(
+            int(server.ids["guild"]), args.name, data, filename=filename,
+            description=args.description, emoji=args.emoji, reason=reason,
+        ),
+    )
+
+
+# -- AutoMod rules and a channel's settings -----------------------------------
+#
+# The two families that are settings rather than people or things. A rule and a
+# channel edit both go through the same five steps as every other write; what
+# is particular to them is that neither has a rid kind of its own for a rule —
+# so a rule write's target is the server, the way the blueprint already treats
+# them — and that a channel edit's evidence is the diff it read back rather
+# than a description of the whole channel. The rules and the screens live in
+# settings.py.
+
+
+async def _run_automod(client, args, config, out) -> Outcome:
+    if args.automod_kind is None:
+        raise ValueError("automod needs one of: list, create, edit, delete.")
+    identity = await _identity(out, client, config)
+    resolver = DiscordTargetResolver(client)
+    server = await resolver.resolve(args.server, kind="guild")
+    server_id = int(server.ids["guild"])
+
+    if args.automod_kind == "list":
+        refusal = await _preflight_read(
+            client, out, identity=identity, resolver=resolver, server_id=server_id, command_key="automod-list"
+        )
+        if refusal is not None:
+            return Outcome(status="refused", target=server, error=refusal)
+        rules = await client.list_automod_rules(server_id)
+        out.say(settings.format_rules(rules, server=server.title))
+        rows = [settings.rule_row(rule) for rule in rules]
+        for row in rows:
+            out.record("automod", row)
+        return Outcome(status="ok" if rows else "empty", target=server, result={"rules": [] if out.jsonl else rows, "matched": len(rows)})
+
+    if args.automod_kind == "create":
+        return await _run_automod_create(client, args, out, identity=identity, resolver=resolver, server=server)
+    rule = settings.find_rule(await client.list_automod_rules(server_id), args.rule, server=server)
+    if args.automod_kind == "edit":
+        return await _run_automod_edit(client, args, out, identity=identity, resolver=resolver, server=server, rule=rule)
+    return await _run_automod_delete(client, args, out, identity=identity, resolver=resolver, server=server, rule=rule)
+
+
+async def _automod_plan(client, out, *, identity, resolver, server_id, approval, op, params):
+    live = await resolver.resolve(server_id, kind="guild")
+    return await _plan(
+        client,
+        command=out.command,
+        identity=identity,
+        targets=(live,),
+        mutations=(Mutation(op=op, rid=live.rid, params=params),),
+        approval=approval,
+        rights=plans.REQUIRED_RIGHTS["automod-write"],
+    )
+
+
+async def _automod_readback(client, server_id: int, rule_id: int) -> str:
+    rule = next((entry for entry in await client.list_automod_rules(server_id) if int(entry["id"]) == rule_id), None)
+    if rule is None:
+        raise ClientError(f"AutoMod rule {rule_id} is not listed in server {server_id}")
+    actions = ", ".join(action["type"] for action in rule.get("actions", ())) or "nothing"
+    return (
+        f"AutoMod rule {rule['name']} ({rule_id}) in server {server_id}: "
+        f"{'enabled' if rule.get('enabled') else 'disabled'}, triggers on {rule['trigger']['type']}, then {actions}"
+    )
+
+
+async def _run_automod_create(client, args, out, *, identity, resolver, server) -> Outcome:
+    server_id = int(server.ids["guild"])
+    built = settings.build_rule(args)
+
+    async def build():
+        return await _automod_plan(
+            client, out, identity=identity, resolver=resolver, server_id=server_id,
+            approval="prompt_y", op="create_automod_rule", params={"rule": built},
+        )
+
+    write = await build()
+    if write.refusal is not None:
+        out.say(plans.format_preflight(write.plan))
+        return Outcome(status="refused", target=server, plan=write.plan, error=write.refusal)
+
+    preview = settings.format_rule(built, heading=f"Write an AutoMod rule on {server.title} ({server_id})", reason=write.reason)
+    stopped = _gate_prompt(out, write, yes=args.yes, preview=preview, question="Write it?", target=server)
+    if stopped is not None:
+        return stopped
+    await _drift_guard(out, write, build)()
+    made = await client.create_automod_rule(server_id, built, reason=write.reason)
+    out.say(f"Wrote the AutoMod rule {made['name']} ({made['id']}); Discord applies it from now on.")
+    evidence = await plans.read_back("the rule could not be read back", lambda: _automod_readback(client, server_id, int(made["id"])))
+    return Outcome(
+        status="ok", target=server, plan=write.plan,
+        result={"rule": settings.rule_row({**built, "id": made["id"]})}, evidence=evidence,
+    )
+
+
+async def _run_automod_edit(client, args, out, *, identity, resolver, server, rule) -> Outcome:
+    server_id = int(server.ids["guild"])
+    built = settings.build_rule(args, current=rule)
+
+    async def build():
+        live = settings.find_rule(await client.list_automod_rules(server_id), rule["id"], server=server)
+        return await _automod_plan(
+            client, out, identity=identity, resolver=resolver, server_id=server_id,
+            approval="prompt_y", op="edit_automod_rule", params={"rule": settings.rule_id(live), "to": built},
+        )
+
+    write = await build()
+    if write.refusal is not None:
+        out.say(plans.format_preflight(write.plan))
+        return Outcome(status="refused", target=server, plan=write.plan, error=write.refusal)
+
+    preview = settings.format_rule_changes(rule, built, reason=write.reason)
+    stopped = _gate_prompt(out, write, yes=args.yes, preview=preview, question="Apply it?", target=server)
+    if stopped is not None:
+        return stopped
+    await _drift_guard(out, write, build)()
+    await client.edit_automod_rule(server_id, int(rule["id"]), built, reason=write.reason)
+    out.say(f"Edited the AutoMod rule {rule['name']} ({rule['id']}).")
+    evidence = await plans.read_back("the rule could not be read back", lambda: _automod_readback(client, server_id, int(rule["id"])))
+    return Outcome(
+        status="ok", target=server, plan=write.plan,
+        result={"rule": settings.rule_row({**built, "id": rule["id"]})}, evidence=evidence,
+    )
+
+
+async def _run_automod_delete(client, args, out, *, identity, resolver, server, rule) -> Outcome:
+    server_id = int(server.ids["guild"])
+
+    async def build():
+        live = settings.find_rule(await client.list_automod_rules(server_id), rule["id"], server=server)
+        return await _automod_plan(
+            client, out, identity=identity, resolver=resolver, server_id=server_id,
+            approval="typed_name", op="delete_automod_rule", params={"rule": settings.rule_id(live)},
+        )
+
+    write = await build()
+    if write.refusal is not None:
+        out.say(plans.format_preflight(write.plan))
+        return Outcome(status="refused", target=server, plan=write.plan, error=write.refusal)
+
+    preview = settings.format_rule(rule, heading=f"Delete an AutoMod rule from {server.title} ({server_id})", reason=write.reason)
+    result = {"rule": settings.rule_row(rule), "dry_run": not args.execute}
+    if not args.execute:
+        out.say(plans.format_preflight(write.plan))
+        out.say(preview)
+        out.say("Dry-run. Add --execute to delete it; it will ask for the rule's exact name.")
+        return Outcome(status="ok", target=server, plan=None, result=result)
+
+    stopped = _gate_typed(
+        out, write, typed=str(rule["name"]), preview=preview, what="rule name", target=server,
+        warning=settings.AUTOMOD_WARNING,
+    )
+    if stopped is not None:
+        return stopped
+    await _drift_guard(out, write, build)()
+    await client.delete_automod_rule(server_id, int(rule["id"]), reason=write.reason)
+    out.say(f"Deleted the AutoMod rule {rule['name']} ({rule['id']}); Discord stops applying it now.")
+
+    async def readback():
+        if any(int(entry["id"]) == int(rule["id"]) for entry in await client.list_automod_rules(server_id)):
+            raise ClientError(f"AutoMod rule {rule['name']} ({rule['id']}) is still listed")
+        return f"AutoMod rule {rule['name']} ({rule['id']}) is no longer listed on server {server_id}"
+
+    evidence = await plans.read_back("the rule list could not be read back", readback)
+    return Outcome(status="ok", target=server, plan=write.plan, result={**result, "dry_run": False}, evidence=evidence)
+
+
+async def _run_channel(client, args, config, out) -> Outcome:
+    if args.channel_kind is None:
+        raise ValueError("channel needs: edit.")
+    identity = await _identity(out, client, config)
+    resolver = DiscordTargetResolver(client)
+    target = await resolver.resolve(args.channel)
+    if target.kind == "thread":
+        return _refused(
+            "PLATFORM_UNSUPPORTED",
+            f"{target.title} is a thread; a thread's settings are its parent channel's.",
+            hint=f"Use --channel {target.ids.get('parent', '<parent channel id>')}.",
+            platform="discord",
+        )
+    channel_id = int(target.ids[target.kind])
+    before = await client.channel_settings(channel_id)
+    fields = settings.channel_fields(args, before)
+    if not fields:
+        out.say(settings.format_channel(before, heading=f"{before['name']} ({channel_id}) is already what the flags ask for"))
+        return Outcome(status="empty", target=target, result={"channel": settings.channel_row(before), "changed": {}})
+
+    async def build():
+        live = await resolver.resolve(channel_id)
+        return await _plan(
+            client,
+            command=out.command,
+            identity=identity,
+            targets=(live,),
+            mutations=(Mutation(op="edit_channel", rid=live.rid, params=dict(fields)),),
+            approval="prompt_y",
+            rights=plans.REQUIRED_RIGHTS["channel-edit"],
+        )
+
+    write = await build()
+    if write.refusal is not None:
+        out.say(plans.format_preflight(write.plan))
+        return Outcome(status="refused", target=target, plan=write.plan, error=write.refusal)
+
+    preview = settings.format_channel_changes(before, fields, reason=write.reason)
+    stopped = _gate_prompt(out, write, yes=args.yes, preview=preview, question="Apply it?", target=target)
+    if stopped is not None:
+        return stopped
+    await _drift_guard(out, write, build)()
+    await client.edit_channel(channel_id, reason=write.reason, **fields)
+    out.say(f"Edited {before['type']} channel {before['name']} ({channel_id}).")
+
+    async def readback():
+        """The diff, read back from Discord rather than assumed from the write."""
+        after = await client.channel_settings(channel_id)
+        wrong = {key: after.get(key) for key, value in fields.items() if after.get(key) != value}
+        if wrong:
+            raise ClientError(f"the channel reads back with {wrong}")
+        return "; ".join(f"{key} {before.get(key)!r} -> {after.get(key)!r}" for key in fields)
+
+    evidence = await plans.read_back("the channel could not be read back", readback)
+    return Outcome(
+        status="ok", target=target, plan=write.plan,
+        result={"channel": settings.channel_row(before), "changed": dict(fields)}, evidence=evidence,
+    )
+
+
 # -- message operations ----------------------------------------------------
 #
 # One command group over messages a channel already holds. Every verb is a
@@ -4499,7 +5086,10 @@ READING = {
 # either. `role list` and `permission show` are the same shape and still pay
 # it; aligning them is a change to shipped behaviour and belongs to whoever
 # decides that, not to this card.
-READ_ONLY_IN_A_WRITE_GROUP = frozenset({"member list", "invite list", "audit-log list"})
+READ_ONLY_IN_A_WRITE_GROUP = frozenset({
+    "member list", "invite list", "audit-log list",
+    "webhook list", "emoji list", "sticker list", "automod list",
+})
 
 WRITING = {
     "send": _run_send,
@@ -4517,6 +5107,11 @@ WRITING = {
     "member": _run_member,
     "invite": _run_invite,
     "audit-log": _run_audit_log,
+    "webhook": partial(_run_integration, what="webhook"),
+    "emoji": partial(_run_integration, what="emoji"),
+    "sticker": partial(_run_integration, what="sticker"),
+    "automod": _run_automod,
+    "channel": _run_channel,
 }
 
 

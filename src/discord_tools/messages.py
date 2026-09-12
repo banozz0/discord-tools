@@ -131,18 +131,23 @@ def copy_text(message: MessageInfo, source: ChannelInfo) -> str:
 # -- bounds ---------------------------------------------------------------
 
 
-def bulk_limit(limit: int | None, *, i_know: bool) -> int:
+def bulk_limit(limit: int | None, *, i_know: bool, verb: str = "delete") -> int:
     """The bound a selection must fit, or a BULK_LIMIT refusal when the limit itself is out of bounds."""
     limit = BULK_DEFAULT_LIMIT if limit is None else limit
     if limit > BULK_HARD_LIMIT and not i_know:
         raise BulkLimitError(
             Error(
                 code="BULK_LIMIT",
-                message=f"--limit {limit} is above {BULK_HARD_LIMIT}, the most one run deletes without --i-know.",
-                hint=f"Pass --limit {limit} --i-know and type the count back at the prompt, or delete in smaller runs.",
+                message=f"--limit {limit} is above {BULK_HARD_LIMIT}, the most one run {VERBS[verb]} without --i-know.",
+                hint=f"Pass --limit {limit} --i-know and type the count back at the prompt, or {verb} in smaller runs.",
             )
         )
     return limit
+
+
+# The bulk verbs a selection can feed, and how each reads in a refusal.
+VERBS = {"delete": "deletes", "forward": "forwards", "copy": "copies"}
+DONE = {"delete": "deleted", "forward": "forwarded", "copy": "copied"}
 
 
 class BulkLimitError(ValueError):
@@ -153,19 +158,19 @@ class BulkLimitError(ValueError):
         self.error = error
 
 
-def check_selection(count: int, limit: int) -> None:
-    """Refuse a selection larger than the bound rather than deleting the first `limit` of it."""
+def check_selection(count: int, limit: int, *, verb: str = "delete") -> None:
+    """Refuse a selection larger than the bound rather than acting on the first `limit` of it."""
     if count <= limit:
         return
     matched = f"more than {BULK_HARD_LIMIT}" if count > BULK_HARD_LIMIT else str(count)
     raise BulkLimitError(
         Error(
             code="BULK_LIMIT",
-            message=f"{matched} message(s) matched and the limit is {limit}; nothing was deleted.",
+            message=f"{matched} message(s) matched and the limit is {limit}; nothing was {DONE[verb]}.",
             hint=(
                 "Narrow the selection, or pass --limit N --i-know with the exact count and type it back."
                 if count > BULK_HARD_LIMIT
-                else f"Narrow the selection, or pass --limit {count} to delete exactly that many."
+                else f"Narrow the selection, or pass --limit {count} to {verb} exactly that many."
             ),
         )
     )

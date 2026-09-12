@@ -960,6 +960,23 @@ async def _flow_bookmarks_list(*, session, runner, read, write) -> bool:
     return result is not EXIT
 
 
+def _pick_selection(*, read, write, trail) -> Any:
+    """The messages a bulk verb acts on: typed ids, or an archive query; the flags either way, or BACK."""
+    how = choose(
+        ["By message IDs", "From an archive search (this channel's rows)"],
+        title=crumb(trail, "Select"),
+        read=read,
+        write=write,
+    )
+    if how is BACK:
+        return BACK
+    if how == 0:
+        ids = _ask_message_ids(read=read, write=write)
+        return BACK if ids is BACK else {"ids": ids, "from_search": None}
+    query = ask_text("Search query", read=read, write=write)
+    return BACK if query is BACK else {"ids": None, "from_search": query}
+
+
 def _repost_flow(verb: str, *, title: str, go: str):
     """forward and copy: source messages, a destination picked from the same list, a y/N inside the command."""
 
@@ -969,8 +986,8 @@ def _repost_flow(verb: str, *, title: str, go: str):
             picked = await _pick_channel(session=session, read=read, write=write, trail=crumb(trail, "From"))
             if picked is BACK:
                 return True
-            ids = _ask_message_ids(read=read, write=write)
-            if ids is BACK:
+            selection = _pick_selection(read=read, write=write, trail=crumb(trail, picked.title))
+            if selection is BACK:
                 continue
             destination = await _pick_channel(session=session, read=read, write=write, trail=crumb(trail, "To"))
             if destination is BACK:
@@ -982,8 +999,8 @@ def _repost_flow(verb: str, *, title: str, go: str):
                     continue
                 mentions = answer or None
             args = _namespace(
-                command="message", message_kind=verb, channel=picked.id, ids=ids, to=destination.id, yes=False,
-                **({"mentions": mentions} if verb == "copy" else {}),
+                command="message", message_kind=verb, channel=picked.id, **selection, limit=None, i_know=False,
+                to=destination.id, yes=False, **({"mentions": mentions} if verb == "copy" else {}),
             )
             result = await _act(
                 args, session=session, runner=runner, read=read, write=write,
@@ -1008,28 +1025,10 @@ async def _flow_message_delete(*, session, runner, read, write) -> bool:
         if picked is BACK:
             return True
         where = crumb(trail, picked.title)
-        how = choose(
-            ["By message IDs", "From an archive search (this channel's rows)"],
-            title=crumb(where, "Select"),
-            read=read,
-            write=write,
-        )
-        if how is BACK:
+        selection = _pick_selection(read=read, write=write, trail=where)
+        if selection is BACK:
             continue
-        ids = None
-        query = None
-        if how == 0:
-            ids = _ask_message_ids(read=read, write=write)
-            if ids is BACK:
-                continue
-        else:
-            query = ask_text("Search query", read=read, write=write)
-            if query is BACK:
-                continue
-        dry_run = _namespace(
-            command="message", message_kind="delete", channel=picked.id, ids=ids, from_search=query,
-            limit=None, i_know=False, execute=False,
-        )
+        dry_run = _namespace(command="message", message_kind="delete", channel=picked.id, **selection, limit=None, i_know=False, execute=False)
         if await _call(dry_run, session=session, runner=runner, write=write) is None:
             return after_action(read=read, write=write)
         choice = choose(

@@ -496,7 +496,8 @@ options:
 ========================================================================
 discord-tools message forward --help
 ========================================================================
-usage: discord-tools message forward [-h] --channel CHANNEL [--ids MESSAGE_ID [MESSAGE_ID ...]]
+usage: discord-tools message forward [-h] --channel CHANNEL (--ids MESSAGE_ID [MESSAGE_ID ...] |
+                                     --from-search QUERY) [--limit LIMIT] [--i-know]
                                      --to CHANNEL_ID [--yes]
 
 options:
@@ -504,6 +505,9 @@ options:
   --channel CHANNEL     Channel or thread ID the message is in
   --ids MESSAGE_ID [MESSAGE_ID ...]
                         Message IDs, space-separated
+  --from-search QUERY   Select by a full-text query over this channel's rows in the local archive
+  --limit LIMIT         Most messages one run may forward (default 200; above 1000 needs --i-know)
+  --i-know              Allow --limit above 1000; the count is typed back at the prompt
   --to CHANNEL_ID       Destination channel or thread ID
   --yes                 Skip the preview and post; the destination must be in
                         DISCORD_SEND_ALLOWLIST
@@ -511,14 +515,18 @@ options:
 ========================================================================
 discord-tools message copy --help
 ========================================================================
-usage: discord-tools message copy [-h] --channel CHANNEL [--ids MESSAGE_ID [MESSAGE_ID ...]]
-                                  --to CHANNEL_ID [--mention {users,roles,everyone}] [--yes]
+usage: discord-tools message copy [-h] --channel CHANNEL (--ids MESSAGE_ID [MESSAGE_ID ...] |
+                                  --from-search QUERY) [--limit LIMIT] [--i-know] --to CHANNEL_ID
+                                  [--mention {users,roles,everyone}] [--yes]
 
 options:
   -h, --help            show this help message and exit
   --channel CHANNEL     Channel or thread ID the message is in
   --ids MESSAGE_ID [MESSAGE_ID ...]
                         Message IDs, space-separated
+  --from-search QUERY   Select by a full-text query over this channel's rows in the local archive
+  --limit LIMIT         Most messages one run may copy (default 200; above 1000 needs --i-know)
+  --i-know              Allow --limit above 1000; the count is typed back at the prompt
   --to CHANNEL_ID       Destination channel or thread ID
   --mention {users,roles,everyone}
                         Let the post ping this group; repeatable. Nobody is pinged without it, and

@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.17.0 — 2026-09-12
+
+### Forward and copy from a search
+
+- **`message forward` and `message copy` select the way `message delete`
+  does.** `--ids` as before, or `--from-search "<query>"` over the channel's
+  rows in the local archive, and the two are exclusive. A run never acts on
+  more than `--limit` (200): a bigger selection is refused with `BULK_LIMIT`
+  rather than trimmed to its first rows, and a limit above 1000 needs
+  `--i-know`. This is the selection Telegram's forward and copy already had;
+  the two tools now read the same.
+- **Every selected message is still fetched from Discord**, the archive's ids
+  included, so a copy re-posts the text and attachment links as they are now
+  and the preview shows what will actually land. The y/N and the allowlist
+  rule under `--yes` are unchanged.
+- **The menu's Forward and Copy rows** offer the same pick as Delete: by
+  message IDs, or from an archive search of the channel just chosen.
+- A `BULK_LIMIT` refusal now names the verb it refused: "nothing was
+  forwarded" rather than "nothing was deleted" on a forward.
+
 ## 0.16.0 — 2026-09-09
 
 The rest of a server's administration: the webhooks that post into it, the

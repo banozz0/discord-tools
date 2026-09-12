@@ -244,6 +244,7 @@ discord-tools message react --channel 1394... --id 1394829911100 --emoji 👍
 discord-tools message pin --channel 1394... --id 1394829911100
 discord-tools message forward --channel 1394... --ids 1394829911100 --to 1394827364598
 discord-tools message copy --channel 1394... --ids 1394829911100 --to 1394827364598
+discord-tools message forward --channel 1394... --from-search "release notes" --to 1394827364598
 discord-tools message poll --channel 1394... --question "Ship Friday?" --option yes --option no --hours 48
 discord-tools message typing --channel 1394... --seconds 10
 discord-tools message bookmark --channel 1394... --id 1394829911100 --label "follow up"
@@ -274,7 +275,11 @@ count typed back after `DELETE`.
 **`forward` is Discord's forward**, header and attachments included. **`copy`**
 re-posts the text with an attribution line — who, in which channel, when, and
 a link to the original — followed by links to the attachments; it never
-downloads them. `pin` and `unpin` need the *Pin Messages* right (Discord split
+downloads them. Both select the way `delete` does: `--ids`, or `--from-search`
+over the channel's archived rows, bounded by the same `--limit` (200) and
+`--i-know` above 1000, refused with `BULK_LIMIT` rather than trimmed. Every
+selected message is fetched from Discord before the preview, so what you see
+is what lands. `pin` and `unpin` need the *Pin Messages* right (Discord split
 it out of Manage Messages in 2025; the preflight names the one it checks).
 
 **`bookmark` is local.** Discord gives a bot no bookmark or draft API, so a

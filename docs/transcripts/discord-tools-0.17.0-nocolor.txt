@@ -1,4 +1,4 @@
-discord-tools 0.16.0 with NO_COLOR=1 — same code, same terminal, plain text (root screen, then exit)
+discord-tools 0.17.0 with NO_COLOR=1 — same code, same terminal, plain text (root screen, then exit)
 discord-tools
 --------------------------------------------
 1. Find IDs (servers, channels, threads)

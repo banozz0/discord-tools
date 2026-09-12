@@ -1,7 +1,7 @@
 ---
 name: discord-tools
 description: "Use when you need the real numeric ID of a Discord server, channel, or thread — 'what's the ID of that channel?', 'where do I send this?' — when the user wants a channel's messages searched or exported (JSON, CSV, JSONL, Markdown, HTML), when a history question can be answered from the local archive instead of a fresh fetch, when a message must be posted to a channel the user has allowlisted, when a message the user named should get a reply, a reaction, a pin, or be forwarded, copied or bookmarked, when a server's structure should be exported as a blueprint or compared with another server, when the user wants to see a server's roles or which role can do what in a channel, when a member should be kicked, banned, unbanned, timed out or renamed, when the user asks who is banned, what invites a server has, which webhooks post into it, what custom emoji or stickers it has, what Discord filters in it by itself, or who did what on it, when a channel's topic, slow mode, age gate, name or position should change, or when they want a message posted at a set time, an event put in a server's calendar, or a rule that alerts them when something happens in a server. Bot-token only; the bot sees only servers it was invited to."
-version: 1.11.0
+version: 1.12.0
 author: banozz0
 license: MIT
 platforms: [macos]
@@ -265,6 +265,7 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
 | "fix the typo in what the bot said" | `discord-tools message edit --channel <id> --id <message id> --text "..." --yes` — the bot's own only |
 | "react with 👍 / pin that" | `discord-tools message react --channel <id> --id <message id> --emoji 👍 --yes` / `message pin ... --yes` |
 | "forward / copy that to #other" (allowlisted) | `discord-tools message forward --channel <id> --ids <message id> --to <channel id> --yes` / `message copy ...` |
+| "forward everything about X to #other" (allowlisted) | `discord-tools message forward --channel <id> --from-search "X" --to <channel id> --yes` — the archive picks the ids; above 200 hits it refuses with `BULK_LIMIT`, and `--i-know` is the user's flag, not yours |
 | "run a poll there" (allowlisted) | `discord-tools message poll --channel <id> --question "..." --option a --option b --yes` |
 | "remember that message for me" | `discord-tools message bookmark --channel <id> --id <message id> --label "..." --yes` — local; `--list` reads them back |
 | "delete those messages" | hand them `discord-tools message delete --channel <id> --ids ... ` (the dry-run), then `--execute` — rule 13, they run it |
@@ -374,6 +375,12 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
   channel to add — relay it. `edit`, `react`, `unreact`, `pin`, `unpin`,
   `typing` and `bookmark` change something already there and `--yes` skips
   their prompt. `delete` has no `--yes` at all (rule 13).
+- **`forward` and `copy` take `delete`'s selection.** `--ids`, or
+  `--from-search "<query>"` over the channel's archived rows, never both. The
+  bound is the same: 200 a run, `BULK_LIMIT` above it rather than the first
+  200, and `--limit` past 1000 needs `--i-know`, which a user passes, not an
+  agent. Every selected message is fetched from Discord, so the preview under
+  `--yes` reflects the channel now, not the archive.
 - **`PLATFORM_UNSUPPORTED` on a message verb is the answer, not a bug.**
   `message read`, `unread` and `draft` cannot be done by a Discord bot; the
   error says why (read state belongs to a user account; drafts live in the

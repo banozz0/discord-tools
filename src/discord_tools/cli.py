@@ -627,8 +627,13 @@ def build_parser() -> argparse.ArgumentParser:
     def id_flag(parser):
         parser.add_argument("--id", dest="id", required=True, type=snowflake, metavar="MESSAGE_ID", help="Message ID")
 
-    def ids_flag(parser):
-        parser.add_argument("--ids", nargs="+", type=snowflake, metavar="MESSAGE_ID", help="Message IDs, space-separated")
+    def selection_flags(parser, verb):
+        """The bulk selection delete, forward and copy share: --ids or --from-search, bounded by --limit and --i-know."""
+        selection = parser.add_mutually_exclusive_group(required=True)
+        selection.add_argument("--ids", nargs="+", type=snowflake, metavar="MESSAGE_ID", help="Message IDs, space-separated")
+        selection.add_argument("--from-search", dest="from_search", metavar="QUERY", help="Select by a full-text query over this channel's rows in the local archive")
+        parser.add_argument("--limit", type=positive_int, help=f"Most messages one run may {verb} (default 200; above 1000 needs --i-know)")
+        parser.add_argument("--i-know", dest="i_know", action="store_true", help="Allow --limit above 1000; the count is typed back at the prompt")
 
     def yes_flag(parser, help):
         parser.add_argument("--yes", action="store_true", help=help)
@@ -653,22 +658,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     delete = message_kinds.add_parser("delete", help="Delete chosen messages in one channel (dry-run by default; bounded)")
     channel_flag(delete)
-    selection = delete.add_mutually_exclusive_group(required=True)
-    ids_flag(selection)
-    selection.add_argument("--from-search", dest="from_search", metavar="QUERY", help="Select by a full-text query over this channel's rows in the local archive")
-    delete.add_argument("--limit", type=positive_int, help="Most messages one run may delete (default 200; above 1000 needs --i-know)")
-    delete.add_argument("--i-know", dest="i_know", action="store_true", help="Allow --limit above 1000; the count is typed back at the prompt")
+    selection_flags(delete, "delete")
     delete.add_argument("--execute", action="store_true", help="Actually delete after typing DELETE")
 
     forward = message_kinds.add_parser("forward", help="Forward messages to another channel with Discord's own forward header")
     channel_flag(forward)
-    ids_flag(forward)
+    selection_flags(forward, "forward")
     forward.add_argument("--to", required=True, type=snowflake, metavar="CHANNEL_ID", help="Destination channel or thread ID")
     yes_flag(forward, POSTS)
 
     copy = message_kinds.add_parser("copy", help="Re-post messages' text elsewhere with an attribution line and links to their attachments")
     channel_flag(copy)
-    ids_flag(copy)
+    selection_flags(copy, "copy")
     copy.add_argument("--to", required=True, type=snowflake, metavar="CHANNEL_ID", help="Destination channel or thread ID")
     _mention_flag(copy)
     yes_flag(copy, POSTS)
@@ -3926,17 +3927,23 @@ def _hit_as_message(hit, channel_id: int) -> MessageInfo:
     )
 
 
-async def _run_message_delete(client, args, config, out) -> Outcome:
-    limit = message_ops.bulk_limit(args.limit, i_know=args.i_know)
-    resolver = DiscordTargetResolver(client)
-    target = await resolver.resolve(args.channel)
-    identity = await _identity(out, client, config)
+@dataclass(frozen=True)
+class _Selection:
+    """What a bulk message verb acts on, bounded before anything is fetched."""
 
+    ids: list[int]
+    hits: list  # the archive rows behind `ids`, empty when they came from --ids
+    source: str
+
+
+def _select_messages(args, target, *, verb: str) -> _Selection | Error:
+    """--ids as typed, or --from-search answered by the archive; either way inside the bound."""
+    limit = message_ops.bulk_limit(args.limit, i_know=args.i_know, verb=verb)
     if args.from_search:
         if not archive_store.archive_exists():
-            return _refused(
-                "ARCHIVE_UNAVAILABLE",
-                "--from-search selects from the local archive, and there is none yet.",
+            return Error(
+                code="ARCHIVE_UNAVAILABLE",
+                message="--from-search selects from the local archive, and there is none yet.",
                 hint="Run `discord-tools archive sync` first, or pass --ids.",
             )
         with archive_store.open_archive() as archive:
@@ -3944,18 +3951,29 @@ async def _run_message_delete(client, args, config, out) -> Outcome:
             # refused by its count, never cut to the first `limit` of what
             # matched, and the refusal can say how many there were.
             hits = archive.search(args.from_search, scope=[target.rid], limit=message_ops.BULK_PROBE)
-        message_ops.check_selection(len(hits), limit)
-        ids = [int(hit.message_id) for hit in hits]
-        listed = [_hit_as_message(hit, args.channel) for hit in hits]
-        source = f"archive search {args.from_search!r}"
+        message_ops.check_selection(len(hits), limit, verb=verb)
+        return _Selection([int(hit.message_id) for hit in hits], hits, f"archive search {args.from_search!r}")
+    ids = list(dict.fromkeys(args.ids))
+    message_ops.check_selection(len(ids), limit, verb=verb)
+    return _Selection(ids, [], "--ids")
+
+
+async def _run_message_delete(client, args, config, out) -> Outcome:
+    resolver = DiscordTargetResolver(client)
+    target = await resolver.resolve(args.channel)
+    identity = await _identity(out, client, config)
+
+    selected = _select_messages(args, target, verb="delete")
+    if isinstance(selected, Error):
+        return Outcome(status="refused", target=target, error=selected)
+    ids, source = selected.ids, selected.source
+    if selected.hits:
+        listed = [_hit_as_message(hit, args.channel) for hit in selected.hits]
     else:
-        ids = list(dict.fromkeys(args.ids))
-        message_ops.check_selection(len(ids), limit)
         # The first rows of the preview are fetched so the person sees words,
         # not numbers; the rest are listed by id. A wrong id past the preview
         # fails its own delete and is reported, never silently skipped.
         listed = [await client.get_message(args.channel, message_id) for message_id in ids[: message_ops.PREVIEW_ROWS]]
-        source = "--ids"
     bulk, single = split_bulk_window(ids)
     gate_kind = "typed_delete"
 
@@ -4042,14 +4060,19 @@ async def _run_message_copy(client, args, config, out) -> Outcome:
 
 async def _run_message_repost(client, args, config, out, *, copy: bool) -> Outcome:
     """forward and copy: the same shape, one uses Discord's forward and one re-posts text."""
-    if not args.ids:
+    if args.ids is not None and not args.ids:
         raise ValueError("Pass --ids with at least one message ID.")
-    ids = list(dict.fromkeys(args.ids))
     mentions = _mentions(args) if copy else ()
     resolver = DiscordTargetResolver(client)
     source = await resolver.resolve(args.channel)
     destination = await resolver.resolve(args.to)
     identity = await _identity(out, client, config)
+    selected = _select_messages(args, source, verb="copy" if copy else "forward")
+    if isinstance(selected, Error):
+        return Outcome(status="refused", target=source, error=selected)
+    ids = selected.ids
+    # Every selected message is fetched, from the archive's ids too: a copy
+    # re-posts the text and attachment links as they are now, not as archived.
     messages = [await client.get_message(args.channel, message_id) for message_id in ids]
     source_channel = await client.get_channel(args.channel)
     bodies = [message_ops.copy_text(message, source_channel) for message in messages] if copy else []

@@ -213,8 +213,8 @@ WRITE_ROWS = {
     "message reply": [("3", "2"), "1", "1", "5", "2", "hi", ".", "4"],
     "message edit": [("3", "3"), "1", "1", "6", "2", "new", ".", "4"],
     "message delete": [("3", "4"), "1", "1", "5 6"],
-    "message forward": [("3", "5"), "1", "5", "1"],
-    "message copy": [("3", "6"), "1", "5", "1", "1"],
+    "message forward": [("3", "5"), "1", "1", "5", "1"],
+    "message copy": [("3", "6"), "1", "1", "5", "1", "1"],
     "message react": [("3", "7"), "1", "1", "5", "2", "👍", "4"],
     "message unreact": [("3", "7"), "1", "1", "5", "2", "👍", "3", "2", "4"],
     "message pin": [("3", "8"), "1", "1", "5", "3"],
@@ -256,7 +256,7 @@ def test_the_menu_reply_and_edit_build_the_flags_arguments():
 def test_the_menu_forward_and_copy_carry_source_ids_and_destination():
     _printed, reached = walk(WRITE_ROWS["message forward"])
     assert (reached[0].channel, reached[0].ids, reached[0].to) == (701, [5], 701)
-    _printed, reached = walk([("3", "6"), "1", "5 6", "2", "3"])
+    _printed, reached = walk([("3", "6"), "1", "1", "5 6", "2", "3"])
     assert (reached[0].ids, reached[0].to, reached[0].mentions) == ([5, 6], 702, ["roles"])
 
 
@@ -269,3 +269,41 @@ def test_the_menu_poll_carries_question_options_hours_and_multiple():
 def test_the_menu_lists_bookmarks_offline():
     _printed, reached = walk([("3", "12")])
     assert reached[0].message_kind == "bookmark" and reached[0].list_bookmarks is True
+
+
+@pytest.mark.skipif(not fts5_available(), reason="this SQLite has no FTS5; the archive cannot open")
+@pytest.mark.parametrize("verb", ["forward", "copy"])
+def test_forward_and_copy_from_search_resolve_ids_from_the_archive(home_is_a_tmp_dir, verb):
+    client = a_client(history={701: [history_row(5, "hello world"), history_row(6, "spam one"), history_row(8, "spam two")]})
+    code, body, _stderr, _client = go(["--json", "archive", "sync", "--scope", "701"], client)
+    assert (code, body["status"]) == (0, "ok"), body
+    client.messages[(701, 8)] = MessageInfo(id=8, channel_id=701, author_id=7, author_name="sven", text="spam two")
+
+    code, body, _stderr, client = go(["--json", "message", verb, "--channel", "701", "--from-search", "spam", "--to", "702", "--yes"], client)
+    assert (code, body["status"]) == (0, "ok"), body
+    assert sorted(body["result"]["message_ids"]) == [6, 8]
+    if verb == "forward":
+        assert sorted(row["message_id"] for row in client.forwarded) == [6, 8]
+    else:
+        assert client.forwarded == [] and len(client.sent) == 2
+
+
+@pytest.mark.skipif(not fts5_available(), reason="this SQLite has no FTS5; the archive cannot open")
+@pytest.mark.parametrize("verb", ["forward", "copy"])
+def test_forward_and_copy_from_search_with_1001_hits_exit_2_with_bulk_limit(home_is_a_tmp_dir, verb):
+    client = a_client(history={701: [history_row(100_000 + i, f"spam number {i}") for i in range(1001, 0, -1)]})
+    code, body, _stderr, _client = go(["--json", "archive", "sync", "--scope", "701"], client)
+    assert (code, body["status"]) == (0, "ok"), body
+
+    code, body, _stderr, client = go(["--json", "message", verb, "--channel", "701", "--from-search", "spam", "--to", "702", "--yes"], client)
+    assert (code, body["status"], body["error"]["code"]) == (2, "refused", "BULK_LIMIT")
+    assert "more than 1000" in body["error"]["message"]
+    assert client.forwarded == [] and client.sent == []
+
+
+def test_the_menu_forward_and_copy_can_select_from_an_archive_search():
+    _printed, reached = walk([("3", "5"), "1", "2", "spam", "2"])
+    assert (reached[0].message_kind, reached[0].from_search, reached[0].ids, reached[0].to) == ("forward", "spam", None, 702)
+    assert (reached[0].limit, reached[0].i_know) == (None, False)
+    _printed, reached = walk([("3", "6"), "1", "2", "spam", "2", "1"])
+    assert (reached[0].message_kind, reached[0].from_search, reached[0].ids) == ("copy", "spam", None)

@@ -190,7 +190,8 @@ The terms this codebase uses, and the boundaries they imply.
   `send`'s: `yes_allowlist`, checked against the destination. The rest —
   `edit`, `react`, `pin`, `typing`, `bookmark` — change something already
   there, and `--yes` skips their prompt the way `create --yes` does.
-- **Selection** — what `message delete` acts on: `--ids`, or `--from-search`
+- **Selection** — what `message delete`, `forward` and `copy` act on
+  (`cli._select_messages`): `--ids`, or `--from-search`
   over the channel's rows in the archive. The bound (`messages.bulk_limit`,
   `check_selection`): `--limit` defaults to 200, above 1000 needs `--i-know`,
   and a selection over the limit is refused with `BULK_LIMIT`, never cut to

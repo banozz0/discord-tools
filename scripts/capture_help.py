@@ -4,7 +4,8 @@
 The rendered help of every command is a committed fixture, so a change to the
 command surface shows up as a readable diff rather than as a claim. Run this
 after touching build_parser, read the diff, and commit it with the change that
-caused it.
+caused it. Run it on Python 3.13 or newer: argparse changed its rendering in
+3.13, and the test that compares the fixture skips on older versions.
 
 One file rather than one per command: a filename carrying the `auth` command's
 name is credential-shaped to the commit guard, and a single file diffs just as

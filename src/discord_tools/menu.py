@@ -2417,6 +2417,16 @@ async def _flow_automod_edit(*, session, runner, read, write) -> bool:
 _CHANNEL_FIELDS = ("Name", "Topic", "Age gate on/off", "Slow mode", "Position in its list")
 
 
+async def _flow_channel_show(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Channel settings: show")
+    picked = await _pick_channel(session=session, read=read, write=write, messageable_only=False, trail=trail)
+    if picked is BACK:
+        return True
+    args = _namespace(command="channel", channel_kind="show", channel=picked.id)
+    result = await _act(args, session=session, runner=runner, read=read, write=write, trail=crumb(trail, picked.title), rows=(RUN_AGAIN,))
+    return result is not EXIT
+
+
 async def _flow_channel_edit(*, session, runner, read, write) -> bool:
     trail = crumb(MAIN, "Channel settings")
     while True:
@@ -4035,6 +4045,8 @@ async def run_menu(*, read=None, write=None, session=None, runner=None, profile:
                             ),
                         ),
                     ),
+                    # The two settings rows sit together: see it, then change it.
+                    ("Channel settings: show (type, category, topic, slow mode, counts)", _flow_channel_show),
                     ("Channel settings: name, topic, age gate, slow mode, position", _flow_channel_edit),
                 ),
             ),

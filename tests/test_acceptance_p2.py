@@ -207,6 +207,7 @@ def test_no_row_under_manage_is_a_placeholder_any_more():
         "Webhooks (list, create, delete)",
         "Emoji and stickers (list, add, remove)",
         "AutoMod (what Discord filters by itself)",
+        "Channel settings: show (type, category, topic, slow mode, counts)",
         "Channel settings: name, topic, age gate, slow mode, position",
     ]
 

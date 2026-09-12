@@ -613,6 +613,8 @@ def build_parser() -> argparse.ArgumentParser:
         "channel", help="A channel's own settings: name, topic, age gate, slow mode, position"
     )
     channel_kinds = channel_parser.add_subparsers(dest="channel_kind")
+    channel_show = channel_kinds.add_parser("show", help="Print a channel's or category's settings: type, category, name, topic, age gate, slow mode, position, counts")
+    channel_show.add_argument("--channel", required=True, type=snowflake, help="Channel or category ID")
     channel_edit = channel_kinds.add_parser("edit", help="Change a channel's or category's settings (preview + y/N), then read the diff back")
     channel_edit.add_argument("--channel", required=True, type=snowflake, help="Channel or category ID")
     channel_edit.add_argument("--name", help="New name")
@@ -3762,7 +3764,7 @@ async def _run_automod_delete(client, args, out, *, identity, resolver, server, 
 
 async def _run_channel(client, args, config, out) -> Outcome:
     if args.channel_kind is None:
-        raise ValueError("channel needs: edit.")
+        raise ValueError("channel needs one of: show, edit.")
     identity = await _identity(out, client, config)
     resolver = DiscordTargetResolver(client)
     target = await resolver.resolve(args.channel)
@@ -3775,6 +3777,11 @@ async def _run_channel(client, args, config, out) -> Outcome:
         )
     channel_id = int(target.ids[target.kind])
     before = await client.channel_settings(channel_id)
+    if args.channel_kind == "show":
+        # The same read `edit` diffs against and the same row it reads back,
+        # so a show before an edit and the readback after it print one shape.
+        out.say(settings.format_channel(before, heading=f"{before['type']} channel {before['name']} ({channel_id})"))
+        return Outcome(status="ok", target=target, result={"channel": settings.channel_row(before)})
     fields = settings.channel_fields(args, before)
     if not fields:
         out.say(settings.format_channel(before, heading=f"{before['name']} ({channel_id}) is already what the flags ask for"))

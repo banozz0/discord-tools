@@ -1,7 +1,7 @@
 ---
 name: discord-tools
-description: "Use when you need the real numeric ID of a Discord server, channel, or thread — 'what's the ID of that channel?', 'where do I send this?' — when the user wants a channel's messages searched or exported (JSON, CSV, JSONL, Markdown, HTML), when a history question can be answered from the local archive instead of a fresh fetch, when a message must be posted to a channel the user has allowlisted, when a message the user named should get a reply, a reaction, a pin, or be forwarded, copied or bookmarked, when a server's structure should be exported as a blueprint or compared with another server, when the user wants to see a server's roles or which role can do what in a channel, when a member should be kicked, banned, unbanned, timed out, let out of a timeout early or renamed, when the user asks who is banned, what invites a server has, which webhooks post into it, what custom emoji or stickers it has, what Discord filters in it by itself, or who did what on it, when a channel's topic, slow mode, age gate, name or position should change, or when they want a message posted at a set time, an event put in a server's calendar, or a rule that alerts them when something happens in a server. Bot-token only; the bot sees only servers it was invited to."
-version: 1.13.0
+description: "Use when you need the real numeric ID of a Discord server, channel, or thread — 'what's the ID of that channel?', 'where do I send this?' — when the user wants a channel's messages searched or exported (JSON, CSV, JSONL, Markdown, HTML), when a history question can be answered from the local archive instead of a fresh fetch, when a message must be posted to a channel the user has allowlisted, when a message the user named should get a reply, a reaction, a pin, or be forwarded, copied or bookmarked, when a server's structure should be exported as a blueprint or compared with another server, when the user wants to see a server's roles or which role can do what in a channel, when a member should be kicked, banned, unbanned, timed out, let out of a timeout early or renamed, when the user asks who is banned, what invites a server has, which webhooks post into it, what custom emoji or stickers it has, what Discord filters in it by itself, or who did what on it, when the user asks what a channel's settings are or when its topic, slow mode, age gate, name or position should change, or when they want a message posted at a set time, an event put in a server's calendar, or a rule that alerts them when something happens in a server. Bot-token only; the bot sees only servers it was invited to."
+version: 1.14.0
 author: banozz0
 license: MIT
 platforms: [macos]
@@ -300,6 +300,7 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
 | "block links / that word automatically" | hand them `discord-tools automod create --server <id> --name "..." --regex 'https?://' --block` — rule 22, they answer its y/N |
 | "turn that rule off / change it" | hand them `discord-tools automod edit --server <id> --rule <id or name> --no-enabled` — rule 22; the trigger family cannot change |
 | "delete that AutoMod rule" | hand them `discord-tools automod delete --server <id> --rule <id or name>` (the dry-run) — rule 22, the execute is theirs |
+| "what are that channel's settings / which category is it under?" | `discord-tools channel show --channel <id>` — a read, no permission beyond seeing the channel |
 | "change that channel's topic / slow mode / name" | hand them `discord-tools channel edit --channel <id> --topic "..." --slowmode 30` — rule 22, they answer its y/N |
 | "what's on this server's calendar?" | `discord-tools event list --server <id>` — every event says **server-held** |
 | "put a standup in the server's events" | hand them `discord-tools event create --server <id> --name "..." --start 2026-10-01T09:00 --place stage_instance --channel <id>` — rule 18, they answer its y/N |
@@ -448,7 +449,10 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
   than retrying against the server.
 - **`channel edit` reports three things under `--json`:** `result.channel` is
   the channel as it now is, `result.before` is what it was, `result.changed` is
-  what moved.
+  what moved. `channel show` reports `result.channel` alone, in that same
+  shape, so run it first when the user wants a before-and-after they can keep:
+  type, `parent_id`, the editable fields, and `counts` (overwrites by role and
+  member, forum tags — never messages or members, which one fetch cannot see).
 - **Adding an expression and removing one need different rights.** *Create
   Expressions* to add an emoji or a sticker, *Manage Expressions* to remove one
   — Discord's current names for what its settings screen still calls Manage

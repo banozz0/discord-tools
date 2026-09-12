@@ -211,6 +211,24 @@ def test_a_channel_screen_shows_only_the_settings_its_type_has():
     assert "Topic" not in settings.format_channel(channel(type="category"), heading="Now")
 
 
+def test_a_channel_screen_names_its_category_and_counts_what_one_fetch_can_count():
+    overwrites = [{"target_id": 1, "target_type": "role"}, {"target_id": 2, "target_type": "role"}, {"target_id": 3, "target_type": "member"}]
+    text = settings.format_channel(channel(parent_id=100, overwrites=overwrites), heading="Now")
+    assert "Category     100" in text and "Overwrites   3 (2 roles, 1 members)" in text
+    assert "Tags" not in text, "a text channel has no tags"
+    forum = settings.format_channel(channel(type="forum", tags=[{"name": "bug"}, {"name": "idea"}]), heading="Now")
+    assert "Tags         2" in forum
+    voice = settings.format_channel(channel(type="voice", bitrate=64000, user_limit=0), heading="Now")
+    assert "Bitrate      64000" in voice and "User limit   none" in voice and "Topic" not in voice
+    assert "Category     -" in settings.format_channel(channel(type="category"), heading="Now"), "a category is under nothing"
+
+
+def test_a_channel_row_carries_its_parent_and_the_counts_beside_the_editable_fields():
+    row = settings.channel_row(channel(parent_id=100, overwrites=[{"target_id": 1, "target_type": "member"}]))
+    assert row["parent_id"] == 100 and row["counts"] == {"overwrites": 1, "role_overwrites": 0, "member_overwrites": 1, "tags": 0}
+    assert set(row) == {"id", "type", "parent_id", "name", "topic", "nsfw", "slowmode", "position", "counts"}
+
+
 def test_a_channel_diff_names_the_reason_that_will_be_sent():
     text = settings.format_channel_changes(channel(), {"topic": "what landed"}, reason="cli-tools channel edit plan abcd1234")
     assert "topic      what shipped -> what landed" in text and "plan abcd1234" in text

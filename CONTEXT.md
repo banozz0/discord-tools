@@ -439,8 +439,10 @@ Architecture decisions with more context than fits here go to `docs/adr/`.
   closed, non-destructive list `watch` keeps; none of the three removes
   anything.
 - **Channel settings** — what one channel or category *is*: name, topic, age
-  gate, slow mode, position. Read one at a time by `channel_settings` rather
-  than through the whole server's structure, and edited by `channel edit`,
+  gate, slow mode, position, plus its type, its parent category and the counts
+  one fetch gives (overwrites, forum tags). Read one at a time by
+  `channel_settings` rather than through the whole server's structure, shown
+  by `channel show` in the shape `channel edit` reads back, and edited by `channel edit`,
   whose evidence is the **diff read back from Discord** rather than the diff it
   asked for. A field the channel's type does not carry is refused by name
   before anything is sent.

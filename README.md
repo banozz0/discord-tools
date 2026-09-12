@@ -56,7 +56,7 @@ scripts pass a subcommand.
 | `emoji` | `list --server <id>` shows every custom emoji with the text you paste to use it; `add --name --file` uploads one (PNG/JPG/GIF/WebP, 256 KiB) behind a preview + y/N; `remove` dry-runs, and for real takes `--execute` **and** the emoji's exact name, no `--yes`. Adding needs **Create Expressions**, removing **Manage Expressions**; listing needs nothing |
 | `sticker` | `list --server <id>`; `add --name --file --emoji` uploads one (PNG/APNG/Lottie JSON/GIF, 512 KiB, with the emoji Discord suggests it by) behind a preview + y/N; `remove` dry-runs, then `--execute` **and** the sticker's exact name. Same rights as `emoji` |
 | `automod` | The rules Discord applies by itself: `list --server <id>`; `create` writes one — the flags name the trigger (`--keyword`, `--regex`, `--preset`, `--mention-limit`, `--spam`) and what it then does (`--block`, `--alert`, `--timeout`), plus `--allow`, `--exempt-role`, `--exempt-channel` and `--enabled/--no-enabled`; `edit` changes one inside the trigger family it already has; `delete` dry-runs, then `--execute` **and** the rule's exact name. Needs **Manage Server**. See [AutoMod and channel settings](#automod-and-channel-settings) |
-| `channel` | `edit --channel <id>` changes a channel's or category's `--name`, `--topic`, `--nsfw/--no-nsfw`, `--slowmode` and `--position` behind a preview + y/N, then reads the diff back from Discord. Needs **Manage Channels**. A field the channel's type does not have is refused by name |
+| `channel` | `show --channel <id>` prints a channel's or category's settings — type, parent category, name, topic, age gate, slow mode, position, a voice channel's bitrate and user limit, and the counts one fetch gives (overwrites, forum tags) — with no permission beyond seeing it. `edit --channel <id>` changes `--name`, `--topic`, `--nsfw/--no-nsfw`, `--slowmode` and `--position` behind a preview + y/N, then reads the diff back from Discord. Needs **Manage Channels**. A field the channel's type does not have is refused by name |
 | `watch` | Rules and the runner: `rules list/add/edit/remove/enable/disable/test` write and check the rules; `run` watches the server live over a gateway connection and acts on what happens; `status`, `stop` and `reload` drive a running one. macOS and Linux (the lock is a POSIX file lock). See [Watching a server](#watching-a-server) |
 | `schedule` | Runner-held scheduled posts: `post --channel --text --at | --every` stores one, `list` shows them, `cancel --id` removes one. They fire **only while `watch run` is up on this machine**, and every listing says so. See [The two guarantees](#the-two-guarantees) |
 | `event` | Server-held scheduled events: `list`, `create`, `edit` and `delete` for a server's Events tab. Discord holds these, so they happen with this machine off. `delete` dry-runs, then takes `--execute` **and** the event's exact name. See [The two guarantees](#the-two-guarantees) |
@@ -585,6 +585,7 @@ discord-tools automod create --server 1394... --name "manners" --preset profanit
 discord-tools automod edit --server 1394... --rule "no links" --no-enabled
 discord-tools automod delete --server 1394... --rule "no links" --execute      # asks for its exact name
 
+discord-tools channel show --channel 1394...
 discord-tools channel edit --channel 1394... --topic "what shipped" --slowmode 30
 discord-tools channel edit --channel 1394... --name releases --no-nsfw
 ```
@@ -607,6 +608,14 @@ keeps: a rule this tool writes cannot remove anything.
 exact name, with no `--yes` — because Discord stops applying it the moment it
 goes and nothing announces that the server has quietly stopped filtering what
 that rule filtered. Creating and editing preview and ask `y/N`.
+
+**`channel show` is the look before the change.** It prints what the channel
+is — type, the category it sits under, the editable fields the type has, a
+voice channel's bitrate and user limit — and what one fetch can count: the
+permission overwrites on it, roles and members apart, and a forum's tags.
+Messages, threads and members are not on the channel Discord hands back, so
+they are not counted here. One read, no write, no audit line; under `--json`,
+`result.channel` is the same shape `channel edit` reads back.
 
 **`channel edit` reads a diff back.** Only the fields you give are sent, a
 field already at the asked value is not a change at all (the command says so

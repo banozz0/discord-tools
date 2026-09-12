@@ -365,21 +365,59 @@ def format_rule_changes(before: Mapping[str, Any], after: Mapping[str, Any], *, 
     return "\n".join(lines)
 
 
+def channel_counts(channel: Mapping[str, Any]) -> dict[str, int]:
+    """What one fetch can count: the overwrites on the channel (roles and
+    members apart) and, on a forum or media channel, its tags. Messages,
+    threads and members are not on a channel Discord hands back."""
+    overwrites = list(channel.get("overwrites") or ())
+    return {
+        "overwrites": len(overwrites),
+        "role_overwrites": sum(1 for entry in overwrites if entry.get("target_type") == "role"),
+        "member_overwrites": sum(1 for entry in overwrites if entry.get("target_type") == "member"),
+        "tags": len(channel.get("tags") or ()),
+    }
+
+
 def channel_row(channel: Mapping[str, Any], fields: Iterable[str] = ()) -> dict[str, Any]:
+    """The shape `channel show` prints and `channel edit` reads back: the
+    editable fields, plus what the channel is (type, parent) and the counts."""
     keys = tuple(fields) or ("name", "topic", "nsfw", "slowmode", "position")
-    return {"id": int(channel["id"]), "type": channel["type"], **{key: channel.get(key) for key in keys}}
+    parent = channel.get("parent_id")
+    return {
+        "id": int(channel["id"]),
+        "type": channel["type"],
+        "parent_id": int(parent) if parent is not None else None,
+        **{key: channel.get(key) for key in keys},
+        "counts": channel_counts(channel),
+    }
 
 
 def format_channel(channel: Mapping[str, Any], *, heading: str) -> str:
-    lines = [heading, RULE, f"Name         {channel['name']}", f"ID           {channel['id']}", f"Type         {channel['type']}"]
+    kind = str(channel["type"])
+    parent = channel.get("parent_id")
+    lines = [
+        heading, RULE,
+        f"Name         {channel['name']}",
+        f"ID           {channel['id']}",
+        f"Type         {kind}",
+        f"Category     {parent if parent is not None and kind != 'category' else '-'}",
+    ]
     for key, label in (("topic", "Topic"), ("nsfw", "Age-gated"), ("slowmode", "Slow mode"), ("position", "Position")):
-        if key in CHANNEL_FIELDS.get(str(channel["type"]), ()):
+        if key in CHANNEL_FIELDS.get(kind, ()):
             value = channel.get(key)
             if key == "nsfw":
                 value = "yes" if value else "no"
             elif key == "slowmode":
                 value = f"{value or 0}s" if value else "off"
             lines.append(f"{label:<12} {value if value not in (None, '') else '-'}")
+    if kind in ("voice", "stage_voice"):
+        limit = channel.get("user_limit")
+        lines.append(f"Bitrate      {channel.get('bitrate') or '-'}")
+        lines.append(f"User limit   {limit if limit else 'none'}")
+    counts = channel_counts(channel)
+    lines.append(f"Overwrites   {counts['overwrites']} ({counts['role_overwrites']} roles, {counts['member_overwrites']} members)")
+    if kind in ("forum", "media"):
+        lines.append(f"Tags         {counts['tags']}")
     lines.append(RULE)
     return "\n".join(lines)
 

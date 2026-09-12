@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.19.0 — 2026-09-12
+
+### See a channel before you change it
+
+- **`channel show --channel <id>`** prints one channel's or category's
+  settings — the counterpart of Telegram's `settings show`: its type, the
+  category it sits under, then the fields `channel edit` can change (name,
+  topic, age gate, slow mode, position, each only where the type has it),
+  a voice channel's bitrate and user limit, and what one fetch can count:
+  permission overwrites (roles and members apart) and a forum's tags.
+  One read, nothing written, nothing audited. Under `--json`,
+  `result.channel` is the same shape `channel edit` reads back, so a show
+  before an edit and the readback after it compare field for field; a
+  thread is refused by naming its parent, as `edit` does.
+- **The menu's Manage group** gains "Channel settings: show" as row 9, just
+  above the edit row, which moves from 9 to 10; the eight rows above stay
+  where they were.
+
 ## 0.18.0 — 2026-09-12
 
 ### Lift a timeout early

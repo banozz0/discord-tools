@@ -50,7 +50,7 @@ COMMANDS = [
     ("emoji",), ("emoji", "list"), ("emoji", "add"), ("emoji", "remove"),
     ("sticker",), ("sticker", "list"), ("sticker", "add"), ("sticker", "remove"),
     ("automod",), ("automod", "list"), ("automod", "create"), ("automod", "edit"), ("automod", "delete"),
-    ("channel",), ("channel", "edit"),
+    ("channel",), ("channel", "show"), ("channel", "edit"),
 ]
 
 BANNER = "=" * 72

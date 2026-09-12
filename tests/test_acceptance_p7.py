@@ -340,7 +340,7 @@ def walk(answers):
     return printed, reached
 
 
-# Manage holds four subgroups and two plain rows; a family's number is learned
+# Manage holds four subgroups and three plain rows; a family's number is learned
 # once and the pack that fills row 6 adds a row rather than shifting these.
 MANAGE_ROWS = {
     "role list": [("6", "1", "1")],
@@ -375,7 +375,8 @@ MANAGE_ROWS = {
     "automod create": [("6", "8", "2"), "no links", "2", "https?://", "1", "2", "1", "1", "1", "1", "1"],
     "automod edit": [("6", "8", "3"), "1", "1", "renamed"],
     "automod delete": [("6", "8", "4"), "1"],
-    "channel edit": [("6", "9"), "1", "2", "1", "what landed"],
+    "channel show": [("6", "9"), "1"],
+    "channel edit": [("6", "10"), "1", "2", "1", "what landed"],
 }
 
 
@@ -535,6 +536,7 @@ def test_p7_no_integration_or_policy_read_and_no_dry_run_is_audited(home_is_a_tm
         integration_cli.go(["--json", what, "list", "--server", "10"], integration_cli.agency())
     integration_cli.go(["--json", "webhook", "delete", "--server", "10", "--webhook", "700"], integration_cli.agency())
     settings_cli.go(["--json", "automod", "list", "--server", "10"], settings_cli.agency())
+    settings_cli.go(["--json", "channel", "show", "--channel", "101"], settings_cli.agency())
     settings_cli.go(["--json", "automod", "delete", "--server", "10", "--rule", "500"], settings_cli.agency())
     assert audit_lines(home_is_a_tmp_dir) == []
 

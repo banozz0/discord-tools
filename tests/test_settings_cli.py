@@ -214,6 +214,42 @@ def test_no_read_and_no_dry_run_is_audited(home_is_a_tmp_dir):
 # -- a channel's settings ------------------------------------------------------------
 
 
+def test_a_channel_show_is_one_fetch_no_write_and_the_shape_edit_reads_back():
+    client = agency()
+    fetched = []
+    real = client.channel_settings
+
+    async def counted(channel_id):
+        fetched.append(channel_id)
+        return await real(channel_id)
+
+    client.channel_settings = counted
+    code, body, stderr = go(["--json", "channel", "show", "--channel", "101"], client)
+    assert (code, body["status"]) == (0, "ok")
+    assert fetched == [101] and client.structure_writes == [] and client.reasons == []
+    assert body["result"]["channel"] == {
+        "id": 101, "type": "text", "parent_id": 100, "name": "deploys", "topic": "what shipped", "nsfw": False,
+        "slowmode": 0, "position": 0, "counts": {"overwrites": 0, "role_overwrites": 0, "member_overwrites": 0, "tags": 0},
+    }
+    assert "Category     100" in stderr and "Topic        what shipped" in stderr and "Overwrites   0 (0 roles, 0 members)" in stderr
+    assert "plan" not in body or body["plan"] is None, "a read has no plan"
+
+
+def test_a_channel_show_of_a_thread_is_refused_by_naming_its_parent():
+    code, body, _stderr = go(["--json", "channel", "show", "--channel", "105"], agency())
+    assert (code, body["error"]["code"]) == (2, "PLATFORM_UNSUPPORTED")
+    assert "--channel 101" in body["error"]["hint"]
+
+
+def test_a_channel_show_and_an_edit_readback_print_one_shape(monkeypatch):
+    client = agency()
+    _code, shown, _stderr = go(["--json", "channel", "show", "--channel", "101"], client)
+    answer(monkeypatch, "y")
+    _code, edited, _stderr = go(["--json", "channel", "edit", "--channel", "101", "--topic", "what landed"], client)
+    assert edited["result"]["before"] == shown["result"]["channel"]
+    assert edited["result"]["channel"] == {**shown["result"]["channel"], "topic": "what landed"}
+
+
 def test_a_channel_edit_previews_the_diff_asks_and_reads_the_diff_back(monkeypatch):
     client = agency()
     answer(monkeypatch, "y")
@@ -275,7 +311,7 @@ def test_a_channel_edit_needs_manage_channels_and_names_it_first():
 def test_a_group_with_no_subcommand_says_which_verbs_it_has():
     with pytest.raises(ValueError, match="automod needs one of: list, create, edit, delete"):
         go(["--json", "automod"], agency())
-    with pytest.raises(ValueError, match="channel needs: edit"):
+    with pytest.raises(ValueError, match="channel needs one of: show, edit"):
         go(["--json", "channel"], agency())
 
 

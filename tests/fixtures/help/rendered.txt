@@ -1247,14 +1247,25 @@ options:
 ========================================================================
 discord-tools channel --help
 ========================================================================
-usage: discord-tools channel [-h] {edit} ...
+usage: discord-tools channel [-h] {show,edit} ...
 
 positional arguments:
-  {edit}
-    edit      Change a channel's or category's settings (preview + y/N), then read the diff back
+  {show,edit}
+    show       Print a channel's or category's settings: type, category, name, topic, age gate,
+               slow mode, position, counts
+    edit       Change a channel's or category's settings (preview + y/N), then read the diff back
 
 options:
-  -h, --help  show this help message and exit
+  -h, --help   show this help message and exit
+
+========================================================================
+discord-tools channel show --help
+========================================================================
+usage: discord-tools channel show [-h] --channel CHANNEL
+
+options:
+  -h, --help         show this help message and exit
+  --channel CHANNEL  Channel or category ID
 
 ========================================================================
 discord-tools channel edit --help

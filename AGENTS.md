@@ -47,8 +47,9 @@ name; adding needs Create Expressions and removing Manage Expressions) ·
 automod (Discord's own filtering, which runs with the watcher down: list,
 create whose flags name the trigger family, edit inside the family Discord
 fixed at creation, delete behind the typed name; the three actions never
-delete) · channel edit (name, topic, nsfw, slowmode, position, with the diff
-read back from Discord) · watch (rules the
+delete) · channel show (type, parent category, the editable fields, the
+counts one fetch gives; a read) and channel edit (name, topic, nsfw,
+slowmode, position, with the diff read back from Discord) · watch (rules the
 runner acts on — a closed action list that never downloads, sends, edits or
 deletes — and run/status/stop/reload; only run logs in, and it is the one
 gateway) · schedule (runner-held posts, which fire only while the runner is

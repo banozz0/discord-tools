@@ -173,6 +173,7 @@ MEMBER_WRITES = {
     "member kick": (["member", "kick", "--server", "10", "--member", "50", "--reason", "raiding", "--execute"], "ana"),
     "member ban": (["member", "ban", "--server", "10", "--member", "52", "--reason", "raiding", "--execute"], "bo"),
     "member timeout": (["member", "timeout", "--server", "10", "--member", "53", "--until", "2h", "--reason", "cool off", "--yes"], None),
+    "member untimeout": (["member", "untimeout", "--server", "10", "--member", "53", "--yes"], None),
     "member nick": (["member", "nick", "--server", "10", "--member", "53", "--nick", "Cee", "--yes"], None),
     "member unban": (["member", "unban", "--server", "10", "--member", "54", "--yes"], None),
     "invite create": (["invite", "create", "--channel", "101", "--yes"], None),
@@ -189,7 +190,9 @@ def moderated(**overrides):
     )
     fields.update(overrides)
     client = member_cli.agency(**fields)
-    client.guild_members[10].extend([member_cli.person(52, "bo"), member_cli.person(53, "cee")])
+    # 53 is timed out, so a run that reaches `member untimeout` alone has a
+    # timeout to lift; the sequence that runs every write times them out first.
+    client.guild_members[10].extend([member_cli.person(52, "bo"), member_cli.person(53, "cee", timed_out_until="2030-01-01T00:00:00+00:00")])
     return client
 
 
@@ -209,7 +212,7 @@ def test_p7_a_missing_right_is_named_before_any_moderation_mutation(name):
     assert member_cli.writes(client) == [] and client.deleted_invites == [] and client.created_invites == []
 
 
-@pytest.mark.parametrize("verb", ["kick", "ban", "timeout", "nick"])
+@pytest.mark.parametrize("verb", ["kick", "ban", "timeout", "untimeout", "nick"])
 def test_p7_a_member_the_hierarchy_cannot_reach_is_refused_with_both_positions(verb):
     """51 is a Moderator, above the bot's own top role; the owner and the bot
     itself are refused by the same check, before any position is compared."""
@@ -246,7 +249,7 @@ def test_p7_every_executed_moderation_write_has_an_audit_line_and_an_audit_reaso
 
     lines = audit_lines(home_is_a_tmp_dir)
     assert [line["command"] for line in lines] == list(MEMBER_WRITES)
-    assert [line["approval"] for line in lines] == ["typed_name", "typed_name", "prompt_y", "prompt_y", "prompt_y", "prompt_y", "typed_name"]
+    assert [line["approval"] for line in lines] == ["typed_name", "typed_name", "prompt_y", "prompt_y", "prompt_y", "prompt_y", "prompt_y", "typed_name"]
     assert all(line["status"] == "ok" and line["evidence"]["readback"] for line in lines)
     assert all(line["plan_id"] == plan_ids[line["command"]] for line in lines)
     assert find(json.dumps(lines)) == []
@@ -256,6 +259,7 @@ def test_p7_every_executed_moderation_write_has_an_audit_line_and_an_audit_reaso
         "member kick": "cli-tools member kick plan {}: raiding",
         "member ban": "cli-tools member ban plan {}: raiding",
         "member timeout": "cli-tools member timeout plan {}: cool off",
+        "member untimeout": "cli-tools member untimeout plan {}",
         "member nick": "cli-tools member nick plan {}",
         "member unban": "cli-tools member unban plan {}",
         "invite create": "cli-tools invite create plan {}",
@@ -350,7 +354,8 @@ MANAGE_ROWS = {
     "member ban": [("6", "3", "3"), "1", "raiding"],
     "member unban": [("6", "3", "4"), "1"],
     "member timeout": [("6", "3", "5"), "1", "2h", "cool off"],
-    "member nick": [("6", "3", "6"), "1", "1", "Sven"],
+    "member untimeout": [("6", "3", "6"), "1", "apologised"],
+    "member nick": [("6", "3", "7"), "1", "1", "Sven"],
     "invite list": [("6", "4", "1")],
     "invite create": [("6", "4", "2"), "1", "2", "1", "1"],
     "invite revoke": [("6", "4", "3"), "1"],

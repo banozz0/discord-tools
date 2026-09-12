@@ -439,7 +439,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     member_parser = subparsers.add_parser(
         "member",
-        help="A server's members: list, kick, ban, unban, timeout, nick. `members` is the older spelling of `member list`",
+        help="A server's members: list, kick, ban, unban, timeout, untimeout, nick. `members` is the older spelling of `member list`",
     )
     member_kinds = member_parser.add_subparsers(dest="member_kind")
     member_list = member_kinds.add_parser("list", help="Every visible member with their username and ID (needs the Server Members intent)")
@@ -474,6 +474,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     member_timeout.add_argument("--reason", help="Why; Discord stores it in the server's own audit log")
     member_timeout.add_argument("--yes", action="store_true", help="Skip the y/N prompt")
+    member_untimeout = member_kinds.add_parser(
+        "untimeout", help="End a member's timeout now rather than when it was due to (preview + y/N)"
+    )
+    member_untimeout.add_argument("--server", required=True, type=snowflake, help="Server ID")
+    member_untimeout.add_argument("--member", required=True, help="User ID of the timed-out member")
+    member_untimeout.add_argument("--reason", help="Why; Discord stores it in the server's own audit log")
+    member_untimeout.add_argument("--yes", action="store_true", help="Skip the y/N prompt")
     member_nick = member_kinds.add_parser("nick", help="Set or clear a member's nickname on this server (preview + y/N)")
     member_nick.add_argument("--server", required=True, type=snowflake, help="Server ID")
     member_nick.add_argument("--member", required=True, help="User ID of the member")
@@ -2824,7 +2831,7 @@ async def _member_readback(client, server_id: int, member: dict, *, gone: bool) 
     )
 
 
-# The four member writes that act on somebody already in the server: which
+# The five member writes that act on somebody already in the server: which
 # function runs one, and the verb its refusals are worded with. `list` needs no
 # server-side target and `unban` acts on somebody who has already left, so
 # neither is here.
@@ -2832,13 +2839,14 @@ MEMBER_WRITES = {
     "kick": (lambda: _run_member_removal, "kick"),
     "ban": (lambda: _run_member_removal, "ban"),
     "timeout": (lambda: _run_member_timeout, "time out"),
+    "untimeout": (lambda: _run_member_untimeout, "lift the timeout on"),
     "nick": (lambda: _run_member_nick, "rename"),
 }
 
 
 async def _run_member(client, args, config, out) -> Outcome:
     if args.member_kind is None:
-        raise ValueError("member needs one of: list, kick, ban, unban, timeout, nick.")
+        raise ValueError("member needs one of: list, kick, ban, unban, timeout, untimeout, nick.")
     if args.member_kind == "list":
         return await _run_members(client, args, out)
 
@@ -2976,6 +2984,54 @@ async def _run_member_timeout(client, args, out, *, identity, server, resolver, 
     return Outcome(
         status="ok", target=target, plan=write.plan,
         result={"member_id": int(member["id"]), "until": until.isoformat(), "reason": args.reason}, evidence=evidence,
+    )
+
+
+async def _run_member_untimeout(client, args, out, *, identity, server, resolver, member, target, verb) -> Outcome:
+    """The counterpart of timeout: the same right, the same hierarchy check, and
+    a write that clears the end instead of setting one. A member who is not
+    timed out is refused, because a lift that changes nothing is not a success."""
+    server_id = int(server.ids["guild"])
+    was_until = member.get("timed_out_until")
+
+    async def build():
+        live = await client.get_member(server_id, int(member["id"]))
+        return await _moderation_plan(
+            client, out, identity=identity, resolver=resolver, server_id=server_id, command_key="member-untimeout",
+            approval="prompt_y", mutation=Mutation(op="timeout_member", rid=target.rid, params={"until": None}),
+            extra_target=moderation.member_target(server, live),
+        )
+
+    write = await build()
+    refusal = write.refusal or await _member_hierarchy(client, server_id, member, verb=verb)
+    if refusal is not None:
+        return Outcome(status="refused", target=target, plan=write.plan, error=refusal)
+
+    if not was_until:
+        raise TargetError(
+            "TARGET_NOT_FOUND",
+            f"{moderation.member_label(member)} ({member['id']}) is not timed out in {server.title} ({server_id}).",
+            hint="Nothing to lift. `discord-tools audit-log list --server <id> --action member_update` shows who was timed out and when.",
+        )
+
+    reason = moderation.moderation_reason(write.reason, args.reason)
+    preview = moderation.format_member_plan(
+        member, action="Lift the timeout on", reason=reason,
+        detail=f"They are timed out until {was_until}; after this they can post, react and speak again now.",
+    )
+    stopped = _gate_prompt(out, write, yes=args.yes, preview=preview, question="Lift it?", target=target)
+    if stopped is not None:
+        return stopped
+    drifted = await plans.drifted(write, build)
+    if drifted is not None:
+        raise plans.PlanDriftError(drifted)
+
+    await client.timeout_member(server_id, int(member["id"]), None, reason=reason)
+    out.say(f"Lifted the timeout on {moderation.member_label(member)} ({member['id']}).")
+    evidence = await plans.read_back("the member could not be read back", lambda: _member_readback(client, server_id, member, gone=False))
+    return Outcome(
+        status="ok", target=target, plan=write.plan,
+        result={"member_id": int(member["id"]), "was_until": was_until, "reason": args.reason}, evidence=evidence,
     )
 
 

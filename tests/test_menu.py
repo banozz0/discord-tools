@@ -38,7 +38,8 @@ MEMBER_KICK = ("6", "3", "2")
 MEMBER_BAN = ("6", "3", "3")
 MEMBER_UNBAN = ("6", "3", "4")
 MEMBER_TIMEOUT = ("6", "3", "5")
-MEMBER_NICK = ("6", "3", "6")
+MEMBER_UNTIMEOUT = ("6", "3", "6")
+MEMBER_NICK = ("6", "3", "7")
 INVITE_LIST = ("6", "4", "1")
 INVITE_CREATE = ("6", "4", "2")
 INVITE_REVOKE = ("6", "4", "3")
@@ -660,6 +661,11 @@ def test_timeout_flow_carries_the_time_and_the_reason():
     assert [(args.member_kind, args.member, args.until, args.reason, args.yes) for args in calls] == [
         ("timeout", "7", "2h", "cool off", False)
     ]
+
+
+def test_untimeout_flow_carries_the_reason_and_never_answers_the_gate():
+    code, calls, _output = drive([MEMBER_UNTIMEOUT, "1", "apologised", "0", "0"])
+    assert [(args.member_kind, args.member, args.reason, args.yes) for args in calls] == [("untimeout", "7", "apologised", False)]
 
 
 def test_nick_flow_sets_one_and_clears_one():

@@ -226,6 +226,41 @@ def test_timeout_previews_the_end_and_writes_it_with_the_reason(monkeypatch):
     assert "timed out until" in body["evidence"]["readback"]
 
 
+# -- member untimeout ----------------------------------------------------------------
+
+
+def muted(**overrides) -> FakeClient:
+    """The Agency with Ana timed out until 2030, so there is something to lift."""
+    client = agency(**overrides)
+    client.guild_members[10][2]["timed_out_until"] = "2030-01-01T00:00:00+00:00"
+    return client
+
+
+def test_untimeout_refuses_a_member_who_is_not_timed_out_rather_than_succeeding_at_nothing():
+    client = agency()
+    code, body, _stderr = go(["--json", "member", "untimeout", "--server", "10", "--member", "50", "--yes"], client)
+    assert (code, body["error"]["code"]) == (2, "TARGET_NOT_FOUND"), body
+    assert "is not timed out" in body["error"]["message"]
+    assert client.timeouts == [] and client.reasons == []
+
+
+def test_untimeout_previews_the_lift_and_clears_it_with_the_reason(monkeypatch):
+    client = muted()
+    answer(monkeypatch, "n")
+    code, body, stderr = go(["--json", "member", "untimeout", "--server", "10", "--member", "50", "--reason", "apologised"], client)
+    assert (code, body["status"]) == (1, "cancelled")
+    assert "timed out until 2030-01-01T00:00:00+00:00" in stderr and "moderate_members — held" in stderr
+    assert client.timeouts == []
+
+    client = muted()
+    code, body, _stderr = go(["--json", "member", "untimeout", "--server", "10", "--member", "50", "--reason", "apologised", "--yes"], client)
+    assert (code, body["status"], body["plan"]["approval"]) == (0, "ok", "prompt_y"), body
+    assert client.timeouts == [(10, 50, None)], "one write, and it clears the end rather than setting one"
+    assert client.reasons == [f"cli-tools member untimeout plan {body['plan']['plan_id'][:8]}: apologised"]
+    assert body["result"] == {"member_id": 50, "was_until": "2030-01-01T00:00:00+00:00", "reason": "apologised"}
+    assert body["evidence"]["readback"].endswith("not timed out")
+
+
 # -- member nick ---------------------------------------------------------------------
 
 

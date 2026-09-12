@@ -89,6 +89,7 @@ REQUIRED_RIGHTS = {
     "member-ban": ("ban_members",),
     "member-unban": ("ban_members",),
     "member-timeout": ("moderate_members",),
+    "member-untimeout": ("moderate_members",),
     "member-nick": ("manage_nicknames",),
     "invite-list": ("manage_guild",),
     "invite-create": ("create_instant_invite",),

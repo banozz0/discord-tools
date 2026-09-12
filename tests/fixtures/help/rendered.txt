@@ -27,8 +27,8 @@ positional arguments:
     role                A server's roles: list, create, edit (name, colour, hoist, mentionable,
                         permissions), delete (typed name)
     permission          Permission overwrites on a channel or category: show them, set one role's
-    member              A server's members: list, kick, ban, unban, timeout, nick. `members` is
-                        the older spelling of `member list`
+    member              A server's members: list, kick, ban, unban, timeout, untimeout, nick.
+                        `members` is the older spelling of `member list`
     invite              A server's invites: list them with their links, create one, revoke one
     audit-log           The server's own audit log: who did what, filtered by action, by person or
                         by time
@@ -831,10 +831,10 @@ options:
 ========================================================================
 discord-tools member --help
 ========================================================================
-usage: discord-tools member [-h] {list,kick,ban,unban,timeout,nick} ...
+usage: discord-tools member [-h] {list,kick,ban,unban,timeout,untimeout,nick} ...
 
 positional arguments:
-  {list,kick,ban,unban,timeout,nick}
+  {list,kick,ban,unban,timeout,untimeout,nick}
     list                Every visible member with their username and ID (needs the Server Members
                         intent)
     kick                Remove a member from the server (dry-run by default; --execute asks for
@@ -844,6 +844,7 @@ positional arguments:
     unban               Lift a ban so the user can be invited back (preview + y/N)
     timeout             Stop a member posting, reacting and speaking until a time you name
                         (preview + y/N)
+    untimeout           End a member's timeout now rather than when it was due to (preview + y/N)
     nick                Set or clear a member's nickname on this server (preview + y/N)
 
 options:

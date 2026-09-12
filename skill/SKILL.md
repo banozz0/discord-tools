@@ -1,7 +1,7 @@
 ---
 name: discord-tools
-description: "Use when you need the real numeric ID of a Discord server, channel, or thread — 'what's the ID of that channel?', 'where do I send this?' — when the user wants a channel's messages searched or exported (JSON, CSV, JSONL, Markdown, HTML), when a history question can be answered from the local archive instead of a fresh fetch, when a message must be posted to a channel the user has allowlisted, when a message the user named should get a reply, a reaction, a pin, or be forwarded, copied or bookmarked, when a server's structure should be exported as a blueprint or compared with another server, when the user wants to see a server's roles or which role can do what in a channel, when a member should be kicked, banned, unbanned, timed out or renamed, when the user asks who is banned, what invites a server has, which webhooks post into it, what custom emoji or stickers it has, what Discord filters in it by itself, or who did what on it, when a channel's topic, slow mode, age gate, name or position should change, or when they want a message posted at a set time, an event put in a server's calendar, or a rule that alerts them when something happens in a server. Bot-token only; the bot sees only servers it was invited to."
-version: 1.12.0
+description: "Use when you need the real numeric ID of a Discord server, channel, or thread — 'what's the ID of that channel?', 'where do I send this?' — when the user wants a channel's messages searched or exported (JSON, CSV, JSONL, Markdown, HTML), when a history question can be answered from the local archive instead of a fresh fetch, when a message must be posted to a channel the user has allowlisted, when a message the user named should get a reply, a reaction, a pin, or be forwarded, copied or bookmarked, when a server's structure should be exported as a blueprint or compared with another server, when the user wants to see a server's roles or which role can do what in a channel, when a member should be kicked, banned, unbanned, timed out, let out of a timeout early or renamed, when the user asks who is banned, what invites a server has, which webhooks post into it, what custom emoji or stickers it has, what Discord filters in it by itself, or who did what on it, when a channel's topic, slow mode, age gate, name or position should change, or when they want a message posted at a set time, an event put in a server's calendar, or a rule that alerts them when something happens in a server. Bot-token only; the bot sees only servers it was invited to."
+version: 1.13.0
 author: banozz0
 license: MIT
 platforms: [macos]
@@ -216,11 +216,11 @@ the exact invite code typed at a prompt no agent can answer — there is no
 `APPROVAL_REQUIRED`. Hand the user the dry-run command and let them run the
 execute. Do not drive them through the menu, a pty, or a piped answer.
 
-**20. Never pass `--yes` to `member timeout`, `member nick`, `member unban` or
-`invite create`.** These take one, and you still do not: a timeout stops
-someone speaking, a nickname is what everyone sees them called, an unban
-reverses somebody's moderation decision, and an invite is a working door into
-the server. Propose the command, show it, let the user answer its `y/N`.
+**20. Never pass `--yes` to `member timeout`, `member untimeout`, `member nick`,
+`member unban` or `invite create`.** These take one, and you still do not: a
+timeout stops someone speaking, lifting one early reverses a moderator's call,
+a nickname is what everyone sees them called, an unban reverses somebody's
+moderation decision, and an invite is a working door into the server. Propose the command, show it, let the user answer its `y/N`.
 `member list`, `invite list` and `audit-log list` are reads and fine.
 
 **21. Never print a webhook URL, and never run a `webhook create` or any
@@ -282,6 +282,7 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
 | "kick / ban that person" | hand them `discord-tools member kick --server <id> --member <user id> --reason "..."` (the dry-run), then `--execute` — rule 19, they run it |
 | "let them back in" | hand them `discord-tools member unban --server <id> --member <user id>` — rule 20, they answer its y/N |
 | "mute them for two hours" | hand them `discord-tools member timeout --server <id> --member <user id> --until 2h` — rule 20; `--until` is required and 28 days is the ceiling |
+| "unmute them / let them talk again" | hand them `discord-tools member untimeout --server <id> --member <user id>` — rule 20, they answer its y/N; refused if they are not timed out |
 | "rename them on this server" | hand them `discord-tools member nick --server <id> --member <user id> --nick "..."` — rule 20; `--nick ''` clears it |
 | "what invites does this server have?" | `discord-tools invite list --server <id>` — with their links; needs Manage Guild |
 | "make an invite to that channel" | hand them `discord-tools invite create --channel <id> --max-age 3600 --max-uses 5` — rule 20, they answer its y/N |
@@ -411,7 +412,7 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
   relay that rather than retrying, because nothing on the command line changes
   it. `role list` prints the positions and the bot's top role.
 - **A member write can be valid and still impossible.** `HIERARCHY_DENIED` on
-  `member kick`, `ban`, `timeout` or `nick` means the target is the server
+  `member kick`, `ban`, `timeout`, `untimeout` or `nick` means the target is the server
   owner (Discord lets nobody moderate them), the bot itself (this tool never
   moderates the account it is acting as), or a member whose top role is not
   below the bot's — with both positions named. Relay it rather than retrying;
@@ -422,7 +423,9 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
   them.
 - **`--until` is required on `member timeout`** and takes a duration (`30m`,
   `2h`, `7d`) or an ISO 8601 time. Anything past 28 days is refused — that is
-  Discord's own ceiling, not this tool's.
+  Discord's own ceiling, not this tool's. `member untimeout` ends one early and
+  is `TARGET_NOT_FOUND` on a member who is not timed out: nothing was lifted,
+  so nothing reads as done.
 - **A ban deletes no messages.** Discord can sweep a banned member's recent
   history; this tool does not. If the user wants the messages gone too, that is
   `clear-messages`, which is rule 5 and theirs to run.
@@ -544,9 +547,10 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
 - **`--yes` on `automod create`, `automod edit`, `emoji add`, `sticker add`,
   `webhook create` or `channel edit`** — rule 22. What a server filters and
   what a channel is are the user's decisions to confirm.
-- **`--yes` on `member timeout`, `member nick`, `member unban` or `invite
-  create`** — rule 20. A timeout, a rename, a reversed ban and a new door into
-  the server are each the user's decision to confirm.
+- **`--yes` on `member timeout`, `member untimeout`, `member nick`, `member
+  unban` or `invite create`** — rule 20. A timeout, its early end, a rename, a
+  reversed ban and a new door into the server are each the user's decision to
+  confirm.
 - **`watch run`** — rule 17. It opens a gateway connection and does not
   return: started from a tool call it hangs the call. Hand the user the
   command. `watch status`, `watch rules list` and `watch rules test` are reads,

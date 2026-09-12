@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.18.0 — 2026-09-12
+
+### Lift a timeout early
+
+- **`member untimeout`** ends a member's timeout now rather than when it was
+  due to — the counterpart of `member timeout`, and of Telegram's
+  `member unmute`. It previews who and until when they were timed out, asks
+  `y/N` (`--yes` for a script), takes an optional `--reason` for Discord's own
+  audit log, and preflights the same **Moderate Members** right and the same
+  hierarchy check. A member who is not timed out is refused with
+  `TARGET_NOT_FOUND` rather than reported as a success that changed nothing.
+- **The menu's Members group** gains "Lift a timeout before it runs out"
+  after "Time a member out"; the nickname row moves from 6 to 7.
+
 ## 0.17.0 — 2026-09-12
 
 ### Forward and copy from a search

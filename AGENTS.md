@@ -35,9 +35,9 @@ its own roles, never a right it lacks) · permission (show a channel's role
 overwrites, set one role's by merging allow and deny) · member (list, the
 documented name for members; kick and ban behind the typed username with a
 required reason, no --yes; unban, timeout behind a required --until Discord
-caps at 28 days, nick; the hierarchy check refuses the owner, the bot itself
-and a top role it cannot reach) · invite (list with links, create, revoke
-behind the typed code; links print in list and create and nowhere else) ·
+caps at 28 days, untimeout to end one early, nick; the hierarchy check
+refuses the owner, the bot itself and a top role it cannot reach) · invite
+(list with links, create, revoke behind the typed code; links print in list and create and nowhere else) ·
 audit-log (Discord's own log, filtered by action, user and time; not the local
 audit.jsonl) · webhook (list with every URL's token hidden, create printing the
 whole URL once and only with --reveal, delete behind the typed name; the URL
@@ -116,11 +116,11 @@ roles and never grants a right the bot does not hold. `member kick` and
 `member ban` dry-run by default and execute only with `--execute` + the
 member's exact username, no `--yes`, with `--reason` required and stored as
 Discord's own audit reason; `invite revoke` is the same behind the exact code.
-`member timeout` needs `--until` and refuses past 28 days; `member unban`,
-`member nick` and `invite create` preview + y/N. A ban deletes no messages —
-`clear-messages` is that command. `webhook delete`, `emoji remove`,
-`sticker remove` and `automod delete` each dry-run by default and execute only
-with `--execute` + the thing's exact name, no `--yes`; `webhook create`,
+`member timeout` needs `--until` and refuses past 28 days; `member untimeout`,
+`member unban`, `member nick` and `invite create` preview + y/N. A ban deletes
+no messages — `clear-messages` is that command. `webhook delete`,
+`emoji remove`, `sticker remove` and `automod delete` each dry-run by default
+and execute only with `--execute` + the thing's exact name, no `--yes`; `webhook create`,
 `emoji add`, `sticker add`, `automod create`, `automod edit` and `channel edit`
 preview + y/N. A webhook URL is a credential: the whole one is printed by
 `webhook create --reveal` and nowhere else, and core's redaction pass rewrites

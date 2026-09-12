@@ -49,7 +49,7 @@ scripts pass a subcommand.
 | `structure` | Structure blueprints: `export --target <server id> --output <file>` writes a server's roles, categories, channels, overwrites, forum tags, AutoMod rules and settings as one deterministic file (never members, messages, webhooks, invites, bans or emoji); `diff` compares it with a server; `apply` dry-runs, and for real takes `--execute` **and** the server's exact name typed back, creates and edits with new IDs and never deletes; `remap --apply-id` prints the ID table. See [Structure blueprints](#structure-blueprints) |
 | `role` | `list --server <id>` (highest first, the bot's own marked); `create`, `edit` (name, colour, hoist, mentionable, the whole permission set as names) behind a preview + y/N; `delete` dry-runs, and for real takes `--execute` **and** the role's exact name, no `--yes`. Anything touching Administrator is typed too. Every write preflights Manage Roles, refuses `HIERARCHY_DENIED` where the bot's top role cannot reach, and never grants a right the bot lacks. See [Roles and permissions](#roles-and-permissions) |
 | `permission` | `show --target <channel or category id>` prints every role overwrite by name (`--names` lists the vocabulary); `set --target --role --allow --deny` merges into what the role has there, `--clear` removes it, preview + y/N. See [Roles and permissions](#roles-and-permissions) |
-| `member` | Moderation: `list` (the `members` command by its group name); `kick` and `ban` dry-run, and for real take `--execute` **and** the member's exact username, with no `--yes` and a required `--reason`; `unban`, `timeout --until` (required, 28 days at most) and `nick` preview + y/N. Every write preflights the right Discord checks and refuses `HIERARCHY_DENIED` for the owner, the bot itself, or a member the bot's top role cannot reach. See [Members, invites and the audit log](#members-invites-and-the-audit-log) |
+| `member` | Moderation: `list` (the `members` command by its group name); `kick` and `ban` dry-run, and for real take `--execute` **and** the member's exact username, with no `--yes` and a required `--reason`; `unban`, `timeout --until` (required, 28 days at most), `untimeout` (ends one early) and `nick` preview + y/N. Every write preflights the right Discord checks and refuses `HIERARCHY_DENIED` for the owner, the bot itself, or a member the bot's top role cannot reach. See [Members, invites and the audit log](#members-invites-and-the-audit-log) |
 | `invite` | `list --server <id>` prints every invite **with its link**; `create --channel <id>` makes one (`--max-age`, `--max-uses`, `--temporary`) behind a preview + y/N and prints the link once; `revoke` dry-runs, and for real takes `--execute` **and** the exact code, no `--yes`. Links appear in `list` and `create` and nowhere else |
 | `audit-log` | `list --server <id>` prints the server's own audit log, newest first, filtered by `--action`, `--user` and `--since`. Needs **View Audit Log**. This is Discord's log of everyone's changes; `audit.jsonl` in `~/.discord-tools/` is this tool's own log of its own writes |
 | `webhook` | `list --server <id>` shows every webhook **with its URL's token hidden**; `create --channel <id> --name <name>` makes one behind a preview + y/N and prints the whole URL only with `--reveal`, once, on screen; `delete` dry-runs, and for real takes `--execute` **and** the webhook's exact name, no `--yes`. Needs **Manage Webhooks** — on the server to list, and on the webhook's own channel to delete, because a channel overwrite can grant or take that right away. See [Webhooks, emoji and stickers](#webhooks-emoji-and-stickers) |
@@ -477,6 +477,7 @@ discord-tools member kick --server 1394... --member 1401... --reason "raiding" -
 discord-tools member ban  --server 1394... --member 1401... --reason "raiding" --execute   # same gate; they cannot rejoin on any invite
 discord-tools member unban --server 1394... --member 1401...                        # preview + y/N
 discord-tools member timeout --server 1394... --member 1401... --until 2h           # or 30m, 7d, or an ISO 8601 time
+discord-tools member untimeout --server 1394... --member 1401...                    # end it now; refused if they are not timed out
 discord-tools member nick --server 1394... --member 1401... --nick "Ana (ops)"      # --nick '' clears it
 discord-tools invite list --server 1394...                                          # every invite, with its link
 discord-tools invite create --channel 1394... --max-age 3600 --max-uses 5           # prints the link once
@@ -497,7 +498,7 @@ they now are, or the proof they are gone.
 **The gates.** Kicking, banning and revoking an invite dry-run by default and
 for real take `--execute` **and** the exact username or code typed at a
 prompt — no `--yes`, and no terminal means `APPROVAL_REQUIRED`. Timeout,
-nickname, unban and `invite create` preview and ask `y/N`, with `--yes`
+lifting one, nickname, unban and `invite create` preview and ask `y/N`, with `--yes`
 skipping the prompt the way `create --yes` does.
 
 **Reasons.** `--reason` is required on `kick` and `ban`, because it is what the
@@ -508,7 +509,8 @@ own plan line, so the server's audit log shows
 
 **Bounds and boundaries.** `--until` is required on `timeout` and is refused
 past 28 days, which is Discord's own ceiling; a mute with no end is one nobody
-remembers to lift. `ban` deletes no messages — Discord can sweep a banned
+remembers to lift. `untimeout` ends one early and refuses a member who is not
+timed out, so a lift that changes nothing never reads as done. `ban` deletes no messages — Discord can sweep a banned
 member's recent history and this tool does not, because `clear-messages` is
 the command for that and it has its own gate. Invite links print in
 `invite list` and `invite create` and nowhere else: a revoke names the code,

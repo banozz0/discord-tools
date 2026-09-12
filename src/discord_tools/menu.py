@@ -1813,6 +1813,27 @@ async def _flow_member_timeout(*, session, runner, read, write) -> bool:
             return result is not EXIT
 
 
+async def _flow_member_untimeout(*, session, runner, read, write) -> bool:
+    trail = crumb(MAIN, "Members: lift a timeout")
+    while True:
+        server = await _pick_server(session=session, read=read, write=write, trail=trail)
+        if server is BACK:
+            return True
+        member = await _pick_member(session=session, server=server, read=read, write=write, trail=trail)
+        if member is BACK:
+            if await _single_server(session):
+                return True
+            continue
+        where = crumb(trail, str(member["display_name"]))
+        reason = ask_text("Why? Discord stores this in the server's own audit log", read=read, write=write)
+        if reason is BACK:
+            continue
+        args = _namespace(command="member", member_kind="untimeout", server=server.id, member=str(member["id"]), reason=reason or None, yes=False)
+        result = await _act(args, session=session, runner=runner, read=read, write=write, trail=where, rows=((STAY, "Lift another"),))
+        if result is not STAY:
+            return result is not EXIT
+
+
 async def _flow_member_nick(*, session, runner, read, write) -> bool:
     trail = crumb(MAIN, "Members: nickname")
     while True:
@@ -3960,6 +3981,7 @@ async def run_menu(*, read=None, write=None, session=None, runner=None, profile:
                                 ("Ban a member (dry-run, then typed username)", _flow_member_ban),
                                 ("Lift a ban", _flow_member_unban),
                                 ("Time a member out until a moment you name", _flow_member_timeout),
+                                ("Lift a timeout before it runs out", _flow_member_untimeout),
                                 ("Set or clear a member's nickname", _flow_member_nick),
                             ),
                         ),

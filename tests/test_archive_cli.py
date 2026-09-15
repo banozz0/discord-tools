@@ -331,3 +331,61 @@ def test_a_hit_keeps_its_match_on_the_row():
     assert row.startswith("…") and row.endswith("…")
     assert len(row) <= 72
     assert archive_store.preview_around("short «hit» here") == "short «hit» here"
+
+
+# -- the printed archive table (card agent-bo-95422242) ---------------------
+#
+# `[media]` on an archived row used to come off `hit.media`, the count of media
+# manifests the archive holds for the message -- a fact about what the review
+# queue downloaded, not about the message. `archive sync` fetches nothing, so
+# that count is zero for every message until somebody approves its files, and an
+# attachment-carrying message printed as a plain line. The row's own `has_media`
+# is what `search` prints and what the person is asking about, so it is what
+# wins here; the manifest count stays in `result.hits[].media` for anyone
+# reading the envelope.
+
+
+def with_a_file(message_id: int, text: str, filename: str = "flange.pdf"):
+    """A message carrying one attachment, as the walk and the live record see one."""
+    row = message(message_id, text)
+    row.attachments = [SimpleNamespace(filename=filename)]
+    return row
+
+
+def archive_rows(capsys, query: str) -> list[str]:
+    """The hit rows `archive search` prints. The human table goes to real stdout."""
+    capsys.readouterr()
+    go(["archive", "search", "--query", query])
+    return [line for line in capsys.readouterr().out.splitlines() if line and line[0].isdigit()]
+
+
+def a_client_with_a_file() -> FakeClient:
+    return FakeClient(
+        servers=[ServerInfo(id=1, name="Ops")],
+        channels={1: [ChannelInfo(id=10, name="general", type="text")]},
+        history={10: [with_a_file(5, "numbers inside"), message(6, "numbers typed out")]},
+    )
+
+
+def test_an_archived_message_with_an_attachment_prints_media(home_is_a_tmp_dir, capsys):
+    go(["--json", "archive", "sync"], client=a_client_with_a_file(), json=True)
+
+    rows = archive_rows(capsys, "numbers")
+
+    carried = next(row for row in rows if row.startswith("5 "))
+    typed = next(row for row in rows if row.startswith("6 "))
+    assert carried.endswith(" [media]"), "the archive downloaded no file; the message still carried one"
+    assert not typed.endswith(" [media]")
+
+
+def test_an_archived_row_and_a_live_row_for_one_message_agree_about_media(home_is_a_tmp_dir, capsys):
+    from discord_tools.records import message_to_record
+    from discord_tools.search import format_message_records
+
+    go(["--json", "archive", "sync"], client=a_client_with_a_file(), json=True)
+
+    for message_id, carried in ((5, True), (6, False)):
+        source = with_a_file(message_id, "numbers inside") if carried else message(message_id, "numbers typed out")
+        live = format_message_records([message_to_record(source, channel_id=10)]).splitlines()[0]
+        row = next(row for row in archive_rows(capsys, "numbers") if row.startswith(f"{message_id} "))
+        assert row.endswith(" [media]") == live.endswith(" [media]") == carried

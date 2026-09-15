@@ -300,7 +300,17 @@ def format_hits(hits: Sequence[SearchHit], *, query: str) -> str:
         body = preview_around(hit.highlight or hit.text)
         cut = cut or ELLIPSIS in body
         deleted = " [deleted]" if hit.deleted_at else ""
-        media = " [media]" if hit.media else ""
+        # The row's own `has_media`, not `hit.media`. The two are different
+        # facts: `has_media` is what the message carried, which is what `search`
+        # prints and what a person is asking about; `hit.media` counts the media
+        # manifests this archive holds for it, and `archive sync` downloads
+        # nothing, so that count is zero until somebody approves the files
+        # through `review`. Reading it as the mark made every attachment-
+        # carrying message print as a plain line. The count is still in
+        # `result.hits[].media` for anyone reading the envelope. A row written
+        # before the extras were stored falls back to it rather than to nothing.
+        row = hit.to_dict()
+        media = " [media]" if row.get("has_media", hit.media) else ""
         for neighbour in hit.context_before:
             lines.append(f"    {neighbour['message_id']}  {_stamp(neighbour.get('date')):<16}  {preview(neighbour.get('text') or '')}")
         lines.append(f"{hit.message_id}  {_stamp(hit.date):<16}  {where}  {hit.sender or '?'}: {body}{media}{deleted}")

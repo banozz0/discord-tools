@@ -1,7 +1,7 @@
 ---
 name: discord-tools
 description: "Use when you need the real numeric ID of a Discord server, channel, or thread — 'what's the ID of that channel?', 'where do I send this?' — when the user wants a channel's messages searched or exported (JSON, CSV, JSONL, Markdown, HTML), when a history question can be answered from the local archive instead of a fresh fetch, when a message must be posted to a channel the user has allowlisted, when a message the user named should get a reply, a reaction, a pin, or be forwarded, copied or bookmarked, when a server's structure should be exported as a blueprint or compared with another server, when the user wants to see a server's roles or which role can do what in a channel, when a member should be kicked, banned, unbanned, timed out, let out of a timeout early or renamed, when the user asks who is banned, what invites a server has, which webhooks post into it, what custom emoji or stickers it has, what Discord filters in it by itself, or who did what on it, when the user asks what a channel's settings are or when its topic, slow mode, age gate, name or position should change, or when they want a message posted at a set time, an event put in a server's calendar, or a rule that alerts them when something happens in a server. Bot-token only; the bot sees only servers it was invited to."
-version: 1.14.0
+version: 1.15.0
 author: banozz0
 license: MIT
 platforms: [macos]
@@ -350,7 +350,11 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
   cannot leak into a repo. An absolute path is honored as written.
 - **`[media]` in a `search` row means an attachment or embed.** A media-only
   message has no text at all; without the marker it would read as empty.
-  `--format json` carries the same fact as `has_media`.
+  `--format json` carries the same fact as `has_media`. An `archive search` row
+  carries the same mark from the same fact, so a message read back out of the
+  archive says what it carried the way it does read live. Not the same number as
+  `result.hits[].media`, which counts the files this archive actually holds for
+  the message — zero until they are approved through `review`.
 - **Empty text on every message = the message-content intent is off.** That is
   a portal setting, not a bug here. `doctor` names it; the fix is in the
   Developer Portal (Bot → Message Content Intent), which only the user can do.

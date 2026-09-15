@@ -1,6 +1,6 @@
 {
   "schema": "cli-tools/archive/1",
-  "note": "The archive's outward shape: the tables version 1 defines, the named reasons a scope can be skipped, the migrations this build ships, the disk budgets of section 8.5, the per-fetch cap and the archive-expansion caps of section 9.3, the export formats, the review queue's states and verdicts, the eleven built-in checks in the order section 9.3 runs them (`checks`) with the ones this build registers (`registered_checks`, all eleven since 0.5.0), and the scanner binaries section 9.4 looks for. A new table, reason, budget, state or check is additive and lands here in the same commit as the constant; a rename or removal is schema /2 and a major version of both tools.",
+  "note": "The archive's outward shape: the tables version 1 defines, the named reasons a scope can be skipped, the migrations this build ships, the one key this tree writes into a scope's `platform_json` (`render_key`, the rendering version that last walked the scope whole), the disk budgets of section 8.5, the per-fetch cap and the archive-expansion caps of section 9.3, the export formats, the review queue's states and verdicts, the eleven built-in checks in the order section 9.3 runs them (`checks`) with the ones this build registers (`registered_checks`, all eleven since 0.5.0), and the scanner binaries section 9.4 looks for. A new table, reason, budget, state or check is additive and lands here in the same commit as the constant; a rename or removal is schema /2 and a major version of both tools.",
   "tables": [
     "schema_version",
     "identities",
@@ -32,6 +32,7 @@
     "0002_manifest_platform_json",
     "0003_rule_fires_marker"
   ],
+  "render_key": "render_version",
   "config_version": 1,
   "budgets": {
     "archive_max_bytes": 2147483648,

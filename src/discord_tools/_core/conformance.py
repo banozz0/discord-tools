@@ -2,7 +2,7 @@
 
 Six fixtures live in `fixtures/` next to this module: the envelope schema, the
 redaction pattern set with its cases, the exit code table, the error code list,
-the archive's tables, skipped reasons, migrations, budgets, export formats,
+the archive's tables, skipped reasons, the rendering key, migrations, budgets, export formats,
 review states, verdicts, checks, expansion caps and scanner binaries, and the
 blueprint engine's never-transferred list, handle grammar, keys, ops and statuses, and
 the rule engine's event kinds, closed action set, destination kinds, filter keys,
@@ -226,6 +226,8 @@ def _archive_failures(fixture: Any, archive: Any, config: Any, migrations: Any) 
         failures.append("archive.json: table list differs from archive.TABLES")
     if tuple(fixture["skipped_reasons"]) != archive.SKIPPED_REASONS:
         failures.append("archive.json: skipped reasons differ from archive.SKIPPED_REASONS")
+    if fixture.get("render_key") != archive.RENDER_KEY:
+        failures.append(f"archive.json: render_key {fixture.get('render_key')!r} != {archive.RENDER_KEY!r}")
     if fixture["budgets"] != config.Budgets().to_dict():
         failures.append("archive.json: budgets differ from the config defaults")
     if fixture["config_version"] != config.CONFIG_VERSION:

@@ -81,6 +81,15 @@ DEFAULT_BATCH = 200
 DEFAULT_LIMIT = 50
 MAX_SCAN = 10000
 MARKERS = ("«", "»")
+# The one key this tree writes into `scopes.platform_json`, section 8.2's
+# extension point. A source derives a body for a message that carries none, and
+# that derived text is what `messages_fts` indexes; a source that learns to
+# derive more leaves every row an earlier one stored exactly as it was, because
+# a resume never revisits a row it already has. The stamp records the rendering
+# version that last walked a scope whole, so an archive can be counted rather
+# than rewritten: a full walk refetches everything and costs, which makes it a
+# thing to offer and never a thing to do unasked.
+RENDER_KEY = "render_version"
 # The right the archive needs is the right to write a local file, which a
 # running process holds by definition; preflight is still filled in so a
 # retention plan carries the same shape every other plan does.
@@ -145,6 +154,22 @@ def require_fts5() -> None:
 
 def _json_or_none(value: Any) -> str | None:
     return None if value is None else json.dumps(value, ensure_ascii=False, sort_keys=True)
+
+
+def _json_mapping(value: Any) -> dict[str, Any] | None:
+    """A stored `platform_json` cell as a mapping, or None when it holds no object.
+
+    A read never raises over one row: a cell that is null, empty, not JSON or
+    not an object reads as no extras at all, which is the same thing a row
+    written before the key existed says.
+    """
+    if not value:
+        return None
+    try:
+        decoded = json.loads(value)
+    except (TypeError, ValueError):
+        return None
+    return decoded if isinstance(decoded, dict) else None
 
 
 def _id_key(value: str | None) -> tuple[int, int, str]:
@@ -371,6 +396,15 @@ class SearchHit:
     `rank` is bm25: lower is a better match, and the rows arrive already in that
     order, so a writer never re-sorts and every format holds the same ids in the
     same order.
+
+    `platform_json` is the row's extras as the sync stored them, read back so
+    that what a source wrote about a message is not write-only. A derived body
+    fills `text` only when the message has none, so a message that carries its
+    own words -- a forwarded one, a captioned poll, a captioned file -- keeps
+    those words in `text` and says what it is nowhere else. `to_dict()` merges
+    the extras in beside the row's own keys, so an archived row reaches a
+    renderer in the shape a live one has and the screen, the exports and the
+    archive agree.
     """
 
     rid: str
@@ -387,6 +421,7 @@ class SearchHit:
     scope_title: str = ""
     author: str = ""
     media: int = 0
+    platform_json: Mapping[str, Any] | None = None
     context_before: tuple[dict[str, Any], ...] = ()
     context_after: tuple[dict[str, Any], ...] = ()
 
@@ -396,7 +431,15 @@ class SearchHit:
         return self.author or self.author_rid or ""
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        """The row a writer serialises: the columns, with the extras merged in.
+
+        The columns come first and keep their order, and an extra whose key is
+        already a column of this row is dropped rather than allowed to displace
+        what the row itself says. Core names none of the keys it merges in:
+        whatever a source wrote is what a renderer reads back, which is what
+        makes a new one additive.
+        """
+        row: dict[str, Any] = {
             "rid": self.rid,
             "message_id": self.message_id,
             "identity_id": self.identity_id,
@@ -411,9 +454,12 @@ class SearchHit:
             "reply_to": self.reply_to,
             "edited": self.edited,
             "deleted_at": self.deleted_at,
-            "context_before": [dict(row) for row in self.context_before],
-            "context_after": [dict(row) for row in self.context_after],
+            "context_before": [dict(neighbour) for neighbour in self.context_before],
+            "context_after": [dict(neighbour) for neighbour in self.context_after],
         }
+        for key, value in (self.platform_json or {}).items():
+            row.setdefault(key, value)
+        return row
 
 
 def parse_keep(keep: str | int) -> tuple[str, int]:
@@ -447,12 +493,14 @@ class Archive:
         budgets: Budgets | None = None,
         core_version: str = "",
         tool_version: str = "",
+        render_version: int = 0,
     ) -> None:
         self.connection = connection
         self.path = path
         self.budgets = budgets or Budgets()
         self.core_version = core_version
         self.tool_version = tool_version
+        self.render_version = int(render_version or 0)
 
     # -- opening ---------------------------------------------------------
 
@@ -464,6 +512,7 @@ class Archive:
         budgets: Budgets | None = None,
         core_version: str = "",
         tool_version: str = "",
+        render_version: int = 0,
         extra_migrations: Sequence[Sequence[_migrations.Migration]] = (),
         migrate: bool = True,
     ) -> "Archive":
@@ -473,6 +522,11 @@ class Archive:
         applied after the core's, in the order given. Refuses with
         ARCHIVE_UNAVAILABLE when the running SQLite has no FTS5 and with
         SCHEMA_MIGRATION_REQUIRED when the database is newer than this build.
+
+        `render_version` is the caller's own count of how its sources derive the
+        text of a message that has none. It is compared, never interpreted: a
+        scope walked whole under it is current, and a caller that declares none
+        is told nothing is behind.
         """
         require_fts5()
         path = Path(path)
@@ -482,7 +536,12 @@ class Archive:
         connection.execute("PRAGMA journal_mode = WAL")
         connection.execute("PRAGMA synchronous = NORMAL")
         archive = cls(
-            connection, path, budgets=budgets, core_version=core_version, tool_version=tool_version
+            connection,
+            path,
+            budgets=budgets,
+            core_version=core_version,
+            tool_version=tool_version,
+            render_version=render_version,
         )
         if migrate:
             try:
@@ -572,8 +631,19 @@ class Archive:
             (identity.id, identity.label, identity.platform, identity.mode, utc_now()),
         )
 
+    def scope_extras(self, rid: str) -> dict[str, Any] | None:
+        """A scope's `platform_json` cell as a mapping, or None when it holds no object."""
+        row = self.connection.execute("SELECT platform_json FROM scopes WHERE rid = ?", (rid,)).fetchone()
+        return None if row is None else _json_mapping(row["platform_json"])
+
     def upsert_scope(self, listing: ScopeListing, identity_id: str) -> None:
         target = listing.target
+        # The cell is the source's to write, bar the one key this tree owns:
+        # what the sync stamped there survives the extras the next walk brings.
+        extras = dict(listing.platform_json) if isinstance(listing.platform_json, Mapping) else {}
+        stamped = (self.scope_extras(target.rid) or {}).get(RENDER_KEY)
+        if stamped is not None and RENDER_KEY not in extras:
+            extras[RENDER_KEY] = stamped
         self.connection.execute(
             "INSERT INTO scopes (rid, identity_id, kind, title, path, parent_rid, platform_json)"
             " VALUES (?, ?, ?, ?, ?, ?, ?)"
@@ -588,8 +658,23 @@ class Archive:
                 target.title,
                 json.dumps(list(target.path), ensure_ascii=False),
                 listing.parent_rid,
-                _json_or_none(listing.platform_json),
+                _json_or_none(extras or None),
             ),
+        )
+
+    def record_rendering(self, rid: str) -> None:
+        """Stamp a scope with the rendering version that just walked it whole.
+
+        Only a walk that saw the whole scope may stamp it: a resume proves
+        nothing about the rows before its cursor, and a window bounded by
+        `since` proves nothing about the rows outside it.
+        """
+        if not self.render_version:
+            return
+        extras = dict(self.scope_extras(rid) or {})
+        extras[RENDER_KEY] = self.render_version
+        self.connection.execute(
+            "UPDATE scopes SET platform_json = ? WHERE rid = ?", (_json_or_none(extras), rid)
         )
 
     def scope_target(self, rid: str) -> Target | None:
@@ -888,6 +973,10 @@ class Archive:
             return ScopeReport(rid, title, "failed", rows=rows, deleted=deleted, cursor=last_cursor, error=str(exc))
 
         self.save_checkpoint(rid, identity.id, cursor=last_cursor, last_status="ok")
+        # A walk that started from no cursor and was bounded by no window saw
+        # the whole scope, so every row in it now holds this rendering's text.
+        if since is None and (full or stored is None):
+            self.record_rendering(rid)
         self.record_coverage(
             rid,
             identity.id,
@@ -980,7 +1069,7 @@ class Archive:
 
         sql = (
             "SELECT m.rid, m.message_id, m.identity_id, m.author_rid, m.date, m.text,"
-            " m.reply_to, m.edited, m.deleted_at,"
+            " m.reply_to, m.edited, m.deleted_at, m.platform_json,"
             " COALESCE(s.title, '') AS scope_title,"
             " COALESCE(a.label, '') AS author,"
             " (SELECT COUNT(*) FROM manifests f WHERE f.source_rid = m.rid"
@@ -1021,6 +1110,7 @@ class Archive:
                     scope_title=row["scope_title"],
                     author=row["author"],
                     media=row["media"],
+                    platform_json=_json_mapping(row["platform_json"]),
                     context_before=before,
                     context_after=after,
                 )
@@ -1031,8 +1121,63 @@ class Archive:
 
     # -- status ----------------------------------------------------------
 
+    def rendering(self, identity: str | None = None) -> dict[str, Any]:
+        """Which scopes hold rows an older rendering wrote, and how many rows that is.
+
+        A count, never a rewrite: the fix is a full walk of the scope, which
+        refetches everything it holds, so this names the command and stops. A
+        scope is behind when nothing says it has been walked whole under the
+        current version, which is also what an archive written before the stamp
+        existed says -- the conservative answer, since the alternative is an
+        archive that reports itself current and cannot be searched.
+        """
+        where, params = ("WHERE identity_id = ?", [identity]) if identity else ("", [])
+        behind: list[dict[str, Any]] = []
+        if self.render_version:
+            for row in self.connection.execute(
+                "SELECT s.rid AS rid, s.title AS title, s.platform_json AS extras,"
+                " (SELECT COUNT(*) FROM messages m WHERE m.rid = s.rid) AS messages"
+                f" FROM scopes s {where} ORDER BY s.rid",
+                params,
+            ).fetchall():
+                stamped = (_json_mapping(row["extras"]) or {}).get(RENDER_KEY)
+                version = stamped if isinstance(stamped, int) else None
+                # A scope holding no rows has nothing to rebuild, whatever it says.
+                if row["messages"] and (version is None or version < self.render_version):
+                    behind.append(
+                        {
+                            "rid": row["rid"],
+                            "title": row["title"],
+                            "version": version,
+                            "messages": row["messages"],
+                        }
+                    )
+        messages = sum(row["messages"] for row in behind)
+        if not self.render_version:
+            summary, hint = "no rendering version is declared", ""
+        elif not behind:
+            summary = f"every scope holding messages has been walked whole since text rendering {self.render_version}"
+            hint = ""
+        else:
+            summary = (
+                f"{len(behind)} scope(s) holding {messages} message(s) have not been walked whole"
+                f" since text rendering {self.render_version}"
+            )
+            hint = (
+                "their text is whatever an earlier rendering stored and a search cannot find"
+                " what a row does not hold; rebuild one with `archive sync --full --scope RID`"
+            )
+        return {
+            "version": self.render_version,
+            "scopes": len(behind),
+            "messages": messages,
+            "behind": behind,
+            "summary": summary,
+            "hint": hint,
+        }
+
     def status(self, identity: str | None = None) -> dict[str, Any]:
-        """Scopes, rows, bytes, oldest and newest, the coverage summary and the budget."""
+        """Scopes, rows, bytes, oldest and newest, the coverage summary, the budget, the rendering."""
         where, params = ("WHERE identity_id = ?", [identity]) if identity else ("", [])
         scopes = self.connection.execute(f"SELECT COUNT(*) FROM scopes {where}", params).fetchone()[0]
         counts = self.connection.execute(
@@ -1070,6 +1215,7 @@ class Archive:
                 "reasons": reasons,
             },
             "budgets": self.budgets.report({"archive_max_bytes": used}),
+            "rendering": self.rendering(identity),
             "fts5": fts5_report()["available"],
         }
 

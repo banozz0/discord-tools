@@ -4,7 +4,7 @@ Spec: section 3 (rid) and section 5.4 (kinds). The grammar is frozen:
 
     <prefix>:<kind>:<id>[:<id>]
 
-`prefix` is one of the two platform prefixes, `kind` one of the fourteen
+`prefix` is one of the two platform prefixes, `kind` one of the fifteen
 target kinds, and each id segment is url-safe (`[A-Za-z0-9_-]`, so a leading
 minus is fine). Three kinds carry two segments because they live inside a
 container: a topic inside a chat, a message inside its scope, a member inside
@@ -21,6 +21,7 @@ PREFIXES = ("tg", "dc")
 KINDS = (
     "chat",
     "topic",
+    "folder",
     "user",
     "bot",
     "message",

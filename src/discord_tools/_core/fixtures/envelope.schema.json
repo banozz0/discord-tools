@@ -51,8 +51,8 @@
       "properties": {
         "rid": {"$ref": "#/$defs/rid"},
         "kind": {"enum": [
-          "chat", "topic", "user", "bot", "message", "guild", "category", "channel",
-          "thread", "role", "member", "invite", "webhook", "event"
+          "chat", "topic", "folder", "user", "bot", "message", "guild", "category",
+          "channel", "thread", "role", "member", "invite", "webhook", "event"
         ]},
         "platform": {"type": "string", "minLength": 1},
         "ids": {"type": "object", "additionalProperties": {"type": "string"}},

@@ -24,10 +24,13 @@ The four guarantees, each tested against fakes:
   given on a terminal, runs one step at a time through the port, resolves handle
   references through the remap as ids are minted, and stops on the first failure
   keeping the partial remap, each row written to `remaps` as it is made, so a rerun
-  diff shows the remainder.
+  diff shows the remainder. A blueprint entry written by hand has no source rid, so its
+  row is keyed by the handle: what an apply made is always in its own remap.
 * **Readback decides.** After the last step the target is exported again and diffed
   against the blueprint; anything still to add or change is `PARTIAL_FAILURE`. Objects
   the target has and the blueprint does not are reported as extras and never deleted.
+  A section the allowlist calls `unordered` has no order a client can set, so its
+  positions are never a change: the dry-run and the readback share that one rule.
 """
 
 from __future__ import annotations
@@ -84,13 +87,17 @@ class Allowlist:
     section (`roles`, `channels`, `topics`) to the fields its objects may carry, in
     the order they are applied: a section whose objects reference another section's
     handles comes after it. `excluded` names the platform's own categories that never
-    transfer, on top of the six every platform refuses.
+    transfer, on top of the six every platform refuses. `unordered` names the sections
+    whose order the platform keeps itself and a client cannot set; their positions
+    still order a blueprint but are never diffed. Empty by default: every section is
+    ordered.
     """
 
     schema: str
     container: frozenset[str]
     objects: Mapping[str, frozenset[str]]
     excluded: tuple[str, ...] = ()
+    unordered: frozenset[str] = frozenset()
 
     def __post_init__(self) -> None:
         match = _SCHEMA.match(self.schema)
@@ -99,6 +106,9 @@ class Allowlist:
         object.__setattr__(self, "container", frozenset(self.container))
         object.__setattr__(self, "objects", {section: frozenset(fields) for section, fields in dict(self.objects).items()})
         object.__setattr__(self, "excluded", tuple(dict.fromkeys(self.excluded)))
+        object.__setattr__(self, "unordered", frozenset(self.unordered))
+        for section in sorted(self.unordered - set(self.objects)):
+            raise BlueprintError(f"unordered section {section!r} is not one of the allowlist's sections")
         forbidden = set(NEVER_TRANSFERRED) | set(self.excluded)
         for name in sorted(self.container & forbidden):
             raise BlueprintError(f"container setting {name!r} is on the never-transferred list")
@@ -127,6 +137,7 @@ class Allowlist:
             "objects": {section: sorted(fields) for section, fields in self.objects.items()},
             "excluded": list(self.excluded),
             "never_transferred": list(self.never_transferred),
+            "unordered": sorted(self.unordered),
         }
 
 
@@ -498,12 +509,27 @@ def _objects_by_handle(blueprint: Mapping[str, Any]) -> dict[str, Mapping[str, A
     return {item["handle"]: item for item in blueprint.get("objects", ())}
 
 
-def _relative_positions(desired: Mapping[str, Any], current: Mapping[str, Any]) -> dict[str, tuple[int, int]]:
+def _unordered_kinds(desired: Mapping[str, Any], allowlist: Allowlist | None) -> frozenset[str]:
+    """The object kinds whose order the platform keeps itself. The allowlist given
+    decides; without one, the one registered under the blueprint's schema does; with
+    neither, every kind is ordered."""
+    if allowlist is None:
+        allowlist = _REGISTRY.get(desired.get("schema"))
+    elif allowlist.schema != desired.get("schema"):
+        raise BlueprintError(f"the allowlist is {allowlist.schema!r}, the blueprint {desired.get('schema')!r}")
+    if allowlist is None:
+        return frozenset()
+    return frozenset(item["kind"] for item in desired["objects"] if section_for(item["kind"]) in allowlist.unordered)
+
+
+def _relative_positions(desired: Mapping[str, Any], current: Mapping[str, Any], unordered: frozenset[str]) -> dict[str, tuple[int, int]]:
     """handle -> (current rank, desired rank) for every shared object whose place among
     the shared objects of its kind differs. Ranks are taken among shared handles only,
     so an object the target has beyond the blueprint shifts nobody: position in a
-    blueprint means the order of its own objects, not a slot number."""
+    blueprint means the order of its own objects, not a slot number. A kind in
+    `unordered` never moves: nothing a client does can place it."""
     shared = {item["handle"] for item in current["objects"]} & {item["handle"] for item in desired["objects"]}
+    shared -= {item["handle"] for item in desired["objects"] if item["kind"] in unordered}
     order: dict[str, dict[str, list[str]]] = {"current": {}, "desired": {}}
     for name, blueprint in (("current", current), ("desired", desired)):
         for item in sorted(blueprint["objects"], key=lambda item: (item["kind"], item["position"], item["handle"])):
@@ -519,13 +545,15 @@ def _relative_positions(desired: Mapping[str, Any], current: Mapping[str, Any]) 
     return moved
 
 
-def diff(desired: Mapping[str, Any], current: Mapping[str, Any]) -> Diff:
+def diff(desired: Mapping[str, Any], current: Mapping[str, Any], *, allowlist: Allowlist | None = None) -> Diff:
     """What `current` would need to become `desired`, object by object, field by field.
 
     Objects are matched by handle, which is why two containers of the same shape but
     different ids diff empty. Positions are compared as order among the objects both
-    sides share, so an extra object on one side moves nothing. A change in container
-    settings is reported at the container's handle.
+    sides share, so an extra object on one side moves nothing, and not at all in a
+    section `allowlist` calls unordered. A field the blueprint omits and the target
+    holds as null is no change. A change in container settings is reported at the
+    container's handle.
     """
     if desired.get("schema") != current.get("schema"):
         raise BlueprintError(f"cannot diff {desired.get('schema')!r} against {current.get('schema')!r}")
@@ -542,7 +570,7 @@ def diff(desired: Mapping[str, Any], current: Mapping[str, Any]) -> Diff:
             changes.append(Change("change", container, key, before_settings[key], after_settings[key]))
     before = _objects_by_handle(current)
     after = _objects_by_handle(desired)
-    ranks = _relative_positions(desired, current)
+    ranks = _relative_positions(desired, current, _unordered_kinds(desired, allowlist))
     for handle, item in after.items():
         other = before.get(handle)
         if other is None:
@@ -554,7 +582,8 @@ def diff(desired: Mapping[str, Any], current: Mapping[str, Any]) -> Diff:
             if key not in other["fields"]:
                 changes.append(Change("add", handle, key, None, item["fields"][key]))
             elif key not in item["fields"]:
-                changes.append(Change("remove", handle, key, other["fields"][key], None))
+                if other["fields"][key] is not None:
+                    changes.append(Change("remove", handle, key, other["fields"][key], None))
             elif other["fields"][key] != item["fields"][key]:
                 changes.append(Change("change", handle, key, other["fields"][key], item["fields"][key]))
     for handle, item in before.items():
@@ -598,7 +627,7 @@ class Step:
         }
 
 
-def plan_steps(desired: Mapping[str, Any], current: Mapping[str, Any]) -> list[Step]:
+def plan_steps(desired: Mapping[str, Any], current: Mapping[str, Any], *, allowlist: Allowlist | None = None) -> list[Step]:
     """The ordered create and update steps that take `current` to `desired`.
 
     Order is the desired blueprint's: each object in section order and position, so a
@@ -607,7 +636,7 @@ def plan_steps(desired: Mapping[str, Any], current: Mapping[str, Any]) -> list[S
     channel). Removes are not steps: an apply never deletes, and what the target has
     beyond the blueprint is reported as extra.
     """
-    changed = diff(desired, current)
+    changed = diff(desired, current, allowlist=allowlist)
     by_handle: dict[str, list[Change]] = {}
     for change in changed.pending:
         by_handle.setdefault(change.handle, []).append(change)
@@ -656,7 +685,9 @@ def new_apply_id() -> str:
 @dataclass
 class Remap:
     """Handle -> target rid as the apply mints them, and source rid -> target rid for
-    the archive's `remaps` rows. Seeded with what the target already had."""
+    the archive's `remaps` rows. Seeded with what the target already had. `by_source`
+    holds rids alone; a handle with no source rid still lands a `remaps` row, keyed by
+    that handle."""
 
     apply_id: str
     blueprint_hash: str
@@ -740,8 +771,14 @@ def _require_human(approval: Approval | None, target: Target) -> None:
         )
 
 
-def _write_remap(archive: Archive | None, remap: Remap, identity: Identity, source_rid: str | None, target_rid: str) -> None:
-    """One row per minted id, its own transaction, so a failing next step loses nothing."""
+def _write_remap(archive: Archive | None, remap: Remap, identity: Identity, handle: str, source_rid: str | None, target_rid: str) -> None:
+    """One row per minted id, its own transaction, so a failing next step loses nothing.
+
+    A blueprint written by hand carries no source rid, and the object it describes is
+    exactly the one the apply had to make: the row is keyed by its handle instead, so the
+    minted id is in the remap rather than nowhere. A handle (`topic:campaign-4-5`) is
+    visibly not a rid and cannot parse as one, so nothing can mistake the two."""
+    source_rid = source_rid or handle
     if archive is None or not source_rid:
         return
     archive._begin()
@@ -786,14 +823,14 @@ async def apply(
 
     current = (await export(port, target, allowlist)).blueprint
     remap.record(blueprint["container"]["handle"], blueprint["container"].get("source_rid"), target.rid)
-    _write_remap(archive, remap, identity, blueprint["container"].get("source_rid"), target.rid)
+    _write_remap(archive, remap, identity, blueprint["container"]["handle"], blueprint["container"].get("source_rid"), target.rid)
     existing = _objects_by_handle(current)
     for item in blueprint["objects"]:
         if item["handle"] in existing:
             remap.record(item["handle"], item.get("source_rid"), existing[item["handle"]]["source_rid"])
-            _write_remap(archive, remap, identity, item.get("source_rid"), existing[item["handle"]]["source_rid"])
+            _write_remap(archive, remap, identity, item["handle"], item.get("source_rid"), existing[item["handle"]]["source_rid"])
 
-    steps = plan_steps(blueprint, current)
+    steps = plan_steps(blueprint, current, allowlist=allowlist)
     made: list[Step] = []
     failed: Step | None = None
     error: str | None = None
@@ -809,12 +846,12 @@ async def apply(
             break
         made.append(step)
         remap.record(step.handle, step.source_rid, target_rid)
-        _write_remap(archive, remap, identity, step.source_rid, target_rid)
+        _write_remap(archive, remap, identity, step.handle, step.source_rid, target_rid)
 
     readback: Diff | None = None
     if failed is None:
         try:
-            readback = diff(blueprint, (await export(port, target, allowlist)).blueprint)
+            readback = diff(blueprint, (await export(port, target, allowlist)).blueprint, allowlist=allowlist)
         except Exception as exc:  # noqa: BLE001 - an unreadable target is an unverified write, never ok
             error = f"readback: {type(exc).__name__}: {exc}"
     return ApplyReport(apply_id, remap.blueprint_hash, target, tuple(steps), tuple(made), failed, error, remap, readback)
@@ -833,15 +870,24 @@ def remap_table(archive: Archive, apply_id: str) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def _is_rid(value: object) -> bool:
+    try:
+        parse_rid(value)  # type: ignore[arg-type]
+    except RidError:
+        return False
+    return True
+
+
 def remap_queries(connection: sqlite3.Connection) -> list[str]:
     """Every way `remaps` rows disagree with section 12; run with the archive's conformance queries."""
     failures: list[str] = []
-    for column in ("source_rid", "target_rid"):
-        for (value,) in connection.execute(f"SELECT DISTINCT {column} FROM remaps"):
-            try:
-                parse_rid(value)
-            except RidError:
-                failures.append(f"remaps.{column} holds {value!r}, which is not a rid")
+    for (value,) in connection.execute("SELECT DISTINCT source_rid FROM remaps"):
+        # A row for an object the blueprint had no source rid for is keyed by its handle.
+        if not _is_rid(value) and _HANDLE.match(value) is None:
+            failures.append(f"remaps.source_rid holds {value!r}, which is neither a rid nor a handle")
+    for (value,) in connection.execute("SELECT DISTINCT target_rid FROM remaps"):
+        if not _is_rid(value):
+            failures.append(f"remaps.target_rid holds {value!r}, which is not a rid")
     short = connection.execute("SELECT COUNT(*) FROM remaps WHERE length(blueprint_hash) != 16").fetchone()[0]
     if short:
         failures.append(f"{short} remaps rows carry a blueprint hash that is not 16 characters")

@@ -98,6 +98,59 @@ def test_p6_export_apply_to_an_empty_server_export_is_byte_identical_after_norma
     assert "dc:guild:10" in stderr
 
 
+
+@needs_archive
+def test_p6_the_remap_names_the_channel_the_apply_made_from_a_hand_written_entry(monkeypatch, tmp_path):
+    """A blueprint entry written by hand carries no source rid, and the object it describes
+    is exactly the one the apply had to make: its minted id belongs in that apply's remap,
+    keyed by the handle, or the only record of what was created is nowhere."""
+    client = agency_client()
+    path = str(tmp_path / "agency.json")
+    original, _stderr = exported(client, 10, path)
+    blueprint = loads(open(original["result"]["path"]).read())
+    blueprint["objects"].append(
+        {
+            "handle": "channel:campaign-4-5-rerun",
+            "kind": "channel",
+            "source_rid": None,
+            "position": 9,
+            "fields": {
+                "bitrate": None,
+                "default_reaction": None,
+                "name": "campaign-4-5-rerun",
+                "nsfw": False,
+                "overwrites": {},
+                "parent": None,
+                "slowmode": 0,
+                "tags": [],
+                "topic": None,
+                "type": "text",
+                "user_limit": None,
+            },
+        }
+    )
+    hand_written = tmp_path / "campaign.json"
+    hand_written.write_text(dumps(blueprint))
+
+    say_name(monkeypatch, "Copy")
+    code, body, _stderr = go(["--json", "structure", "apply", "--blueprint", str(hand_written), "--target", "20", "--execute"], client)
+    assert (code, body["result"]["status"]) == (0, "ok"), body
+    assert "channel:campaign-4-5-rerun" in [step["handle"] for step in body["result"]["made"]]
+    minted = body["result"]["remap"]["handles"]["channel:campaign-4-5-rerun"]
+    assert minted.startswith("dc:channel:")
+
+    code, remap, _stderr = go(["--json", "structure", "remap", "--apply-id", body["result"]["apply_id"]], object())
+    assert (code, remap["status"]) == (0, "ok")
+    rows = {row["source_rid"]: row["target_rid"] for row in remap["result"]["rows"]}
+    assert rows.get("channel:campaign-4-5-rerun") == minted, "the one object the apply made is in its own remap"
+
+    args = build_parser().parse_args(["structure", "remap", "--apply-id", body["result"]["apply_id"]])
+    out = Run(command_name(args), echoed_args(args), json=False, stdout=io.StringIO(), stderr=io.StringIO(), isatty=True, presents=True)
+    assert asyncio.run(run(args, client=object(), config=CONFIG, out=out)) == 0
+    printed = out.stdout.getvalue() + out.stderr.getvalue()
+    assert f"{'channel:campaign-4-5-rerun':32}  {minted}" in printed, printed
+
+
 # -- 2. nothing outside the allowlist, no token, member or message ------------------
 
 

@@ -177,6 +177,12 @@ async def _call(args, *, session, runner, write) -> int | None:
         return await runner(args, client=client, config=config)
     except MENU_ERRORS as exc:
         write(f"error: {exc}")
+        # The hint is the way out, and the menu has no envelope to carry it:
+        # printed under the message, bare, the way Run.finish prints it on the
+        # CLI. A TargetError holds its own; a CodedError holds its Error's.
+        hint = getattr(exc, "hint", None) or getattr(getattr(exc, "error", None), "hint", None)
+        if hint:
+            write(hint)
         return None
 
 

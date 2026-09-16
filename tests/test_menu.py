@@ -406,6 +406,21 @@ def test_switch_profile_keeps_the_old_one_when_the_new_has_no_token(monkeypatch)
     assert session._client is client
 
 
+def test_a_refusals_hint_lands_under_its_message_on_the_menu():
+    # The menu has no envelope to read a hint from, so the way out is printed
+    # on its own line under the message, as the CLI already does.
+    from discord_tools.adapters.targets import TargetError
+
+    async def refusing_runner(args, *, client=None, config=None):
+        raise TargetError("TARGET_NOT_FOUND", "No channel 907 in Hermes.", hint="Run `discord-tools discover` to list them.")
+
+    code, _calls, output = drive([DISCOVER, "1", "1", "", "0"], runner=refusing_runner)
+    assert code == 0
+    lines = screens(output).splitlines()
+    at = lines.index("error: No channel 907 in Hermes.")
+    assert lines[at + 1] == "Run `discord-tools discover` to list them."
+
+
 def test_runner_errors_keep_the_menu_alive():
     async def failing_runner(args, *, client=None, config=None):
         raise ValueError("boom")

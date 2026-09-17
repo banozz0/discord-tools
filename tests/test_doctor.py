@@ -225,7 +225,7 @@ def test_an_unrecorded_profile_warns_and_names_the_fix(home_is_a_tmp_dir):
 
     check = check_profile_record(Config(token="a.b.c", profile="harry"))
     assert check.status == "WARN"
-    assert "auth --profile harry" in check.message
+    assert "--profile harry auth" in check.message
 
 
 def test_an_environment_token_has_no_profile_record_to_report(home_is_a_tmp_dir):

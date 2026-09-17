@@ -4169,6 +4169,8 @@ async def _run_message_repost(client, args, config, out, *, copy: bool) -> Outco
         detail.append(f"Mentions {', '.join(mentions) or 'none'}")
         detail.append("Posted as:")
         detail.extend(bodies)
+        if any("<t:" in body for body in bodies):
+            detail.append(message_ops.TIME_TAG_NOTE)
     else:
         detail.append("With Discord's own forward header; attachments travel with it.")
     preview = "\n".join(

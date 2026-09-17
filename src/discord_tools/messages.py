@@ -25,12 +25,16 @@ from discord_tools._core.contract import Error
 from discord_tools._core.identity import Target
 from discord_tools._core.plan import BULK_DEFAULT_LIMIT, BULK_HARD_LIMIT
 from discord_tools.models import ChannelInfo, MessageInfo
+from discord_tools.records import discord_time_tag, shown_time
 from discord_tools.search import ELLIPSIS, preview
 
 RULE = "--------------------------------------------"
 # Discord's own ceiling on a message body. A copy that would cross it is
 # refused before the preview rather than cut in half by the API.
 MESSAGE_MAX_CHARS = 2000
+# Said under a copy's "Posted as:" whenever the body carries a time tag, which
+# the preview can only show raw.
+TIME_TAG_NOTE = "Discord shows each <t:…> time in the reader's own time zone."
 # Every hit a delete selection lists in its preview; the rest is a count.
 PREVIEW_ROWS = 20
 # How far an archive selection is counted before it is refused: past the hard
@@ -54,7 +58,7 @@ def platform_unsupported(verb: str) -> Error:
 
 def message_line(message: MessageInfo, width: int = 70) -> str:
     """One message as a preview row: who, when, and the start of the text."""
-    when = (message.date or "")[:16].replace("T", " ")
+    when = shown_time(message.date)
     body = preview(message.text, width) if message.text else ("[media]" if message.attachments else "(no text)")
     return f"{message.id}  {when}  {message.author_name or message.author_id or '?'}: {body}"
 
@@ -71,7 +75,7 @@ def format_message_preview(
     lines = [f"Acting as {acting_as}", RULE, f"{action} in {target.display} ({message.channel_id})", RULE]
     lines.append(f"Message {message.id} by {message.author_name or message.author_id or '?'}")
     if message.date:
-        lines.append(f"Sent     {message.date[:19].replace('T', ' ')}")
+        lines.append(f"Sent     {shown_time(message.date, seconds=True)}")
     if message.pinned:
         lines.append("Pinned   yes")
     lines.append(message.text if message.text else "(no text)")
@@ -106,13 +110,15 @@ def format_selection_preview(target: Target, messages: Sequence[MessageInfo], *,
 def copy_text(message: MessageInfo, source: ChannelInfo) -> str:
     """The body a copy posts: the text, an attribution line, the attachment URLs.
 
-    Attachment bytes are never fetched — the destination gets the links
-    Discord already serves, and whether they are still valid is Discord's to
-    say. The whole thing has to fit Discord's message limit, and a copy that
+    The attribution's time is a Discord time tag, not a written-out time: the
+    copy is read in Discord by people on other clocks, and each of them sees
+    the tag in their own zone. Attachment bytes are never fetched — the
+    destination gets the links Discord already serves, and whether they are
+    still valid is Discord's to say. The whole thing has to fit Discord's message limit, and a copy that
     would not is refused here rather than cut by the API.
     """
     who = message.author_name or (str(message.author_id) if message.author_id else "unknown")
-    when = (message.date or "")[:16].replace("T", " ")
+    when = discord_time_tag(message.date)
     attribution = f"— {who} in #{source.name}" + (f", {when}" if when else "")
     if message.jump_url:
         attribution += f" · {message.jump_url}"

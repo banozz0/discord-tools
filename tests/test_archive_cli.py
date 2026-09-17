@@ -378,6 +378,16 @@ def test_an_archived_message_with_an_attachment_prints_media(home_is_a_tmp_dir, 
     assert not typed.endswith(" [media]")
 
 
+def test_an_archived_row_and_its_neighbours_say_their_time_is_utc(home_is_a_tmp_dir, capsys):
+    synced(home_is_a_tmp_dir)
+    capsys.readouterr()
+    go(["archive", "search", "--query", "queued", "--context", "1"])
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()[:1].isdigit()]
+    assert "2  2026-09-27 12:00 UTC  general  Dobby: deploy «queued»" in lines
+    assert "    1  2026-09-08 12:00 UTC  hello there" in lines
+    assert "    3  2026-09-28 12:00 UTC  deploy done" in lines
+
+
 def test_an_archived_row_and_a_live_row_for_one_message_agree_about_media(home_is_a_tmp_dir, capsys):
     from discord_tools.records import message_to_record
     from discord_tools.search import format_message_records

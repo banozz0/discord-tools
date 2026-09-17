@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from discord_tools.records import message_date, message_matches_filters, message_to_record, parse_date_bound
+from discord_tools.records import (
+    TIME_WIDTH,
+    message_date,
+    message_matches_filters,
+    message_to_record,
+    parse_date_bound,
+    shown_time,
+)
 
 
 async def search_messages(
@@ -72,13 +79,13 @@ def format_message_records(records: list[dict[str, Any]]) -> str:
     lines = []
     cut = False
     for record in records:
-        stamp = (record["date"] or "")[:16].replace("T", " ")
+        stamp = shown_time(record["date"])
         # Outside the preview, so a long body can never push it off the row.
         media = " [media]" if record["has_media"] else ""
         author = record["author_name"] or record["author_id"] or "?"
         body = preview(record["text"])
         cut = cut or body.endswith(ELLIPSIS)
-        lines.append(f"{record['id']}  {stamp:<16}  {author}: {body}{media}")
+        lines.append(f"{record['id']}  {stamp:<{TIME_WIDTH}}  {author}: {body}{media}")
     lines.append(f"{len(records)} message(s)")
     if cut:
         # Said once, and only when something really was cut: a table that hides

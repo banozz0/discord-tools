@@ -355,6 +355,11 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
   archive says what it carried the way it does read live. Not the same number as
   `result.hits[].media`, which counts the files this archive actually holds for
   the message — zero until they are approved through `review`.
+- **A time on a printed row or preview is UTC and says so**
+  (`2026-09-17 07:07 UTC`); convert it before telling the user a local time.
+  `--format json` carries the ISO string. `search` and `archive` read a bare
+  `--since`/`--until` time as UTC too. A `copy`'s attribution carries a
+  Discord time tag (`<t:…:f>`), which Discord draws in each reader's own zone.
 - **Empty text on every message = the message-content intent is off.** That is
   a portal setting, not a bug here. `doctor` names it; the fix is in the
   Developer Portal (Bot → Message Content Intent), which only the user can do.

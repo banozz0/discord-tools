@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+<!-- For the release commit that renames this heading: the fixers of the
+     2026-09-17 wave suggest skill/SKILL.md's own version goes to 1.16.0.
+     Nothing in this wave bumped a version; one commit does all of them. -->
+
 A live run through the whole menu on 2026-09-17 found what the suite could
 not: rows that did not say what a message was, times with no zone, writes that
 ended in a block of JSON, two crashes behind an empty selection, and a handful

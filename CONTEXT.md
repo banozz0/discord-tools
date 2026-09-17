@@ -169,11 +169,12 @@ The terms this codebase uses, and the boundaries they imply.
   only; nothing on Discord changes.
 - **Budget** — `~/.discord-tools/config.json`, the core's three ceilings.
   `DISK_BUDGET` fires before the batch that would cross one is written.
-- **Transcript** — `docs/transcripts/discord-tools-<version>-menu.ansi` and
-  its stripped siblings: a real session through the real menu against the
-  canned client, recorded by `scripts/record_menu.py --write` and replayed by
-  the site. `tests/test_transcripts.py` fails when it no longer matches the
-  menu it claims to show.
+- **Transcript** — `docs/transcripts/discord-tools-menu.ansi` and its
+  stripped siblings: a real session through the real menu against the canned
+  client, recorded by `scripts/record_menu.py --write` and replayed by the
+  site. Named for the menu, never for the release, so a version bump re-records
+  nothing. `tests/test_transcripts.py` fails when it no longer matches the menu
+  it claims to show.
 
 - **Message verb** — one of `message <verb>` (`cli.py::MESSAGE_VERBS`,
   `messages.py`): a write over a message a channel already holds. Every one

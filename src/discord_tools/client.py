@@ -20,6 +20,7 @@ from discord_tools.models import (
     ServerInfo,
     ThreadInfo,
 )
+from discord_tools.records import message_to_record
 
 
 class ClientError(RuntimeError):
@@ -119,6 +120,18 @@ def _message_info(message: Any, channel_id: int) -> MessageInfo:
         ),
         jump_url=str(getattr(message, "jump_url", "") or ""),
     )
+
+
+def _pin_dict(message: Any, channel_id: int) -> dict[str, Any]:
+    """One pinned message in the row shape a search prints, and when it was pinned.
+
+    `pinned_at` is None on discord.py 2.4 and 2.5, which never learned it.
+    """
+    pinned_at = getattr(message, "pinned_at", None)
+    return {
+        **message_to_record(message, channel_id=channel_id),
+        "pinned_at": pinned_at.isoformat() if pinned_at is not None else None,
+    }
 
 
 def _enum_name(value: Any) -> str | None:
@@ -650,6 +663,33 @@ class DiscordClient:
     async def unpin_message(self, channel_id: int, message_id: int, *, reason: str | None = None) -> None:
         message = await self._fetch_message(channel_id, message_id)
         await message.unpin(reason=reason)
+
+    async def list_pins(self, channel_id: int) -> list[dict[str, Any]]:
+        """Every message pinned in a channel or thread, newest pin first.
+
+        Needs View Channel and Read Message History; Discord's own docs say a
+        caller missing the second gets no pins rather than a refusal, which is
+        why the command preflights both. discord.py 2.6 made `pins()` a
+        paginated iterator that stops at 50 unless told otherwise, so the walk
+        asks for every page; 2.4 and 2.5 await the deprecated endpoint's one
+        list of the first 50.
+        """
+        channel = await self._fetch_channel(channel_id)
+        if not hasattr(channel, "pins"):
+            raise ClientError(f"Channel {channel_id} ({_channel_type_name(channel)}) holds no pinned messages.")
+        try:
+            try:
+                pages = channel.pins(limit=None)
+            except TypeError:
+                messages = await channel.pins()
+            else:
+                messages = [message async for message in pages]
+        except discord.Forbidden as exc:
+            raise PermissionError(
+                f"Discord refused the pins of channel {channel_id}: reading them needs View Channel "
+                "and Read Message History."
+            ) from exc
+        return [_pin_dict(message, channel_id) for message in messages]
 
     async def send_poll(
         self,

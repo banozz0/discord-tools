@@ -70,6 +70,10 @@ REQUIRED_RIGHTS = {
     "message-poll": ("send_messages", "send_polls"),
     "message-typing": ("send_messages",),
     "message-bookmark": (),
+    # Listing pins is a read that still needs both history rights: Discord
+    # answers a bot missing Read Message History with no pins rather than a
+    # refusal, so preflight is what keeps "none pinned" from being a guess.
+    "message-pins": ("read_messages", "read_message_history"),
     # Roles and overwrites. Listing roles and reading overwrites need no right:
     # Discord shows both to every member. The writes need Manage Roles, and
     # then pass two checks a held right does not settle (roles.hierarchy,

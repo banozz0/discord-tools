@@ -342,6 +342,21 @@ class FakeClient:
         self.reasons.append(reason)
         self.messages[(channel_id, message_id)] = replace(current, pinned=False)
 
+    async def list_pins(self, channel_id):
+        """The history rows a test marked `pinned`, newest pin first, in the seam's row shape."""
+        from discord_tools.records import message_to_record
+
+        self.pin_reads = [*getattr(self, "pin_reads", []), channel_id]
+        pinned = [row for row in self.history.get(channel_id, []) if getattr(row, "pinned", False)]
+        pinned.sort(key=lambda row: row.pinned_at.timestamp() if getattr(row, "pinned_at", None) else 0, reverse=True)
+        return [
+            {
+                **message_to_record(row, channel_id=channel_id),
+                "pinned_at": row.pinned_at.isoformat() if getattr(row, "pinned_at", None) else None,
+            }
+            for row in pinned
+        ]
+
     async def send_poll(self, channel_id, question, options, *, hours, multiple=False):
         self.next_id += 1
         self.polls.append(

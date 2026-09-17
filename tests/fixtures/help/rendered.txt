@@ -40,7 +40,7 @@ positional arguments:
                         edit, delete
     channel             A channel's own settings: name, topic, age gate, slow mode, position
     message             Act on messages a channel holds: reply, edit, delete, forward, copy,
-                        react, pin, poll, typing, bookmark
+                        react, pin, list pins, poll, typing, bookmark
     watch               Rules and the runner: watch a server live and act on what happens (macOS
                         and Linux)
     schedule            Runner-held scheduled posts: they fire only while `watch run` is up on
@@ -416,10 +416,10 @@ options:
 discord-tools message --help
 ========================================================================
 usage: discord-tools message [-h]
-                             {reply,edit,delete,forward,copy,react,unreact,pin,unpin,poll,typing,bookmark,read,unread,draft} ...
+                             {reply,edit,delete,forward,copy,react,unreact,pin,unpin,pins,poll,typing,bookmark,read,unread,draft} ...
 
 positional arguments:
-  {reply,edit,delete,forward,copy,react,unreact,pin,unpin,poll,typing,bookmark,read,unread,draft}
+  {reply,edit,delete,forward,copy,react,unreact,pin,unpin,pins,poll,typing,bookmark,read,unread,draft}
     reply               Reply to a message as the bot (a `send --reply-to`)
     edit                Edit one of the bot's own messages (Discord lets a bot edit no other)
     delete              Delete chosen messages in one channel (dry-run by default; bounded)
@@ -430,6 +430,8 @@ positional arguments:
     unreact             Remove the bot's own reaction from a message
     pin                 Pin a message (needs Pin Messages)
     unpin               Unpin a message (needs Pin Messages)
+    pins                List a channel's or thread's pinned messages, newest pin first (a read;
+                        needs Read Message History)
     poll                Post a poll
     typing              Show the bot typing in a channel for a few seconds
     bookmark            Keep a message as a local bookmark (Discord gives a bot no bookmark API)
@@ -579,6 +581,15 @@ options:
   --channel CHANNEL  Channel or thread ID the message is in
   --id MESSAGE_ID    Message ID
   --yes              Skip the confirmation prompt
+
+========================================================================
+discord-tools message pins --help
+========================================================================
+usage: discord-tools message pins [-h] --channel CHANNEL
+
+options:
+  -h, --help         show this help message and exit
+  --channel CHANNEL  Channel or thread ID whose pins to list
 
 ========================================================================
 discord-tools message poll --help

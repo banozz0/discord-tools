@@ -627,7 +627,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     message_parser = subparsers.add_parser(
         "message",
-        help="Act on messages a channel holds: reply, edit, delete, forward, copy, react, pin, poll, typing, bookmark",
+        help="Act on messages a channel holds: reply, edit, delete, forward, copy, react, pin, list pins, poll, typing, bookmark",
     )
     message_kinds = message_parser.add_subparsers(dest="message_kind")
 
@@ -705,6 +705,11 @@ def build_parser() -> argparse.ArgumentParser:
     channel_flag(unpin)
     id_flag(unpin)
     yes_flag(unpin, SKIPS)
+
+    pins = message_kinds.add_parser(
+        "pins", help="List a channel's or thread's pinned messages, newest pin first (a read; needs Read Message History)"
+    )
+    channel_flag(pins, "Channel or thread ID whose pins to list")
 
     poll = message_kinds.add_parser("poll", help="Post a poll")
     channel_flag(poll, "Channel or thread ID to post in")
@@ -3920,7 +3925,7 @@ async def _message_verified(client, channel_id: int, message_id: int, check) -> 
 async def _run_message(client, args, config, out) -> Outcome:
     verb = args.message_kind
     if verb is None:
-        raise ValueError("message needs a verb: reply, edit, delete, forward, copy, react, unreact, pin, unpin, poll, typing, bookmark.")
+        raise ValueError("message needs a verb: reply, edit, delete, forward, copy, react, unreact, pin, unpin, pins, poll, typing, bookmark.")
     if verb == "reply":
         args.reply_to = args.to
         return await _run_send(client, args, config, out)
@@ -4416,6 +4421,40 @@ async def _pin(client, args, config, out, *, pin: bool) -> Outcome:
     return Outcome(status="ok", target=target, plan=write.plan, result=result, evidence=evidence)
 
 
+async def _run_message_pins(client, args, config, out) -> Outcome:
+    """A channel's or thread's pinned messages, newest pin first: a read.
+
+    It preflights like a write because Discord answers a bot that cannot read
+    the history with no pins rather than a refusal, and "none pinned" would
+    then be a wrong answer instead of a missing right. Nothing changes, so no
+    plan rides on the outcome and nothing is audited.
+    """
+    resolver = DiscordTargetResolver(client)
+    target = await resolver.resolve(args.channel)
+    identity = await _identity(out, client, config)
+    write = await _plan(
+        client,
+        command=out.command,
+        identity=identity,
+        targets=(target,),
+        mutations=(),
+        approval="prompt_y",
+        rights=plans.REQUIRED_RIGHTS["message-pins"],
+    )
+    if write.refusal is not None:
+        return Outcome(status="refused", target=target, error=write.refusal)
+    out.say(plans.format_preflight(write.plan))
+    pins = await client.list_pins(args.channel)
+    out.say(message_ops.format_pins(pins, where=f"{target.display} ({args.channel})"))
+    for pin in pins:
+        out.record("pin", pin)
+    return Outcome(
+        status="ok" if pins else "empty",
+        target=target,
+        result={"pins": [] if out.jsonl else pins, "matched": len(pins)},
+    )
+
+
 async def _run_message_poll(client, args, config, out) -> Outcome:
     options = [option.strip() for option in args.options if option.strip()]
     if not POLL_OPTIONS[0] <= len(options) <= POLL_OPTIONS[1]:
@@ -4621,6 +4660,7 @@ MESSAGE_VERBS = {
     "unreact": _run_message_unreact,
     "pin": _run_message_pin,
     "unpin": _run_message_unpin,
+    "pins": _run_message_pins,
     "poll": _run_message_poll,
     "typing": _run_message_typing,
     "bookmark": _run_message_bookmark,
@@ -5332,13 +5372,14 @@ READING = {
 # Subcommands that sit in a write group and only read. `members` has always
 # listed without the private-store check, and `member list` is documented as
 # the same command by another name — an alias that refuses where its twin
-# works is not an alias. An invite listing and an audit listing change nothing
-# either. `role list` and `permission show` are the same shape and still pay
+# works is not an alias. An invite listing, an audit listing and a channel's
+# pins change nothing either. `role list` and `permission show` are the same shape and still pay
 # it; aligning them is a change to shipped behaviour and belongs to whoever
 # decides that, not to this card.
 READ_ONLY_IN_A_WRITE_GROUP = frozenset({
     "member list", "invite list", "audit-log list",
     "webhook list", "emoji list", "sticker list", "automod list",
+    "message pins",
 })
 
 WRITING = {

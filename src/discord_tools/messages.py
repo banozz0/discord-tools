@@ -124,6 +124,29 @@ def format_selection_preview(
     return "\n".join(lines)
 
 
+def format_pins(pins: Sequence[dict], *, where: str) -> str:
+    """A channel's pins as a table, one row each in the shape a search prints.
+
+    The rows arrive newest pin first, which is not the order they were sent
+    in, so the heading says which order it is. `--json` carries each whole
+    body and the time it was pinned.
+    """
+    if not pins:
+        return f"No pinned messages in {where}."
+    lines = [f"{len(pins)} pinned message(s) in {where}, newest pin first"]
+    cut = False
+    for pin in pins:
+        stamp = (pin.get("date") or "")[:16].replace("T", " ")
+        author = pin.get("author_name") or pin.get("author_id") or "?"
+        body = preview(pin.get("text") or "")
+        cut = cut or body.endswith(ELLIPSIS)
+        media = " [media]" if pin.get("has_media") else ""
+        lines.append(f"{pin['id']}  {stamp:<16}  {author}: {body}{media}")
+    if cut:
+        lines.append("Long bodies are cut to fit a row - --json carries them whole.")
+    return "\n".join(lines)
+
+
 # -- copy -----------------------------------------------------------------
 
 

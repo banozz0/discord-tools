@@ -50,7 +50,7 @@ scripts pass a subcommand.
 | `archive` | The local archive: `sync` fetches new history from everything the bot can read and resumes where it stopped; `status` shows scopes, rows and coverage; `search --query` is ranked full-text search with `--regex`, `--from`, `--since`, `--until`, `--context`; `export --format json/csv/jsonl/markdown/html --output` writes the same result; `retention --scope --keep 90d` and `forget --scope` prune it, dry-run by default and behind the scope's exact name. See [The archive](#the-archive) |
 | `review` | The review queue: attachments and links the archive saw, waiting. `list` shows them without contacting a host; `approve` asks y/N and fetches into quarantine (no `--yes`); `status` shows redirects, refreshes, sha256 and the verdict; `accept` shows the verdict and asks before moving a file into `media/`; `reject` deletes the bytes; `retry` resumes a failed fetch. See [The review queue](#the-review-queue) |
 | `send` | Posts as the bot after a full-message preview + y/N; `--yes` skips the prompt only for channels in `DISCORD_SEND_ALLOWLIST`. `--reply-to <message id>` answers a message; `--mention users/roles/everyone` lets it ping (nobody by default, and `everyone` always asks); `--at <time>` makes the same runner-held schedule `schedule post --at` does |
-| `message` | What you do to a message once it exists: `reply`, `edit` (the bot's own only), `delete` (dry-run, then `--execute` + typed `DELETE`, bounded by `--limit`), `forward`, `copy`, `react`/`unreact`, `pin`/`unpin`, `poll`, `typing`, `bookmark` (local). Each shows the channel and the message first. `read`, `unread` and `draft` say a bot cannot. See [Message operations](#message-operations) |
+| `message` | What you do to a message once it exists: `reply`, `edit` (the bot's own only), `delete` (dry-run, then `--execute` + typed `DELETE`, bounded by `--limit`), `forward`, `copy`, `react`/`unreact`, `pin`/`unpin`, `pins` (list what a channel holds pinned), `poll`, `typing`, `bookmark` (local). Each shows the channel and the message first. `read`, `unread` and `draft` say a bot cannot. See [Message operations](#message-operations) |
 | `create` | `channel` (`--type text/news/voice/stage_voice/forum/media`) / `category` / `thread` (`--private`), each behind a confirmation. Every type `delete` can remove, `create` can make again |
 | `structure` | Structure blueprints: `export --target <server id> --output <file>` writes a server's roles, categories, channels, overwrites, forum tags, AutoMod rules and settings as one deterministic file (never members, messages, webhooks, invites, bans or emoji); `diff` compares it with a server; `apply` dry-runs, and for real takes `--execute` **and** the server's exact name typed back, creates and edits with new IDs and never deletes; `remap --apply-id` prints the ID table. See [Structure blueprints](#structure-blueprints) |
 | `role` | `list --server <id>` (highest first, the bot's own marked); `create`, `edit` (name, colour, hoist, mentionable, the whole permission set as names) behind a preview + y/N; `delete` dry-runs, and for real takes `--execute` **and** the role's exact name, no `--yes`. Anything touching Administrator is typed too. Every write preflights Manage Roles, refuses `HIERARCHY_DENIED` where the bot's top role cannot reach, and never grants a right the bot lacks. See [Roles and permissions](#roles-and-permissions) |
@@ -118,7 +118,8 @@ with something typed in it — a message, search filters, bot edits — asks fir
 Every flag has a row: `members`, `doctor --channel`, `bot --invite`, `bot --json`, a
 manual category ID for `create channel`, the four archive rows under *Read* (sync,
 search and export, status, prune), the message verbs under *Write* (send with a
-mentions row, reply, edit, delete, forward, copy, react, pin, poll, typing, bookmark),
+mentions row, reply, edit, delete, forward, copy, react, pin, poll, typing, bookmark,
+the bookmark list and a channel's pinned messages),
 the review queue under *Watch* (what is waiting, approve and fetch, accept, reject,
 status, retry) beside its four groups (the six rule rows, the four runner rows, the
 three scheduled-post rows and the four scheduled-event rows, each naming which
@@ -248,6 +249,7 @@ discord-tools message reply --channel 1394... --to 1394829911100 --text "on it"
 discord-tools message edit --channel 1394... --id 1394829911101 --text "on it (done)"
 discord-tools message react --channel 1394... --id 1394829911100 --emoji 👍
 discord-tools message pin --channel 1394... --id 1394829911100
+discord-tools message pins --channel 1394...
 discord-tools message forward --channel 1394... --ids 1394829911100 --to 1394827364598
 discord-tools message copy --channel 1394... --ids 1394829911100 --to 1394827364598
 discord-tools message forward --channel 1394... --from-search "release notes" --to 1394827364598
@@ -294,6 +296,12 @@ archive search that matches nothing is refused as "Nothing to forward" or
 Discord before the preview, so what you see is what lands. `pin` and `unpin`
 need the *Pin Messages* right (Discord split it out of Manage Messages in
 2025; the preflight names the one it checks).
+**`pins`** lists what a channel or thread holds pinned, newest pin first:
+id, when it was sent, who wrote it and the text, with `--json` adding when
+each was pinned. It only reads — no prompt, no plan, no audit line — but it
+still checks *Read Message History* first, because Discord answers a bot
+without it with no pins rather than a refusal, and "nothing pinned" would be
+a wrong answer.
 
 **`bookmark` is local.** Discord gives a bot no bookmark or draft API, so a
 bookmark is a row in `~/.discord-tools/archive.sqlite`, listed with
@@ -305,11 +313,11 @@ say why: read state belongs to a user account, and drafts live in the client.
 post into a channel, so their `--yes` works like `send --yes`: only for a
 destination in `DISCORD_SEND_ALLOWLIST`. `edit`, `react`, `pin`, `typing` and
 `bookmark` change something already there, and their `--yes` skips the prompt
-the way `create --yes` does. Every verb builds a plan, names the permission it
-needs and holds, re-checks the target after you answer, reads the result back
-and writes an audit line. Once it is done, it says so in one sentence, as
-`send` does — `Sent message 1394829911102 to #general (1394...).` — and the
-full result is in the `--json` envelope.
+the way `create --yes` does. Every verb that changes something builds a plan,
+names the permission it needs and holds, re-checks the target after you answer,
+reads the result back and writes an audit line. Once it is done, it says so in
+one sentence, as `send` does — `Sent message 1394829911102 to #general
+(1394...).` — and the full result is in the `--json` envelope.
 
 ## The review queue
 

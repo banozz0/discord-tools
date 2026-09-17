@@ -387,6 +387,12 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
   200, and `--limit` past 1000 needs `--i-know`, which a user passes, not an
   agent. Every selected message is fetched from Discord, so the preview under
   `--yes` reflects the channel now, not the archive.
+- **`message delete` asks for `manage_messages` only when it needs it.** A
+  selection of nothing but the bot's own messages dry-runs without the right
+  and, when the user runs it, deletes one by one (Discord's bulk delete wants
+  the right even for those). One message by anybody else and the dry-run is
+  `PERMISSION_DENIED` naming the right and that message: relay it, or narrow
+  the selection to the bot's own. `clear-messages` always needs the right.
 - **`PLATFORM_UNSUPPORTED` on a message verb is the answer, not a bug.**
   `message read`, `unread` and `draft` cannot be done by a Discord bot; the
   error says why (read state belongs to a user account; drafts live in the

@@ -270,7 +270,11 @@ the 14-day bulk window; deleting for real takes `--execute` **and** typing
 `DELETE`, and there is no `--yes`. One run never deletes more than `--limit`
 (200): a bigger selection is refused with `BULK_LIMIT` rather than trimmed to
 its first rows, and a limit above 1000 needs `--i-know` and then the exact
-count typed back after `DELETE`.
+count typed back after `DELETE`. It needs *Manage Messages* only when the
+selection holds someone else's message, the way Discord does: the bot's own
+messages go without it, one by one, because Discord's bulk delete wants the
+right even for those. One message by anybody else and the dry-run refuses,
+naming the right and that message.
 
 **`forward` is Discord's forward**, header and attachments included. **`copy`**
 re-posts the text with an attribution line — who, in which channel, when, and

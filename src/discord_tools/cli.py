@@ -4021,6 +4021,21 @@ def _select_messages(args, target, *, verb: str) -> _Selection | Error:
     return _Selection(ids, [], "--ids")
 
 
+async def _first_not_the_bots(client, channel_id: int, ids: list[int], fetched, bot_id: int) -> MessageInfo | None:
+    """The first selected message someone other than the bot wrote, read from Discord.
+
+    Every id is answered by Discord, never by an archive row, and a message
+    the preview already fetched is not fetched twice. A message that cannot
+    be read refuses the way the preview's own fetch does.
+    """
+    known = {message.id: message for message in fetched}
+    for message_id in ids:
+        message = known.get(message_id) or await client.get_message(channel_id, message_id)
+        if message.author_id != bot_id:
+            return message
+    return None
+
+
 async def _run_message_delete(client, args, config, out) -> Outcome:
     resolver = DiscordTargetResolver(client)
     target = await resolver.resolve(args.channel)
@@ -4039,6 +4054,10 @@ async def _run_message_delete(client, args, config, out) -> Outcome:
         listed = [await client.get_message(args.channel, message_id) for message_id in ids[: message_ops.PREVIEW_ROWS]]
     bulk, single = split_bulk_window(ids)
     gate_kind = "typed_delete"
+    # Discord wants manage_messages for anybody else's message and nothing for
+    # the bot's own - on the one-at-a-time endpoint. Without the right, a
+    # selection that is all the bot's own is deleted that way, whatever its age.
+    own_only = False
 
     async def build():
         return await _plan(
@@ -4054,10 +4073,29 @@ async def _run_message_delete(client, args, config, out) -> Outcome:
                 ),
             ),
             approval=gate_kind,
-            rights=plans.REQUIRED_RIGHTS["message-delete"],
+            rights=plans.REQUIRED_RIGHTS["message-delete-own" if own_only else "message-delete"],
         )
 
     write = await build()
+    if write.refusal is not None and ids:
+        stranger = await _first_not_the_bots(
+            client, args.channel, ids, [] if selected.hits else listed, int(_rid.parse(identity.id).id)
+        )
+        if stranger is not None:
+            error = write.refusal
+            refusal = Error(
+                code=error.code,
+                message=(
+                    f"{error.message.rstrip('.')}, and message {stranger.id} is by "
+                    f"{stranger.author_name or stranger.author_id}: without manage_messages "
+                    "Discord lets a bot delete only its own messages."
+                ),
+                hint=f"{error.hint} Or select only the bot's own messages.",
+            )
+            return Outcome(status="refused", target=target, plan=write.plan, error=refusal)
+        own_only = True
+        bulk, single = [], ids
+        write = await build()
     if write.refusal is not None:
         return Outcome(status="refused", target=target, plan=write.plan, error=write.refusal)
     result = {
@@ -4071,7 +4109,11 @@ async def _run_message_delete(client, args, config, out) -> Outcome:
         "cancelled": False,
     }
     out.say(plans.format_preflight(write.plan))
-    out.say(message_ops.format_selection_preview(target, listed, bulk=len(bulk), single=len(single), source=source))
+    out.say(
+        message_ops.format_selection_preview(
+            target, listed, bulk=len(bulk), single=len(single), source=source, own_only=own_only
+        )
+    )
     if not args.execute:
         out.say("Dry run: nothing deleted. Add --execute to delete these (you will type DELETE).")
         return Outcome(status="dry_run", target=target, plan=write.plan, result=result)
@@ -4085,7 +4127,17 @@ async def _run_message_delete(client, args, config, out) -> Outcome:
     if not message_ops.confirm_delete_messages(len(ids), write=out.say):
         result["cancelled"] = True
         return Outcome(status="cancelled", target=target, plan=write.plan, result=result)
-    await _drift_guard(out, write, build)()
+    # Preflight again, after the answer: a right lost while the typed word sat
+    # on screen refuses here, before the first delete, not as a 403 halfway.
+    rebuilt: list[plans.Write] = []
+
+    async def rederive():
+        rebuilt.append(await build())
+        return rebuilt[-1]
+
+    await _drift_guard(out, write, rederive)()
+    if rebuilt and rebuilt[-1].refusal is not None:
+        return Outcome(status="refused", target=target, plan=write.plan, error=rebuilt[-1].refusal)
 
     deleted, error = await delete_message_ids(
         client, args.channel, ids, bulk, single, progress=out.say, sleep=asyncio.sleep, reason=write.reason

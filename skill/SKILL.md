@@ -502,9 +502,11 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
   lists active threads under their parent channel. Archived threads are not
   listed but still work by ID.
 - **`--json` after a subcommand still means a file.** `discover --json out.json`
-  and `bot --json out.json` write that file, as they always have. Bare
-  `discover --json` prints the envelope instead. The global flag goes *before*
-  the subcommand, beside `--profile`.
+  and `bot --json out.json` write that file, as they always have, and `~`
+  in the path is expanded. `discover` keeps stdout empty and says on stderr
+  where the file landed: `Wrote 2 server(s) to /abs/out.json (1102 bytes)`.
+  Bare `discover --json` prints the envelope instead. The global flag goes
+  *before* the subcommand, beside `--profile`.
 - **Every executed write is logged locally** to `~/.discord-tools/audit.jsonl`
   (mode 0600, secret-free): who acted, what was targeted, which gate, and what
   was read back. Discord's own audit log also records `cli-tools <command>

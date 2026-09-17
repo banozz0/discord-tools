@@ -877,10 +877,16 @@ def build_parser() -> argparse.ArgumentParser:
 # -- the shape of a run ---------------------------------------------------
 
 
-def _write_json(payload, path: str) -> None:
-    output = Path(path)
+def _write_json(payload, path: str) -> Path:
+    """Write `payload` to `path` and answer with where it landed.
+
+    `~` is expanded here because the menu has no shell to do it: typed there,
+    it would otherwise make a directory literally named `~`.
+    """
+    output = Path(path).expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json_text(payload) + "\n", encoding="utf-8")
+    return output
 
 
 async def _identity(run, client, config) -> Identity:
@@ -1072,7 +1078,10 @@ async def _run_profiles(args, out) -> int:
 async def _run_discover(client, args, out) -> Outcome:
     tree = await discover_servers(client, server_id=args.server)
     if args.json_output:
-        _write_json(tree, args.json_output)
+        written = _write_json(tree, args.json_output)
+        # stdout stays empty for the script that asked for a file; the person
+        # still needs to hear where it went, so the line goes beside it.
+        out.frame(f"Wrote {len(tree)} server(s) to {written} ({written.stat().st_size} bytes)")
     elif not out.machine:
         print(format_tree(tree))
     for server in tree:

@@ -415,7 +415,7 @@ async def _flow_discover(*, session, runner, read, write) -> bool:
 
             json_output = None
             if where == 1:
-                path = ask_text("JSON file path", read=read, write=write)
+                path = ask_text("JSON file path, e.g. ~/discord-ids.json", read=read, write=write)
                 if path is BACK:
                     # Cancelling the path steps back one screen, same as every
                     # other cancel -- not all the way out to the root menu.

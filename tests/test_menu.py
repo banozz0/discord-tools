@@ -1014,3 +1014,140 @@ def test_audit_log_flow_can_drop_the_time_limit():
     # A blank at the time prompt still steps back, and asks nothing to run.
     code, calls, _output = drive([AUDIT_LOG, "1", "2", "", "0", "0", "0"])
     assert calls == []
+
+
+# Watch › Rules and Watch › Scheduled events: the two forms where a field the
+# screen calls optional used to be answered with the same blank that cancels.
+RULES_ADD = ("7", "7", "2")
+EVENT_CREATE = ("7", "10", "2")
+
+
+def test_a_filter_left_out_does_not_throw_the_typed_rule_away():
+    # Live on 2026-09-17: five fields typed, a blank at "Only these senders"
+    # because the rule needed no sender, and the form restarted at "Rule name".
+    prompts: list[str] = []
+    code, calls, output = drive(
+        [
+            RULES_ADD,
+            "campaign-7",       # Rule name
+            "message",          # Fires on
+            "4",                # Actions: Bookmark it locally
+            "8",                # Actions: Done - that is the whole list
+            "2",                # Filter: Narrow it down
+            "1", "dc:channel:901",   # scopes
+            "4", "campaign 7",       # keywords
+            "6",                # Done - narrow it by these
+            "",                 # Done screen: Enter = main menu
+            "0", "0", "0", "0", "0", "0",
+        ],
+        prompts=prompts,
+    )
+    assert code == 0
+    assert len(calls) == 1, [args.rules_kind for args in calls]
+    args = calls[0]
+    assert (args.watch_kind, args.rules_kind, args.name, args.on) == ("rules", "add", "campaign-7", "message")
+    assert args.bookmark is True
+    assert args.scope == ["dc:channel:901"]
+    assert args.keyword == ["campaign", "7"]
+    # The three nobody filled in are simply not there, and nothing was re-asked.
+    assert (args.sender, args.domain, args.media_type) == (None, None, None)
+    assert len([prompt for prompt in prompts if prompt.startswith("Rule name")]) == 1
+    # No prompt asks a question whose blank answer would mean two things.
+    assert not any("Only these senders" in prompt for prompt in prompts)
+    assert "Main › Rules: write a new rule › campaign-7 › Narrow it down" in screens(output)
+
+
+def test_an_event_with_no_description_is_created_instead_of_restarting_the_form():
+    # Live on 2026-09-17: "What it is about (blank for none) (blank cancels)" —
+    # the blank the label invites cancelled, and the form restarted at the server.
+    prompts: list[str] = []
+    code, calls, _output = drive(
+        [
+            EVENT_CREATE,
+            "campaign 7 event",             # Event name
+            "2026-09-18T19:00:00+02:00",    # Starts
+            "3",                            # Where: somewhere else
+            "a place in words",             # Where (in words)
+            "2026-09-18T20:00:00+02:00",    # Ends
+            "1",                            # What it is about: No description
+            "",                             # Done screen: Enter = main menu
+            "0", "0", "0", "0", "0", "0",
+        ],
+        prompts=prompts,
+    )
+    assert code == 0
+    assert len(calls) == 1, [getattr(args, "event_kind", None) for args in calls]
+    args = calls[0]
+    assert (args.event_kind, args.name, args.description) == ("create", "campaign 7 event", None)
+    assert len([prompt for prompt in prompts if prompt.startswith("Event name")]) == 1
+    assert not any("blank for none" in prompt for prompt in prompts)
+
+
+def test_a_blank_at_a_filter_costs_that_field_and_nothing_else():
+    # Blank still cancels, as it does at every text prompt in this menu. What it
+    # can no longer cancel is the form: the scope typed before it is still there.
+    code, calls, output = drive(
+        [
+            RULES_ADD,
+            "campaign-7", "message", "4", "8",
+            "2",                     # Filter: Narrow it down
+            "1", "dc:channel:901",   # scopes
+            "2", "",                 # senders, then a blank
+            "6",                     # Done - narrow it by these
+            "", "0", "0", "0", "0", "0", "0",
+        ],
+    )
+    assert code == 0
+    assert len(calls) == 1
+    assert calls[0].scope == ["dc:channel:901"]
+    assert calls[0].sender is None
+    rows = [line for screen in output for line in screen.split("\n")]
+    assert "1. Only these scopes                 [dc:channel:901]" in rows, rows
+    assert "2. Only these senders                [anyone]" in rows, rows
+
+
+def test_leaving_a_filled_filter_form_asks_before_it_drops_it():
+    prompts: list[str] = []
+    code, calls, output = drive(
+        [
+            RULES_ADD,
+            "campaign-7", "message", "4", "8",
+            "2",                     # Filter: Narrow it down
+            "1", "dc:channel:901",   # scopes
+            "0",                     # out of the form
+            "1",                     # Keep editing
+            "6",                     # Done - narrow it by these
+            "", "0", "0", "0", "0", "0", "0",
+        ],
+        prompts=prompts,
+    )
+    assert code == 0
+    assert "Main › Rules: write a new rule › campaign-7 › Narrow it down › Unsent form" in [
+        screen.split("\n")[0] for screen in output
+    ]
+    assert len(calls) == 1
+    assert calls[0].scope == ["dc:channel:901"]
+
+
+def test_backing_out_of_the_filter_form_steps_back_one_screen_not_out_of_the_rule():
+    # 0 means one screen back everywhere else in this menu, so it means it here:
+    # the name, the event kind and the action typed before it are still the rule's.
+    prompts: list[str] = []
+    code, calls, _output = drive(
+        [
+            RULES_ADD,
+            "campaign-7", "message", "4", "8",
+            "2",                     # Filter: Narrow it down
+            "1", "dc:channel:901",   # scopes
+            "0", "0",                # out of the form, and discard it
+            "1",                     # Filter: No filter after all
+            "", "0", "0", "0", "0", "0", "0",
+        ],
+        prompts=prompts,
+    )
+    assert code == 0
+    assert len(calls) == 1
+    args = calls[0]
+    assert (args.name, args.on, args.bookmark) == ("campaign-7", "message", True)
+    assert args.scope is None
+    assert len([prompt for prompt in prompts if prompt.startswith("Rule name")]) == 1

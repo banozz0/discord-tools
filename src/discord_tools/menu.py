@@ -3454,34 +3454,83 @@ def _ask_actions(*, read, write, trail: str) -> Any:
         write(f"Added. A rule may do only these: {watch_rim.action_vocabulary()}.")
 
 
-def _ask_filters(*, read, write, trail: str) -> Any:
-    """The optional narrowing; a blank answer at any field means no constraint."""
-    fields = (
-        ("scope", "Only these scopes (RIDs, space-separated: dc:channel:123)"),
-        ("sender", "Only these senders (RIDs, space-separated: dc:user:123)"),
-        ("domain", "Only links on these domains (space-separated)"),
-        ("keyword", "Only text containing one of these words (space-separated)"),
-        ("media_type", "Only attachments of these MIME types (space-separated)"),
-    )
-    which = choose(
-        ["No filter - every event of those kinds", "Narrow it down"],
-        title=crumb(trail, "Filter"),
+# One filter each: the key the command takes, how its row reads, what the row
+# says when nobody filled it in, and the question behind it.
+_FILTER_ROWS = (
+    ("scope", "Only these scopes", "every scope", "Scopes (RIDs, space-separated: dc:channel:123)"),
+    ("sender", "Only these senders", "anyone", "Senders (RIDs, space-separated: dc:user:123)"),
+    ("domain", "Only links on these domains", "any domain", "Domains (space-separated)"),
+    ("keyword", "Only text containing one of these", "any text", "Words (space-separated)"),
+    ("media_type", "Only attachments of these types", "any attachment", "MIME types (space-separated)"),
+)
+
+
+def _filter_row(values: dict, key: str, label: str, empty: str) -> str:
+    return f"{label:<33} [{' '.join(values.get(key) or ()) or empty}]"
+
+
+def _ask_one_filter(values: dict, key: str, label: str, question: str, *, read, write, trail: str) -> Any:
+    """One filter, asked through keep/change/clear. Returns the words, [] to
+    empty it, or BACK to leave it as it was -- never the whole form."""
+    answer = edit_field(
+        crumb(trail, label),
+        " ".join(values.get(key) or ()),
         read=read,
         write=write,
+        ask=lambda: ask_text(question, read=read, write=write),
+        allow_clear=True,
+        is_set=bool(values.get(key)),
     )
-    if which is BACK:
+    if answer is BACK:
         return BACK
-    if which == 0:
-        return {}
-    out: dict[str, Any] = {}
-    for key, label in fields:
-        answer = ask_text(label, read=read, write=write)
-        if answer is BACK:
+    if answer is CLEAR:
+        return []
+    return [part for part in str(answer).split() if part]
+
+
+async def _ask_filters(*, read, write, trail: str) -> Any:
+    """The optional narrowing: a form of five rows, not five questions in a row.
+
+    Every field here is optional, and a text prompt's blank answer cancels, so
+    asked in a row one keystroke meant both "leave this one out" and "throw the
+    whole rule away" -- and it threw the rule away, five typed fields with it.
+    On a form the two never meet: a field nobody filled in says so on its own
+    row, a blank at a value prompt costs that field and nothing else, and 0 --
+    which asks first when anything is filled in -- steps back one screen to the
+    Filter question rather than out of the rule.
+    """
+    where = crumb(trail, "Narrow it down")
+    while True:
+        which = choose(
+            ["No filter - every event of those kinds", "Narrow it down"],
+            title=crumb(trail, "Filter"),
+            read=read,
+            write=write,
+        )
+        if which is BACK:
             return BACK
-        values = [part for part in str(answer).split() if part]
-        if values:
-            out[key] = values
-    return out
+        if which == 0:
+            return {}
+        filled = await _message_form(
+            title=where,
+            fields=[
+                _Field(
+                    key,
+                    lambda v, key=key, label=label, empty=empty: _filter_row(v, key, label, empty),
+                    lambda v, key=key, label=label, question=question: _ask_one_filter(
+                        v, key, label, question, read=read, write=write, trail=where
+                    ),
+                )
+                for key, label, empty, question in _FILTER_ROWS
+            ],
+            go="Done - narrow it by these",
+            values={},
+            ready=lambda _values: None,
+            read=read,
+            write=write,
+        )
+        if filled is not BACK:
+            return {key: parts for key, parts in filled.items() if parts}
 
 
 async def _flow_rules_list(*, session, runner, read, write) -> bool:
@@ -3503,7 +3552,7 @@ async def _flow_rules_add(*, session, runner, read, write) -> bool:
         actions = _ask_actions(read=read, write=write, trail=crumb(trail, str(name)))
         if actions is BACK:
             continue
-        filters = _ask_filters(read=read, write=write, trail=crumb(trail, str(name)))
+        filters = await _ask_filters(read=read, write=write, trail=crumb(trail, str(name)))
         if filters is BACK:
             continue
         result = await _act(
@@ -3549,7 +3598,7 @@ async def _flow_rules_edit(*, session, runner, read, write) -> bool:
                 continue
             extra = {**actions, "replace_actions": which == 2}
         elif which == 3:
-            filters = _ask_filters(read=read, write=write, trail=where)
+            filters = await _ask_filters(read=read, write=write, trail=where)
             if filters is BACK:
                 continue
             extra = dict(filters)
@@ -3828,9 +3877,22 @@ async def _flow_event_create(*, session, runner, read, write) -> bool:
             end = ask_text("Ends (ISO 8601 - Discord requires one for a place in words)", read=read, write=write)
             if end is BACK:
                 continue
-        description = ask_text("What it is about (blank for none)", read=read, write=write)
-        if description is BACK:
+        # A blank cancels every text prompt, so "no description" is a row of its
+        # own: the old label invited the blank it then lost the whole form to.
+        about = choose(
+            ["No description", "Write one"],
+            title=crumb(where, "What it is about"),
+            read=read,
+            write=write,
+        )
+        if about is BACK:
             continue
+        description = None
+        if about == 1:
+            typed = ask_text("What it is about", read=read, write=write)
+            if typed is BACK:
+                continue
+            description = typed
         result = await _act(
             _event_namespace(
                 session, event_kind="create", server=server.id, name=name, start=start, end=end,

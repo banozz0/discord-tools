@@ -10,8 +10,10 @@ shape as a role write: a held right is not enough, because Discord measures the
 acting role against the target's own. Three refusals come before any mutation,
 all of them `HIERARCHY_DENIED`: the server owner, whom nobody can touch; the
 bot itself, which this tool never moderates; and a member whose top role is not
-below the bot's, with both positions named. The bot's top role is read with
-`roles.top_role`, the same function the role commands measure against.
+below the bot's, with both positions named and, where the positions tied and the
+id decided it, both ids. The bot's top role is read with `roles.top_role` and
+both sides are ordered with `roles.rank`, the same functions the role commands
+measure against.
 
 **Reasons.** Discord stores a reason against its own audit entry, and for a
 kick or a ban that reason is what a member sees and what the next moderator
@@ -45,7 +47,7 @@ from discord_tools._core.contract import Error
 from discord_tools._core.identity import Target
 from discord_tools._core.runner import RunnerError, parse_at
 from discord_tools.adapters.targets import TargetError
-from discord_tools.roles import RULE, top_role
+from discord_tools.roles import RULE, rank, tie_note, top_role
 
 PLATFORM = "discord"
 # Discord's own ceiling on `communication_disabled_until`.
@@ -157,15 +159,16 @@ def hierarchy(
     if not held:
         # Every member holds @everyone at position 0, listed or not.
         return None
-    highest = max(held, key=lambda role: int(role.get("position", 0)))
+    highest = max(held, key=rank)
     top = top_role(roles, bot_role_ids)
-    if int(highest.get("position", 0)) >= int(top.get("position", 0)):
+    if rank(highest) >= rank(top):
         return Error(
             code="HIERARCHY_DENIED",
             message=(
                 f"The bot's top role {top['name']} sits at position {int(top.get('position', 0))} and "
                 f"{label}'s top role {highest['name']} at position {int(highest.get('position', 0))}: "
                 f"Discord lets a bot {verb} only members below its own top role."
+                + tie_note(highest, top)
             ),
             hint=f"Move the bot's role above {highest['name']} in Server Settings → Roles, then run this again.",
         )

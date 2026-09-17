@@ -113,6 +113,31 @@ def test_a_managed_role_is_hierarchy_denied_whatever_the_positions():
     assert refusal.code == "HIERARCHY_DENIED" and "managed by an integration" in refusal.message
 
 
+# Discord puts every role it creates at position 1 — a bot's own managed role
+# included — so a tie is the ordinary case on a small server, not an edge, and
+# the id is what separates them: the lower id sits higher.
+TIED = [role(10, "@everyone", 0), role(20, "Harry", 1), role(30, "campaign-role", 1), role(15, "Elders", 1)]
+
+
+def test_the_bots_top_role_on_a_position_tie_is_the_lower_id():
+    assert roles.top_role(TIED, [10, 20, 30])["name"] == "Harry"
+    assert roles.top_role(TIED, [10, 20, 15])["name"] == "Elders"
+
+
+def test_a_role_tied_with_the_bots_top_role_is_reachable_when_its_id_is_higher():
+    made_after = roles.find_role(TIED, 30, server_id=10)
+    assert roles.hierarchy(TIED, [10, 20], made_after, verb="edit") is None, "a newer id sits below the bot's own role"
+    assert roles.hierarchy(TIED, [10, 20], roles.find_role(TIED, 10, server_id=10), verb="edit") is None, "and a lower position still sits below"
+
+
+def test_a_role_tied_with_the_bots_top_role_is_refused_when_its_id_is_lower():
+    refusal = roles.hierarchy(TIED, [10, 20], roles.find_role(TIED, 15, server_id=10), verb="delete")
+    assert refusal.code == "HIERARCHY_DENIED"
+    assert "Both sit at the same position" in refusal.message
+    assert "Elders (15) sits above Harry (20) because its ID is lower" in refusal.message
+    assert "Move the bot's role above Elders" in refusal.hint
+
+
 # -- grants -------------------------------------------------------------------------
 
 

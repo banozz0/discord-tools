@@ -1,6 +1,6 @@
 discord-tools — the menu, recorded in a real terminal (pty, TERM=xterm-256color)
 ==============================================================================
-Recorded by scripts/record_menu.py on 2d7ff44. The menu code, the colour and the
+Recorded by scripts/record_menu.py on 6bafc99. The menu code, the colour and the
 prompt rendering are the real ones; the Discord side is a canned session (no network, no
 token), so the server, channels, threads and messages below are invented. Keystrokes
 appear after each prompt. The .ansi sibling of this file is the same run with the colour
@@ -65,8 +65,8 @@ Acting as: harrybot (profile harry) · bot · Target: Agency › 🚨alerts (139
 7. Export to a file
 0. Back (discards)
 Choose: 6
-1394829911100  2026-09-05 21:40  Harry: Deploy 4.2 is out: 6 checks green, 0 rollbacks, 41s.
-1394829911042  2026-09-05 15:00  Harry: Deploy queue: 3 waiting, oldest 11 minutes.
+1394829911100  2026-09-05 21:40 UTC  Harry: Deploy 4.2 is out: 6 checks green, 0 rollbacks, 41s.
+1394829911042  2026-09-05 15:00 UTC  Harry: Deploy queue: 3 waiting, oldest 11 minutes.
 2 message(s)
 Main › Search › 🚨alerts › Done
 Acting as: harrybot (profile harry) · bot · Target: Agency › 🚨alerts (1394827364512)
@@ -162,6 +162,8 @@ Acting as: harrybot (profile harry) · bot · Target: Agency (1394820000000)
 0. Back
 Choose: 2
 Permissions  manage_channels — held
+Acting as harrybot (profile harry)
+--------------------------------------------
 About to create a real, visible object on Discord:
 --------------------------------------------
 Kind   text
@@ -169,6 +171,7 @@ Name   releases
 Where  in server Agency (1394820000000)
 --------------------------------------------
 Create it? [y/N]: y
+Read back: channel channel-901 (901) exists as a text
 {
   "kind": "channel",
   "id": 901,

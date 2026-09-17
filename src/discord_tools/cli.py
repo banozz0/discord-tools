@@ -3999,6 +3999,27 @@ class _Selection:
     source: str
 
 
+def _nothing_selected(verb: str, selected: _Selection, target, channel_id: int) -> Outcome:
+    """An empty selection, refused before anything is fetched, previewed or asked.
+
+    Only an archive search can select nothing (--ids takes at least one), and
+    nothing selected is no plan: no preview to draw, no preflight to run and no
+    answer to ask for.
+    """
+    return Outcome(
+        status="refused",
+        target=target,
+        error=Error(
+            code="TARGET_NOT_FOUND",
+            message=f"Nothing to {verb}: {selected.source} matched no message in {target.display}.",
+            hint=(
+                f"Check the query with `discord-tools archive search --query ... --scope {channel_id}`, "
+                "or run `discord-tools archive sync` first if the messages are newer than the archive."
+            ),
+        ),
+    )
+
+
 def _select_messages(args, target, *, verb: str) -> _Selection | Error:
     """--ids as typed, or --from-search answered by the archive; either way inside the bound."""
     limit = message_ops.bulk_limit(args.limit, i_know=args.i_know, verb=verb)
@@ -4046,21 +4067,8 @@ async def _run_message_delete(client, args, config, out) -> Outcome:
         return Outcome(status="refused", target=target, error=selected)
     ids, source = selected.ids, selected.source
     if not ids:
-        # Only an archive search can select nothing (--ids takes at least one).
-        # There is no plan to preview, preflight or type DELETE for, and a
-        # dry-run that exits 0 would have the menu offer a for-real run of it.
-        return Outcome(
-            status="refused",
-            target=target,
-            error=Error(
-                code="TARGET_NOT_FOUND",
-                message=f"Nothing to delete: {source} matched no message in {target.display}.",
-                hint=(
-                    f"Check the query with `discord-tools archive search --query ... --scope {args.channel}`, "
-                    "or run `discord-tools archive sync` first if the messages are newer than the archive."
-                ),
-            ),
-        )
+        # A dry-run that exited 0 would have the menu offer a for-real run of it.
+        return _nothing_selected("delete", selected, target, args.channel)
     if selected.hits:
         listed = [_hit_as_message(hit, args.channel) for hit in selected.hits]
     else:
@@ -4202,6 +4210,8 @@ async def _run_message_repost(client, args, config, out, *, copy: bool) -> Outco
     if isinstance(selected, Error):
         return Outcome(status="refused", target=source, error=selected)
     ids = selected.ids
+    if not ids:
+        return _nothing_selected("copy" if copy else "forward", selected, source, args.channel)
     # Every selected message is fetched, from the archive's ids too: a copy
     # re-posts the text and attachment links as they are now, not as archived.
     messages = [await client.get_message(args.channel, message_id) for message_id in ids]

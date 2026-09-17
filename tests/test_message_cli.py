@@ -377,11 +377,9 @@ def test_an_ids_selection_past_the_preview_counts_every_id_not_the_rows_fetched(
     assert "and 5 more" in printed
 
 
-@pytest.mark.skipif(not fts5_available(), reason="this SQLite has no FTS5; the archive cannot open")
-@pytest.mark.parametrize("execute", [False, True], ids=["dry-run", "execute"])
-def test_an_archive_search_that_matches_nothing_says_so_before_the_typed_word(home_is_a_tmp_dir, monkeypatch, execute):
-    # manage_messages held: the right is not what stops it, the empty selection is.
-    client, ids = with_messages([42], rights={701: {**NO_MANAGE[701], "manage_messages": True}})
+def archived_hello(*, rights) -> KeepsDiscordsDeleteRule:
+    """A channel whose archive holds one row, "hello", which the tests' query never matches."""
+    client, ids = with_messages([42], rights=rights)
     client.history = {
         701: [
             SimpleNamespace(
@@ -393,6 +391,14 @@ def test_an_archive_search_that_matches_nothing_says_so_before_the_typed_word(ho
     }
     code, out, client = go(["--json", "archive", "sync", "--scope", "701"], client)
     assert (code, envelope(out)["status"]) == (0, "ok")
+    return client
+
+
+@pytest.mark.skipif(not fts5_available(), reason="this SQLite has no FTS5; the archive cannot open")
+@pytest.mark.parametrize("execute", [False, True], ids=["dry-run", "execute"])
+def test_an_archive_search_that_matches_nothing_says_so_before_the_typed_word(home_is_a_tmp_dir, monkeypatch, execute):
+    # manage_messages held: the right is not what stops it, the empty selection is.
+    client = archived_hello(rights={701: {**NO_MANAGE[701], "manage_messages": True}})
     asked = []
     monkeypatch.setattr("discord_tools.messages.confirm_delete_messages", lambda *_a, **_k: asked.append(1) or True)
     argv = ["--json", "message", "delete", "--channel", "701", "--from-search", "nothingmatchesthis"]
@@ -562,6 +568,26 @@ def test_read_unread_and_draft_refuse_with_the_reason_before_any_login(verb):
     assert body["error"]["platform"] == "discord"
     assert validate_envelope(body) == []
 
+
+@pytest.mark.skipif(not fts5_available(), reason="this SQLite has no FTS5; the archive cannot open")
+@pytest.mark.parametrize("yes", [False, True], ids=["asks", "yes"])
+@pytest.mark.parametrize("verb", ["forward", "copy"])
+def test_a_repost_whose_archive_search_matches_nothing_says_so_before_the_preview(home_is_a_tmp_dir, monkeypatch, verb, yes):
+    client = archived_hello(rights={701: {"administrator": True}, 702: {"administrator": True}})
+    asked = []
+    monkeypatch.setattr("discord_tools.messages.confirm_write", lambda preview, *_a, **_k: asked.append(preview) or True)
+    argv = ["--json", "message", verb, "--channel", "701", "--from-search", "nothingmatchesthis", "--to", "702"]
+    code, out, client = go([*argv, "--yes"] if yes else argv, client)
+    body = envelope(out)
+    assert (code, body["status"]) == (2, "refused"), body
+    assert body["error"]["code"] == "TARGET_NOT_FOUND"
+    assert f"Nothing to {verb}" in body["error"]["message"]
+    assert "nothingmatchesthis" in body["error"]["message"]
+    assert body["plan"] is None
+    # Refused before the preview: nothing printed it and nothing asked about it.
+    assert asked == []
+    assert "Permissions" not in out.stderr.getvalue()
+    assert client.forwarded == [] and client.sent == []
 
 def test_every_message_envelope_validates_against_the_schema(monkeypatch):
     say_yes(monkeypatch)

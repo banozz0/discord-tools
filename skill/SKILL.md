@@ -386,7 +386,9 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
   bound is the same: 200 a run, `BULK_LIMIT` above it rather than the first
   200, and `--limit` past 1000 needs `--i-know`, which a user passes, not an
   agent. Every selected message is fetched from Discord, so the preview under
-  `--yes` reflects the channel now, not the archive.
+  `--yes` reflects the channel now, not the archive. A `--from-search` that
+  matches nothing is `TARGET_NOT_FOUND` ("Nothing to forward/copy") before the
+  preview, as it is for `delete`.
 - **`message delete` asks for `manage_messages` only when it needs it.** A
   selection of nothing but the bot's own messages dry-runs without the right
   and, when the user runs it, deletes one by one (Discord's bulk delete wants

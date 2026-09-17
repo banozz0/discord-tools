@@ -1890,7 +1890,8 @@ async def _run_create(client, args, config, out) -> Outcome:
         if refusal is not None:
             return Outcome(status="refused", target=parent, plan=write.plan, error=refusal)
         out.say(plans.format_preflight(write.plan))
-        confirm = partial(confirm_create, format_create_preview(shown, args.name, where=where), write=out.say)
+        preview = format_create_preview(shown, args.name, where=where, acting_as=identity.label)
+        confirm = partial(confirm_create, preview, write=out.say)
 
     guard = _drift_guard(out, write, build)
     reason = write.reason
@@ -1920,14 +1921,19 @@ async def _run_create(client, args, config, out) -> Outcome:
             reason=reason,
         )
 
-    out.payload(created.to_dict())
     if created.cancelled:
+        out.payload(created.to_dict())
         return Outcome(status="cancelled", target=parent, plan=write.plan, result=created.to_dict())
 
     evidence = await plans.read_back(
         "the new object could not be read back",
         lambda: _describe_created(client, created),
     )
+    if not out.machine:
+        # Said out loud: without an envelope, the fetch of the new object is
+        # otherwise invisible. stderr, because stdout is the result mapping.
+        out.frame(f"Read back: {evidence.readback}")
+    out.payload(created.to_dict())
     return Outcome(status="ok", target=parent, plan=write.plan, result=created.to_dict(), evidence=evidence)
 
 

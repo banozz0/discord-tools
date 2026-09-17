@@ -3,6 +3,7 @@ import asyncio
 from conftest import FakeClient
 
 from discord_tools.create import (
+    RULE,
     confirm_create,
     create_category,
     create_channel,
@@ -12,11 +13,18 @@ from discord_tools.create import (
 
 
 def test_preview_names_kind_name_and_place():
-    preview = format_create_preview("channel", "builds", where="in server Ops (1)")
+    preview = format_create_preview("channel", "builds", where="in server Ops (1)", acting_as="testbot#0")
     assert "channel" in preview
     assert "builds" in preview
     assert "Ops" in preview
     assert "real, visible object" in preview
+
+
+def test_preview_says_who_acts_first_as_the_message_previews_do():
+    # Live on 2026-09-17 the create gate was the one preview with no "Acting as"
+    # line of its own; the message previews open on it.
+    lines = format_create_preview("channel", "builds", where="in server Ops (1)", acting_as="testbot#0 (profile harry)").split("\n")
+    assert lines[:3] == ["Acting as testbot#0 (profile harry)", RULE, "About to create a real, visible object on Discord:"]
 
 
 def test_confirm_create_needs_an_explicit_y():

@@ -7,10 +7,16 @@ from discord_tools.models import CreateResult
 RULE = "--------------------------------------------"
 
 
-def format_create_preview(kind: str, name: str, *, where: str) -> str:
-    """What is about to exist and where, so the confirm is an informed answer."""
+def format_create_preview(kind: str, name: str, *, where: str, acting_as: str) -> str:
+    """Who is acting, what is about to exist and where, so the confirm is an informed answer.
+
+    It opens the way the message previews do, on the bot that will own the new
+    object.
+    """
     return "\n".join(
         [
+            f"Acting as {acting_as}",
+            RULE,
             "About to create a real, visible object on Discord:",
             RULE,
             f"Kind   {kind}",

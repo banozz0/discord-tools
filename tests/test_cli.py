@@ -139,6 +139,36 @@ def test_create_channel_with_yes(capsys):
     assert json.loads(capsys.readouterr().out)["created"] is True
 
 
+def test_create_says_who_acts_and_what_it_read_back(capsys, monkeypatch):
+    # Live on 2026-09-17: the create preview named no bot, and the command's own
+    # fetch of the new channel printed nothing. stdout stays the result mapping.
+    from discord_tools import create as create_ops
+
+    shown = []
+
+    def answer_y(preview, **kwargs):
+        shown.append(preview)
+        return create_ops.confirm_create(preview, read=lambda _prompt: "y", **kwargs)
+
+    monkeypatch.setattr("discord_tools.cli.confirm_create", answer_y)
+    client = FakeClient(servers=[ServerInfo(id=1, name="Ops")])
+    assert run_cli(["create", "channel", "--server", "1", "--name", "builds"], client) == 0
+    captured = capsys.readouterr()
+    assert shown and shown[0].startswith("Acting as testbot#0")
+    made = json.loads(captured.out[captured.out.index("{"):])
+    assert made["created"] is True
+    # The fake names a channel it did not list channel-<id>; the id is the check.
+    said = captured.err.splitlines()
+    assert len(said) == 1 and said[0].startswith("Read back: channel ") and said[0].endswith(f"({made['id']}) exists as a text"), said
+
+    # Declined, there is nothing to read back and nothing says there was.
+    monkeypatch.setattr("discord_tools.cli.confirm_create", lambda preview, **_kwargs: False)
+    assert run_cli(["create", "channel", "--server", "1", "--name", "other"], client) == 1
+    captured = capsys.readouterr()
+    assert json.loads(captured.out[captured.out.index("{"):])["cancelled"] is True
+    assert "Read back" not in captured.err
+
+
 def test_create_without_kind_errors():
     with pytest.raises(ValueError):
         run_cli(["create"], FakeClient())

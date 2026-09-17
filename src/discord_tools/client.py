@@ -19,6 +19,7 @@ from discord_tools.models import (
     ReactionInfo,
     ServerInfo,
     ThreadInfo,
+    id_and_ref,
 )
 from discord_tools.records import message_to_record
 
@@ -357,16 +358,31 @@ def _audit_changes(entry: Any) -> dict[str, Any]:
 
 
 def _audit_dict(entry: Any) -> dict[str, Any]:
+    """One audit entry as a dict the rim can print without discord.py.
+
+    The target is whatever the action changed, and discord.py types it per
+    action — a `Guild`, `GuildChannel`, `Member`, `User`, `Role`, `Invite`,
+    `Emoji`, `StageInstance`, `GuildSticker`, `Thread`, `PartialIntegration`,
+    `AutoModRule`, `ScheduledEvent`, `Webhook`, `AppCommand`, a bare `Object`, or
+    nothing at all (the `TargetType` union in `discord/audit_logs.py`). All but
+    one carry a snowflake. An invite does not: Discord sends `target_id: null`
+    for an invite entry and discord.py rebuilds the invite out of the change set,
+    so `Invite.id` is the code. Its id is read, never cast: `target_id` is the
+    snowflake where there is one and `target_ref` is whichever kind of id
+    Discord gave, so an entry nobody anticipated is still an entry.
+    """
     target = getattr(entry, "target", None)
     user = getattr(entry, "user", None)
     created = getattr(entry, "created_at", None)
+    target_id, target_ref = id_and_ref(getattr(target, "id", None))
     return {
         "id": int(entry.id),
         "action": _enum_name(getattr(entry, "action", None)) or str(getattr(entry, "action", "")),
         "created_at": created.isoformat() if created is not None else None,
         "user_id": int(user.id) if user is not None else None,
         "user": getattr(user, "name", None),
-        "target_id": int(target.id) if target is not None and getattr(target, "id", None) else None,
+        "target_id": target_id,
+        "target_ref": target_ref,
         "target": getattr(target, "name", None),
         "reason": getattr(entry, "reason", None),
         "changes": _audit_changes(entry),

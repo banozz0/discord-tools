@@ -282,7 +282,7 @@ def test_p7_an_invite_link_appears_only_where_showing_one_is_the_point():
     """`invite list` and `invite create` print the link; nothing else does, and a
     link a moderator typed into an audit reason is hidden."""
     client = moderated(
-        audit={10: [{"id": 9, "action": "invite_create", "created_at": "2026-09-09T10:00:00+00:00", "user_id": 1, "user": "sven", "target_id": None, "target": None, "reason": "come to https://discord.gg/abc123", "changes": {}}]}
+        audit={10: [{"id": 9, "action": "invite_create", "created_at": "2026-09-09T10:00:00+00:00", "user_id": 1, "user": "sven", "target_ref": "abc123", "target_id": None, "target": None, "reason": "come to https://discord.gg/abc123", "changes": {}}]}
     )
     for argv in (["invite", "list", "--server", "10"], ["invite", "create", "--channel", "101", "--yes"]):
         _code, body, stderr = go(["--json", *argv], client)

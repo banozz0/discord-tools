@@ -742,6 +742,13 @@ class FakeClient:
         self.reasons.append(reason)
 
     async def audit_log(self, server_id, *, action=None, user_id=None, since=None, limit=50):
+        """Entries in the seam's own shape, ids included. An audit target's id is
+        a snowflake for every type Discord names but one — an invite's id is its
+        code — so every row carries both `target_id`, the snowflake when there is
+        one, and `target_ref`, the id as Discord spells it. A test that gives one
+        of the two gets the pair the real seam would have built."""
+        from discord_tools.models import id_and_ref
+
         rows = [dict(row) for row in self.audit.get(server_id, [])]
         if action is not None:
             rows = [row for row in rows if row["action"] == action]
@@ -749,6 +756,8 @@ class FakeClient:
             rows = [row for row in rows if int(row.get("user_id") or 0) == int(user_id)]
         if since is not None:
             rows = [row for row in rows if str(row.get("created_at") or "") >= str(since)]
+        for row in rows:
+            row["target_id"], row["target_ref"] = id_and_ref(row.get("target_ref") or row.get("target_id"))
         return rows[:limit]
 
     async def channel_overwrites(self, channel_id):

@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import discord
@@ -721,3 +722,63 @@ def test_delete_automod_rule_deletes_the_fetched_rule_and_refuses_an_unknown_id(
     assert removed == ["cli-tools automod delete plan abcd1234"]
     with pytest.raises(ClientError, match="No AutoMod rule with ID 999"):
         asyncio.run(client.delete_automod_rule(10, 999))
+
+
+# -- the server's own audit log -------------------------------------------------------
+#
+# What an entry's target is depends on the action, and discord.py types it per
+# action: `Guild`, `abc.GuildChannel`, `Member`, `User`, `Role`, `Invite`,
+# `Emoji`, `StageInstance`, `GuildSticker`, `Thread`, `Object`,
+# `PartialIntegration`, `AutoModRule`, `ScheduledEvent`, `Webhook`, `AppCommand`
+# or `None` — the `TargetType` union in discord/audit_logs.py, one converter per
+# `AuditLogAction.target_type`. Every one of those carries a snowflake except
+# the invite: Discord sends `target_id: null` for an invite entry, discord.py
+# rebuilds the invite out of the change set, and `Invite.id` is the code, a
+# string. So the seam reads an id it cannot assume is a number, and an entry it
+# cannot read is still an entry the other forty-nine rows must survive.
+
+
+def _audit_guild(entries):
+    def audit_logs(**kwargs):
+        async def rows():
+            for entry in entries[: kwargs.get("limit") or len(entries)]:
+                yield entry
+
+        return rows()
+
+    return SimpleNamespace(id=10, audit_logs=audit_logs)
+
+
+def _audit_entry(entry_id, action, target, *, reason=None):
+    return SimpleNamespace(
+        id=entry_id,
+        action=SimpleNamespace(name=action),
+        created_at=datetime(2026, 9, 9, 10, 0, tzinfo=timezone.utc),
+        user=SimpleNamespace(id=1, name="sven"),
+        target=target,
+        reason=reason,
+    )
+
+
+def test_an_audit_log_reads_every_entry_including_a_target_whose_id_is_not_a_number(monkeypatch):
+    entries = [
+        _audit_entry(9, "kick", SimpleNamespace(id=50, name="ana"), reason="spam"),
+        # An `Invite`: its id is its code and it has no name of its own.
+        _audit_entry(8, "invite_create", SimpleNamespace(id="Ag3VBXe", code="Ag3VBXe")),
+        # `member_disconnect` is the action Discord sends with no target at all.
+        _audit_entry(7, "member_disconnect", None),
+        _audit_entry(6, "channel_delete", SimpleNamespace(id=101, name="deploys")),
+    ]
+    client, _guild = _structure_client(monkeypatch, _audit_guild(entries))
+
+    rows = asyncio.run(client.audit_log(10))
+
+    assert [row["action"] for row in rows] == ["kick", "invite_create", "member_disconnect", "channel_delete"], (
+        "one unreadable target must not take the other entries with it"
+    )
+    assert [(row["target_id"], row["target_ref"], row["target"]) for row in rows] == [
+        (50, "50", "ana"),
+        (None, "Ag3VBXe", None),
+        (None, None, None),
+        (101, "101", "deploys"),
+    ]

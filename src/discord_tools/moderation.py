@@ -51,6 +51,7 @@ from discord_tools._core.contract import Error
 from discord_tools._core.identity import Target
 from discord_tools._core.runner import RunnerError, parse_at
 from discord_tools.adapters.targets import TargetError
+from discord_tools.models import id_and_ref
 from discord_tools.roles import RULE, rank, tie_note, top_role
 
 PLATFORM = "discord"
@@ -441,6 +442,11 @@ def format_invite(invite: Mapping[str, Any], *, heading: str, link: bool, reason
 
 
 def audit_row(entry: Mapping[str, Any]) -> dict[str, Any]:
+    """One entry as JSON. `target_id` is the target's snowflake and is null for
+    the one target that has none — an invite, whose id is its code — while
+    `target_ref` is that id whichever kind it is, so every entry names its target
+    and none of them has to be a number."""
+    target_id, target_ref = id_and_ref(entry.get("target_ref") or entry.get("target_id"))
     return hide_invite_links(
         {
             "id": int(entry["id"]),
@@ -448,7 +454,8 @@ def audit_row(entry: Mapping[str, Any]) -> dict[str, Any]:
             "at": _when(entry.get("created_at")),
             "by_id": int(entry["user_id"]) if entry.get("user_id") else None,
             "by": entry.get("user"),
-            "target_id": int(entry["target_id"]) if entry.get("target_id") else None,
+            "target_id": target_id,
+            "target_ref": target_ref,
             "target": entry.get("target"),
             "reason": entry.get("reason"),
             "changes": entry.get("changes") or {},
@@ -464,7 +471,7 @@ def format_audit(entries: Sequence[Mapping[str, Any]], *, server: str) -> str:
         row = audit_row(entry)
         lines.append(
             f"{row['at']:<26}  {str(row['action']):<26.26}  by {str(row['by'] or row['by_id'] or '-'):<24.24}  "
-            f"→ {str(row['target'] or row['target_id'] or '-'):<24.24}  {row['reason'] or ''}".rstrip()
+            f"→ {str(row['target'] or row['target_ref'] or '-'):<24.24}  {row['reason'] or ''}".rstrip()
         )
     lines.append(f"{len(entries)} entr{'y' if len(entries) == 1 else 'ies'}")
     return "\n".join(lines)

@@ -525,7 +525,9 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
 - **`audit-log list` is Discord's log, not this tool's.** It shows everyone's
   changes on the server and needs View Audit Log.
   `~/.discord-tools/audit.jsonl` is the separate local record of what this tool
-  itself wrote.
+  itself wrote. An entry names its target by `target_ref`, the id Discord gave —
+  a snowflake for every kind of target but the invite, whose id is its code, and
+  `target_id` is that snowflake or null.
 - **A rule can only ever do six things.** `alert`, `tag`, `bookmark`,
   `capture_metadata`, `archive`, `queue_review`. Nothing downloads, sends a
   message of its own, edits or deletes; a rule asking for anything else is

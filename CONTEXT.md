@@ -428,6 +428,15 @@ Architecture decisions with more context than fits here go to `docs/adr/`.
   **audit line**, which is this tool's local record of its own writes in
   `~/.discord-tools/audit.jsonl`. A read that needs a right preflights it and
   writes no audit line.
+- **Audit target** — whatever an entry's action changed, typed per action by
+  discord.py: a guild, channel, member, user, role, invite, emoji, stage
+  instance, sticker, thread, integration, AutoMod rule, scheduled event,
+  webhook, application command, a bare id, or nothing. Every one but the invite
+  carries a **snowflake**; an invite carries its **code**, because Discord sends
+  an invite entry with no target id and discord.py rebuilds the invite from the
+  change set. So a row carries both `target_id`, the snowflake or null, and
+  `target_ref`, the id as Discord spells it — `models.id_and_ref` reads the pair
+  and nothing casts an id it did not mint.
 - **Webhook** — a URL that posts into one channel (`dc:webhook:<id>`), and the
   only **credential** this tool ever hands a person. Whoever holds the whole
   URL can post there as anything they like, with no token, no bot and no

@@ -534,9 +534,12 @@ def test_invite_revoke_has_no_yes_flag_and_an_unknown_code_is_target_not_found()
 # -- the audit log --------------------------------------------------------------------
 
 
+# An invite entry is the one Discord sends with no snowflake: the target is the
+# invite and its id is the code. It has no name of its own either, so the code is
+# the only thing that says which invite the entry is about.
 ENTRIES = [
     {"id": 9, "action": "kick", "created_at": "2026-09-09T10:00:00+00:00", "user_id": 1, "user": "sven", "target_id": 50, "target": "ana", "reason": "spam", "changes": {}},
-    {"id": 8, "action": "invite_create", "created_at": "2026-09-08T10:00:00+00:00", "user_id": 1, "user": "sven", "target_id": None, "target": None, "reason": "come to https://discord.gg/abc123", "changes": {}},
+    {"id": 8, "action": "invite_create", "created_at": "2026-09-08T10:00:00+00:00", "user_id": 1, "user": "sven", "target_ref": "Ag3VBXe", "target_id": None, "target": None, "reason": "come to https://discord.gg/abc123", "changes": {}},
 ]
 
 
@@ -551,6 +554,21 @@ def test_audit_log_list_prints_the_entries_and_filters_by_action_and_user():
     assert [row["action"] for row in body["result"]["entries"]] == ["kick"]
     _code, body, _stderr = go(["--json", "audit-log", "list", "--server", "10", "--user", "99"], agency(audit={10: ENTRIES}))
     assert (body["status"], body["result"]["entries"]) == ("empty", [])
+
+
+def test_an_invite_entry_is_listed_like_any_other_and_names_the_invite_by_its_code():
+    """Every audit target but the invite carries a snowflake; the invite carries
+    its code. Both kinds of entry come back, and the code is what the screen and
+    the envelope name the invite by."""
+    client = agency(audit={10: ENTRIES})
+    code, body, stderr = go(["--json", "audit-log", "list", "--server", "10"], client)
+    rows = body["result"]["entries"]
+    assert (code, body["result"]["matched"]) == (0, 2)
+    assert [(row["target_id"], row["target_ref"]) for row in rows] == [(50, "50"), (None, "Ag3VBXe")]
+    assert "Ag3VBXe" in stderr and "2 entries" in stderr
+
+    _code, body, _stderr = go(["--json", "audit-log", "list", "--server", "10", "--action", "invite_create"], agency(audit={10: ENTRIES}))
+    assert [row["target_ref"] for row in body["result"]["entries"]] == ["Ag3VBXe"]
 
 
 def test_audit_log_since_takes_a_duration_or_a_time():

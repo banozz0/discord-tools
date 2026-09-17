@@ -34,6 +34,29 @@ def kind_for_type(type_name: str) -> str | None:
     return None
 
 
+# A Discord id is a snowflake — an integer whose top bits are the minute it was
+# minted — everywhere but one place, and the audit log is that place: an entry's
+# target is whatever the action changed, and an invite's id is its code
+# (`Ag3VBXe`), a string. So nothing that reads an id it did not mint may force
+# one to an integer. An id travels as a pair instead: the snowflake when it is
+# one, and the id as the platform spells it, which is always there to print.
+def id_and_ref(value: Any) -> tuple[int | None, str | None]:
+    """`(snowflake, ref)` for an id read off Discord: the integer when the id is
+    one and None when it is not, beside the id as text.
+
+    Nothing is dropped and nothing raises — a caller wanting one identity for the
+    thing reads `ref`, and one wanting arithmetic reads the snowflake and finds
+    out it has none.
+    """
+    if not value:
+        return None, None
+    ref = str(value)
+    try:
+        return int(ref), ref
+    except ValueError:
+        return None, ref
+
+
 @dataclass(frozen=True)
 class ServerInfo:
     id: int

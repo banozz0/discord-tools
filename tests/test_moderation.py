@@ -212,6 +212,36 @@ def test_the_invite_list_shows_the_link_and_the_row_only_carries_one_when_asked(
     assert "No invites on Agency" in moderation.format_invites([], server="Agency")
 
 
+# A target's id is a snowflake for every type Discord's audit log names but one:
+# an invite's id is its code. The rim reads an id it did not mint, so it forces
+# nothing — `target_id` is the snowflake when there is one and null when there
+# is not, and `target_ref` is the id as Discord spells it, whichever kind it is.
+MIXED = [
+    {"id": 9, "action": "kick", "created_at": "2026-09-09T10:00:00+00:00", "user_id": 1, "user": "sven",
+     "target_id": 50, "target_ref": "50", "target": "ana", "reason": "spam", "changes": {}},
+    {"id": 8, "action": "invite_create", "created_at": "2026-09-08T10:00:00+00:00", "user_id": 1, "user": "sven",
+     "target_id": None, "target_ref": "Ag3VBXe", "target": None, "reason": None, "changes": {}},
+    {"id": 7, "action": "member_disconnect", "created_at": "2026-09-07T10:00:00+00:00", "user_id": 1, "user": "sven",
+     "target_id": None, "target_ref": None, "target": None, "reason": None, "changes": {}},
+]
+
+
+def test_an_audit_target_with_no_snowflake_keeps_its_own_row_and_every_row_beside_it():
+    rows = [moderation.audit_row(entry) for entry in MIXED]
+    assert [row["target_id"] for row in rows] == [50, None, None]
+    assert [row["target_ref"] for row in rows] == ["50", "Ag3VBXe", None]
+    text = moderation.format_audit(MIXED, server="Agency (10)")
+    assert "3 entries" in text, "one unreadable target must not take the whole screen with it"
+    assert "→ ana" in text and "→ Ag3VBXe" in text and "→ -" in text
+
+
+def test_an_audit_row_takes_a_code_in_target_id_itself_without_dying():
+    """A reading that carries only the one key — an older seam, a hand-built
+    row — still names the target rather than raising on it."""
+    row = moderation.audit_row({"id": 8, "action": "invite_delete", "user_id": 1, "user": "sven", "target_id": "Ag3VBXe", "target": None})
+    assert (row["target_id"], row["target_ref"]) == (None, "Ag3VBXe")
+
+
 def test_the_audit_screen_is_newest_first_and_says_when_nothing_matched():
     entries = [{"id": 5, "action": "member_kick", "created_at": "2026-09-09T10:00:00+00:00", "user": "sven", "target": "ana", "reason": "spam"}]
     text = moderation.format_audit(entries, server="Agency")

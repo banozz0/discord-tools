@@ -1,6 +1,6 @@
 ---
 name: discord-tools
-description: "Use when you need the real numeric ID of a Discord server, channel, or thread — 'what's the ID of that channel?', 'where do I send this?' — when the user wants a channel's messages searched or exported (JSON, CSV, JSONL, Markdown, HTML), when a history question can be answered from the local archive instead of a fresh fetch, when a message must be posted to a channel the user has allowlisted, when a message the user named should get a reply, a reaction, a pin, or be forwarded, copied or bookmarked, when a server's structure should be exported as a blueprint or compared with another server, when the user wants to see a server's roles or which role can do what in a channel, when a member should be kicked, banned, unbanned, timed out, let out of a timeout early or renamed, when the user asks who is banned, what invites a server has, which webhooks post into it, what custom emoji or stickers it has, what Discord filters in it by itself, or who did what on it, when the user asks what a channel's settings are or when its topic, slow mode, age gate, name or position should change, or when they want a message posted at a set time, an event put in a server's calendar, or a rule that alerts them when something happens in a server. Bot-token only; the bot sees only servers it was invited to."
+description: "Use when you need the real numeric ID of a Discord server, channel, or thread — 'what's the ID of that channel?', 'where do I send this?' — when the user wants a channel's messages searched or exported (JSON, CSV, JSONL, Markdown, HTML), when a history question can be answered from the local archive instead of a fresh fetch, when a message must be posted to a channel the user has allowlisted, when a message the user named should get a reply, a reaction, a pin, or be forwarded, copied or bookmarked, when the user asks what a channel or thread has pinned, when a server's structure should be exported as a blueprint or compared with another server, when the user wants to see a server's roles or which role can do what in a channel, when a member should be kicked, banned, unbanned, timed out, let out of a timeout early or renamed, when the user asks who is banned, what invites a server has, which webhooks post into it, what custom emoji or stickers it has, what Discord filters in it by itself, or who did what on it, when the user asks what a channel's settings are or when its topic, slow mode, age gate, name or position should change, or when they want a message posted at a set time, an event put in a server's calendar, or a rule that alerts them when something happens in a server. Bot-token only; the bot sees only servers it was invited to."
 version: 1.15.0
 author: banozz0
 license: MIT
@@ -40,8 +40,8 @@ Same keys every time, whatever the command: `schema`, `tool`, `version`,
 `command`, `args`, `identity`, `target`, `status`, `result`, `plan`,
 `evidence`, `warnings`, `error`, `meta`. The command's own payload is under
 `result`. `--jsonl` instead streams one record per line for `search`,
-`members`, `discover` and `archive search`, then the same object as the last
-line, marked `"kind": "envelope"`.
+`members`, `discover`, `archive search` and `message pins`, then the same
+object as the last line, marked `"kind": "envelope"`.
 
 Read `status` and `error.code` rather than the text: `ok`, `empty`, `partial`,
 `dry_run`, `cancelled`, `refused`, `failed`, and stable codes like
@@ -148,7 +148,8 @@ go) and let them run the execute themselves. The other `message` verbs are
 fine when the user asked for that specific thing: `reply`, `react`, `pin`,
 `forward`, `copy`, `poll`, `typing`, `bookmark`, and `edit` of the bot's own
 message. Every one is a visible act in a real server (rule 1), and every one
-shows the message it acts on before it asks.
+shows the message it acts on before it asks. `message pins` only reads and is
+always fine.
 
 **14. Never run `review approve` or `review accept`.** They are the two
 human gates on downloads: `approve` fetches bytes from a host onto the user's
@@ -263,6 +264,7 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
 | "post this there" (allowlisted) | `discord-tools send --channel <id> --text "..." --yes` |
 | "reply to that message" (allowlisted) | `discord-tools message reply --channel <id> --to <message id> --text "..." --yes` |
 | "fix the typo in what the bot said" | `discord-tools message edit --channel <id> --id <message id> --text "..." --yes` — the bot's own only |
+| "what's pinned in that channel / thread?" | `discord-tools message pins --channel <id>` — newest pin first; a read, no `--yes` |
 | "react with 👍 / pin that" | `discord-tools message react --channel <id> --id <message id> --emoji 👍 --yes` / `message pin ... --yes` |
 | "forward / copy that to #other" (allowlisted) | `discord-tools message forward --channel <id> --ids <message id> --to <channel id> --yes` / `message copy ...` |
 | "forward everything about X to #other" (allowlisted) | `discord-tools message forward --channel <id> --from-search "X" --to <channel id> --yes` — the archive picks the ids; above 200 hits it refuses with `BULK_LIMIT`, and `--i-know` is the user's flag, not yours |
@@ -387,6 +389,13 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
   200, and `--limit` past 1000 needs `--i-know`, which a user passes, not an
   agent. Every selected message is fetched from Discord, so the preview under
   `--yes` reflects the channel now, not the archive.
+- **`message pins` refuses rather than answering empty.** Discord hands a
+  bot that lacks Read Message History no pins at all, so the command
+  preflights `read_messages` and `read_message_history` and exits 2 with
+  `PERMISSION_DENIED` naming the missing one — relay it. `status: empty`
+  therefore means the channel really has nothing pinned. Each row in
+  `result.pins` has a search row's keys plus `pinned_at` (null on
+  discord.py older than 2.6).
 - **`PLATFORM_UNSUPPORTED` on a message verb is the answer, not a bug.**
   `message read`, `unread` and `draft` cannot be done by a Discord bot; the
   error says why (read state belongs to a user account; drafts live in the

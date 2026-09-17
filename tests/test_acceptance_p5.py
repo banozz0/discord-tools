@@ -222,6 +222,7 @@ WRITE_ROWS = {
     "message poll": [("3", "9"), "1", "1", "Ship?", "2", "a", "b", ".", "5"],
     "message typing": [("3", "10"), "1", "2"],
     "message bookmark": [("3", "11"), "1", "1", "5", "4"],
+    "message pins": [("3", "13"), "1", "1"],
 }
 
 

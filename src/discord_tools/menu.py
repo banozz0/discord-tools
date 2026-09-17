@@ -987,6 +987,28 @@ async def _flow_bookmarks_list(*, session, runner, read, write) -> bool:
     return result is not EXIT
 
 
+async def _flow_pins(*, session, runner, read, write) -> bool:
+    """A channel's or thread's pinned messages: pick it and they print.
+
+    A read, so there is no form and no gate: the command preflights the two
+    history rights and says which is missing. The row sits last in Write,
+    beside the bookmark listing, because Write is the `message` group and the
+    live checklist already numbers every row above it.
+    """
+    trail = crumb(MAIN, "Write", "Pinned messages")
+    while True:
+        picked = await _pick_channel(session=session, read=read, write=write, trail=trail)
+        if picked is BACK:
+            return True
+        args = _namespace(command="message", message_kind="pins", channel=picked.id)
+        result = await _act(
+            args, session=session, runner=runner, read=read, write=write,
+            trail=crumb(trail, picked.title), rows=(RUN_AGAIN, (STAY, "Another channel")),
+        )
+        if result is not STAY:
+            return result is not EXIT
+
+
 def _pick_selection(*, read, write, trail) -> Any:
     """The messages a bulk verb acts on: typed ids, or an archive query; the flags either way, or BACK."""
     how = choose(
@@ -3966,6 +3988,7 @@ async def run_menu(*, read=None, write=None, session=None, runner=None, profile:
                     ("Show typing", _flow_typing),
                     ("Bookmark a message (local)", _flow_bookmark),
                     ("List my bookmarks", _flow_bookmarks_list),
+                    ("List a channel's pinned messages", _flow_pins),
                 ),
             ),
             True,

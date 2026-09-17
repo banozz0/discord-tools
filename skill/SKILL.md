@@ -214,8 +214,9 @@ prints the guarantee on every listing; quote it.
 A kick removes a real person from a real server and a ban stops them coming
 back on any invite, from any account they hold; a revoked invite stops working
 for everyone holding the link and Discord cannot bring the same code back. All
-three dry-run by default and execute only behind the member's exact username or
-the exact invite code typed at a prompt no agent can answer — there is no
+three dry-run by default and execute only behind the member's exact username —
+their user ID, when a ban's target is not in the server to have a username read
+— or the exact invite code typed at a prompt no agent can answer — there is no
 `--yes`, and under `--json` with no terminal they exit 3 with
 `APPROVAL_REQUIRED`. Hand the user the dry-run command and let them run the
 execute. Do not drive them through the menu, a pty, or a piped answer.
@@ -458,6 +459,14 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
   role and the fix (move the bot's role above it, or give the bot the right);
   relay that rather than retrying, because nothing on the command line changes
   it. `role list` prints the positions and the bot's top role.
+- **`member ban` reaches somebody who has already left.** That is what a ban is
+  for, and Discord's own endpoint takes a user rather than a member. `kick`,
+  `timeout`, `untimeout` and `nick` are `TARGET_NOT_FOUND` on an ID that is not
+  in the server; `ban` previews it, says plainly that they are not there and
+  that nothing will be removed, and asks for their **user ID** typed back
+  instead of a username nobody can read. Nothing of theirs can outrank the bot,
+  so no hierarchy check applies. This is also how a ban becomes liftable:
+  `member unban` reads Discord's ban list, not the member list.
 - **A member write can be valid and still impossible.** `HIERARCHY_DENIED` on
   `member kick`, `ban`, `timeout`, `untimeout` or `nick` means the target is the server
   owner (Discord lets nobody moderate them), the bot itself (this tool never

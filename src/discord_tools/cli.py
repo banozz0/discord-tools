@@ -449,13 +449,26 @@ def build_parser() -> argparse.ArgumentParser:
     member_list.add_argument(
         "--output", help="Output file; relative names land in ~/.discord-tools/exports/. Prints a readable table when omitted"
     )
-    for verb, what in (("kick", "Remove a member from the server"), ("ban", "Remove a member and stop them coming back")):
-        parser_for_verb = member_kinds.add_parser(verb, help=f"{what} (dry-run by default; --execute asks for their exact username)")
+    # Kick and ban share every flag and differ in four strings: what the verb
+    # does, what `--member` takes, what the gate asks to have typed back, and
+    # how `--execute` says it. A kick needs a member; a ban does not, because
+    # Discord's own ban endpoint takes a user who has already left.
+    for verb, what, who, typed, does in (
+        ("kick", "Remove a member from the server", "User ID of the member", "username", "Remove a member from the server"),
+        (
+            "ban",
+            "Ban a user, here or already gone, so they cannot come back",
+            "User ID; they need not be in the server",
+            "username, or their ID when they are not here",
+            "Ban them",
+        ),
+    ):
+        parser_for_verb = member_kinds.add_parser(verb, help=f"{what} (dry-run by default; --execute asks for their exact {typed})")
         parser_for_verb.add_argument("--server", required=True, type=snowflake, help="Server ID")
-        parser_for_verb.add_argument("--member", required=True, help="User ID of the member")
+        parser_for_verb.add_argument("--member", required=True, help=who)
         parser_for_verb.add_argument("--reason", required=True, help="Why; Discord stores it in the server's own audit log")
         parser_for_verb.add_argument(
-            "--execute", action="store_true", help=f"{what} for real after typing their exact username (no --yes exists)"
+            "--execute", action="store_true", help=f"{does} for real after typing their exact {typed} (no --yes exists)"
         )
     member_unban = member_kinds.add_parser("unban", help="Lift a ban so the user can be invited back (preview + y/N)")
     member_unban.add_argument("--server", required=True, type=snowflake, help="Server ID")
@@ -2858,10 +2871,11 @@ async def _member_readback(client, server_id: int, member: dict, *, gone: bool) 
     )
 
 
-# The five member writes that act on somebody already in the server: which
-# function runs one, and the verb its refusals are worded with. `list` needs no
-# server-side target and `unban` acts on somebody who has already left, so
-# neither is here.
+# The five member writes that name one person: which function runs one, and the
+# verb its refusals are worded with. `list` needs no server-side target and
+# `unban` reads its target from the ban list, so neither is here. Four of the
+# five need the person to be in the server; `ban` is the exception, and
+# `_resolve_member` is where that is said.
 MEMBER_WRITES = {
     "kick": (lambda: _run_member_removal, "kick"),
     "ban": (lambda: _run_member_removal, "ban"),
@@ -2885,23 +2899,34 @@ async def _run_member(client, args, config, out) -> Outcome:
         return await _run_member_unban(client, args, out, identity=identity, server=server, resolver=resolver)
 
     runner, verb = MEMBER_WRITES[args.member_kind]
-    member = await _resolve_member(client, server_id, args.member)
+    member = await _resolve_member(client, server_id, args.member, absent_ok=args.member_kind == "ban")
     return await runner()(
         client, args, out, identity=identity, server=server, resolver=resolver,
         member=member, target=moderation.member_target(server, member), verb=verb,
     )
 
 
-async def _resolve_member(client, server_id: int, reference: str) -> dict:
+async def _resolve_member(client, server_id: int, reference: str, *, absent_ok: bool = False) -> dict:
     """The member `reference` names, or `TARGET_NOT_FOUND`.
 
     One fetch, not a listing: this is the endpoint Discord leaves open to every
     bot, so a kick works on a server where the Server Members intent is off and
     `member list` does not.
+
+    `absent_ok` is the ban's. Discord's own `PUT /guilds/{guild.id}/bans/
+    {user.id}` takes a *user*, where the kick beside it is `DELETE /guilds/
+    {guild.id}/members/{user.id}` and takes a member: banning somebody who has
+    already left is the ordinary case, and the one a ban exists for. So a 404
+    from the member endpoint is a target this tool can still act on, not a
+    refusal. Only a 404 — a `PermissionError` is Discord saying the bot may not
+    look, which is not the same as nobody being there, and it still raises.
     """
+    user_id = moderation.member_id(reference)
     try:
-        return await client.get_member(server_id, moderation.member_id(reference))
+        return await client.get_member(server_id, user_id)
     except ClientError as exc:
+        if absent_ok:
+            return moderation.absent_member(user_id)
         raise TargetError("TARGET_NOT_FOUND", str(exc), hint=moderation.BY_ID_ONLY) from exc
 
 
@@ -2917,13 +2942,20 @@ async def _member_hierarchy(client, server_id: int, member: dict, *, verb: str) 
 
 
 async def _run_member_removal(client, args, out, *, identity, server, resolver, member, target, verb) -> Outcome:
-    """Kick and ban: the same shape, differing in what Discord does afterwards."""
+    """Kick and ban: the same shape, differing in what Discord does afterwards.
+
+    And in whether the target has to be here. A kick removes a member; a ban
+    stops a *user* getting in, so `member` may be the stand-in for somebody who
+    has already left. Everything below reads `absent` rather than assuming a
+    name, a role list and a join date it can print.
+    """
     server_id = int(server.ids["guild"])
     banning = args.member_kind == "ban"
+    absent = moderation.is_absent(member)
     command_key = "member-ban" if banning else "member-kick"
 
     async def build():
-        live = await client.get_member(server_id, int(member["id"]))
+        live = await _resolve_member(client, server_id, args.member, absent_ok=banning)
         return await _moderation_plan(
             client, out, identity=identity, resolver=resolver, server_id=server_id, command_key=command_key,
             approval="typed_name", mutation=Mutation(op="ban_member" if banning else "kick_member", rid=target.rid, params={"reason": args.reason}),
@@ -2931,33 +2963,37 @@ async def _run_member_removal(client, args, out, *, identity, server, resolver, 
         )
 
     write = await build()
-    refusal = write.refusal or await _member_hierarchy(client, server_id, member, verb=verb)
+    # `moderation.hierarchy` answers None for a user who is not here, and the
+    # four reads it takes to ask are worth skipping when the answer is settled.
+    refusal = write.refusal or (None if absent else await _member_hierarchy(client, server_id, member, verb=verb))
     if refusal is not None:
         return Outcome(status="refused", target=target, plan=write.plan, error=refusal)
 
     reason = moderation.moderation_reason(write.reason, args.reason)
-    roles = await client.list_roles(server_id)
-    detail = (
-        "They cannot rejoin on any invite until somebody runs `member unban`."
-        if banning
-        else "Any unexpired invite lets them straight back in."
-    )
+    roles = () if absent else await client.list_roles(server_id)
+    if not banning:
+        detail = "Any unexpired invite lets them straight back in."
+    elif absent:
+        detail = "Nothing is removed; this stops them joining at all, until somebody runs `member unban`."
+    else:
+        detail = "They cannot rejoin on any invite until somebody runs `member unban`."
     preview = "\n".join(
         [
             moderation.format_member(member, roles, heading=f"{'Ban' if banning else 'Kick'} from {server.title} ({server_id})"),
             moderation.format_member_plan(member, action="Ban" if banning else "Kick", reason=reason, detail=detail),
         ]
     )
+    typed, what = moderation.typed_gate(member)
     result = {"member": moderation.member_row(member, roles), "reason": args.reason, "dry_run": not args.execute}
     if not args.execute:
         out.say(plans.format_preflight(write.plan))
         out.say(preview)
-        out.say(f"Dry-run. Add --execute to {verb} them; it will ask for their exact username.")
+        out.say(f"Dry-run. Add --execute to {verb} them; it will ask for their exact {what}.")
         return Outcome(status="ok", target=target, plan=None, result=result)
 
     stopped = _gate_typed(
-        out, write, typed=moderation.typed_label(member), preview=preview, what="username", target=target,
-        warning=moderation.BAN_WARNING if banning else moderation.KICK_WARNING,
+        out, write, typed=typed, preview=preview, what=what, target=target,
+        warning=moderation.BAN_ABSENT_WARNING if absent else moderation.BAN_WARNING if banning else moderation.KICK_WARNING,
     )
     if stopped is not None:
         return stopped
@@ -2969,11 +3005,25 @@ async def _run_member_removal(client, args, out, *, identity, server, resolver, 
         await client.ban_member(server_id, int(member["id"]), reason=reason)
     else:
         await client.kick_member(server_id, int(member["id"]), reason=reason)
-    out.say(f"{'Banned' if banning else 'Kicked'} {moderation.member_label(member)} ({member['id']}).")
-    evidence = await plans.read_back(
-        "the member list could not be read back", lambda: _member_readback(client, server_id, member, gone=True)
-    )
+    out.say(f"{'Banned' if banning else 'Kicked'} {moderation.member_headline(member)}.")
+    if absent:
+        # They were not a member before this either, so "no longer a member" is
+        # no proof at all. Discord's ban list is where this write shows up.
+        evidence = await plans.read_back(
+            "the ban list could not be read back", lambda: _ban_readback(client, server_id, int(member["id"]))
+        )
+    else:
+        evidence = await plans.read_back(
+            "the member list could not be read back", lambda: _member_readback(client, server_id, member, gone=True)
+        )
     return Outcome(status="ok", target=target, plan=write.plan, result={**result, "dry_run": False}, evidence=evidence)
+
+
+async def _ban_readback(client, server_id: int, user_id: int) -> str:
+    """The proof a ban landed, read from the one list Discord keeps it in."""
+    if not any(int(row["id"]) == user_id for row in await client.list_bans(server_id)):
+        raise ClientError(f"user {user_id} is not in the ban list of server {server_id}")
+    return f"user {user_id} is banned from server {server_id}"
 
 
 async def _run_member_timeout(client, args, out, *, identity, server, resolver, member, target, verb) -> Outcome:
@@ -3151,7 +3201,7 @@ async def _run_member_unban(client, args, out, *, identity, server, resolver) ->
         raise plans.PlanDriftError(drifted)
 
     await client.unban_member(server_id, user_id, reason=reason)
-    out.say(f"Unbanned {moderation.member_label(ban)} ({user_id}).")
+    out.say(f"Unbanned {moderation.member_headline(ban)}.")
 
     async def readback():
         if any(int(row["id"]) == user_id for row in await client.list_bans(server_id)):

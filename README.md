@@ -28,6 +28,12 @@ discord-tools doctor    # verify token, message-content intent, servers, permiss
 (The PyPI name is `discord-tools-cli` — plain `discord-tools` is squatted by an
 unrelated, archived package. The installed command is `discord-tools`.)
 
+Or straight from GitHub, which carries the newest version before PyPI does:
+
+```bash
+pipx install git+https://github.com/banozz0/discord-tools.git
+```
+
 Python 3.11+. Bare `discord-tools` opens a looping menu for humans; agents and
 scripts pass a subcommand.
 

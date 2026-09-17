@@ -4049,7 +4049,7 @@ async def _run_message_delete(client, args, config, out) -> Outcome:
         listed = [_hit_as_message(hit, args.channel) for hit in selected.hits]
     else:
         # The first rows of the preview are fetched so the person sees words,
-        # not numbers; the rest are listed by id. A wrong id past the preview
+        # not numbers; the rest are counted. A wrong id past the preview
         # fails its own delete and is reported, never silently skipped.
         listed = [await client.get_message(args.channel, message_id) for message_id in ids[: message_ops.PREVIEW_ROWS]]
     bulk, single = split_bulk_window(ids)
@@ -4111,7 +4111,7 @@ async def _run_message_delete(client, args, config, out) -> Outcome:
     out.say(plans.format_preflight(write.plan))
     out.say(
         message_ops.format_selection_preview(
-            target, listed, bulk=len(bulk), single=len(single), source=source, own_only=own_only
+            target, listed, bulk=len(bulk), single=len(single), source=source, own_only=own_only, count=len(ids)
         )
     )
     if not args.execute:

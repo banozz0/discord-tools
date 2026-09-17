@@ -365,6 +365,17 @@ def test_an_archive_selection_is_checked_against_discord_not_the_archive(home_is
     assert str(ids[1]) in envelope(out)["error"]["message"]
 
 
+
+def test_an_ids_selection_past_the_preview_counts_every_id_not_the_rows_fetched():
+    # Only the first twenty are fetched for the preview; the header and the
+    # tail count the whole selection, which is what the typed word deletes.
+    client, ids = with_messages([42] * 25, rights={701: {**NO_MANAGE[701], "manage_messages": True}})
+    code, out, client = go(["--json", "message", "delete", "--channel", "701", "--ids", *map(str, ids)], client)
+    assert (code, envelope(out)["result"]["matched"]) == (0, 25)
+    printed = out.stderr.getvalue()
+    assert "Delete 25 message(s) from health (701)" in printed
+    assert "and 5 more" in printed
+
 # -- forward and copy -----------------------------------------------------
 
 

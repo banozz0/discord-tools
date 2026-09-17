@@ -116,8 +116,8 @@ def test_send_yes_with_allowlisted_channel_sends(capsys):
     config = Config(token="a.b.c", send_allowlist=(55,))
     assert run_cli(["send", "--channel", "55", "--text", "hi", "--yes"], client, config) == 0
     assert client.sent[0]["channel_id"] == 55
-    result = json.loads(capsys.readouterr().out)
-    assert result["sent"] is True
+    # A person reads a sentence; the mapping travels in the --json envelope only.
+    assert capsys.readouterr().out == f"Sent message {client.sent[0]['id']} to #channel-55 (55).\n"
 
 
 def test_send_missing_file_fails_before_sending():

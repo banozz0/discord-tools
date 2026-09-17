@@ -91,6 +91,7 @@ from discord_tools.send import (
     SendNotAllowedError,
     confirm_send,
     format_send_preview,
+    format_sent,
     require_send_allowed,
     send_to_channel,
 )
@@ -1792,10 +1793,10 @@ async def _run_send(client, args, config, out) -> Outcome:
         reply_to=reply_to,
         mentions=mentions,
     )
-    out.payload(result.to_dict())
     if result.cancelled:
         return Outcome(status="cancelled", target=target, plan=write.plan, result=result.to_dict())
 
+    out.say(format_sent(channel, result, reply_to=reply_to))
     evidence = await plans.read_back(
         "the message could not be read back",
         lambda: plans.message_landed(client, args.channel, result.message_id),
@@ -3967,7 +3968,7 @@ async def _run_message_edit(client, args, config, out) -> Outcome:
     await _drift_guard(out, write, build)()
     await client.edit_message(args.channel, args.id, text, mentions=mentions)
     result = {"channel_id": args.channel, "message_id": args.id, "edited": True}
-    out.payload(result)
+    out.say(f"Edited message {args.id} in {target.display} ({args.channel}).")
     evidence = await plans.read_back(
         "the message could not be read back",
         lambda: _message_verified(
@@ -4091,7 +4092,8 @@ async def _run_message_delete(client, args, config, out) -> Outcome:
         client, args.channel, ids, bulk, single, progress=out.say, sleep=asyncio.sleep, reason=write.reason
     )
     result["deleted"] = deleted
-    out.payload(result)
+    said = f"Deleted {deleted} of {len(ids)} message(s) from {target.display} ({args.channel})"
+    out.say(f"{said}, then stopped: {error}" if error is not None else f"{said}.")
     if error is not None:
         return Outcome(
             status="partial",
@@ -4191,7 +4193,13 @@ async def _run_message_repost(client, args, config, out, *, copy: bool) -> Outco
         else:
             posted.append(await client.forward_message(args.channel, message.id, args.to))
     result = {"from_channel_id": args.channel, "to_channel_id": args.to, "message_ids": ids, "posted_ids": posted}
-    out.payload(result)
+    done, where = ("Copied" if copy else "Forwarded"), f"{destination.display} ({args.to})"
+    if len(ids) == 1:
+        out.say(f"{done} message {ids[0]} to {where} as message {posted[0]}.")
+    else:
+        # Up to --limit ids each way: the count and the newest one posted say
+        # where the run landed without printing two hundred numbers.
+        out.say(f"{done} {len(ids)} messages to {where}, the last as message {posted[-1]}.")
     evidence = await plans.read_back(
         "the destination could not be read back",
         lambda: plans.message_landed(client, args.to, posted[-1]),
@@ -4246,7 +4254,8 @@ async def _reaction(client, args, config, out, *, add: bool) -> Outcome:
     else:
         await client.remove_reaction(args.channel, args.id, emoji)
     result = {"channel_id": args.channel, "message_id": args.id, "emoji": emoji, "reacted": add}
-    out.payload(result)
+    where = f"message {args.id} in {target.display} ({args.channel})"
+    out.say(f"Added {emoji} to {where}." if add else f"Removed the bot's {emoji} from {where}.")
 
     def check(current) -> str:
         mine = any(r.emoji == emoji and r.me for r in current.reactions)
@@ -4304,7 +4313,7 @@ async def _pin(client, args, config, out, *, pin: bool) -> Outcome:
     else:
         await client.unpin_message(args.channel, args.id, reason=write.reason)
     result = {"channel_id": args.channel, "message_id": args.id, "pinned": pin}
-    out.payload(result)
+    out.say(f"{'Pinned' if pin else 'Unpinned'} message {args.id} in {target.display} ({args.channel}).")
 
     def check(current) -> str:
         if current.pinned == pin:
@@ -4371,7 +4380,7 @@ async def _run_message_poll(client, args, config, out) -> Outcome:
     await _drift_guard(out, write, build)()
     message_id = await client.send_poll(args.channel, question, options, hours=args.hours, multiple=args.multiple)
     result = {"channel_id": args.channel, "message_id": message_id, "options": len(options), "hours": args.hours}
-    out.payload(result)
+    out.say(f"Posted poll message {message_id} in {target.display} ({args.channel}), open {args.hours} hour(s).")
     evidence = await plans.read_back(
         "the poll could not be read back", lambda: plans.message_landed(client, args.channel, message_id)
     )
@@ -4421,7 +4430,7 @@ async def _run_message_typing(client, args, config, out) -> Outcome:
         await client.trigger_typing(args.channel)
         triggers += 1
     result = {"channel_id": args.channel, "seconds": args.seconds, "triggers": triggers}
-    out.payload(result)
+    out.say(f"Showed the bot typing in {target.display} ({args.channel}) for {args.seconds} second(s).")
     # There is nothing to fetch: Discord keeps no record of who was typing.
     evidence = Evidence.unverified("a typing indicator leaves nothing to read back")
     return Outcome(status="ok", target=target, plan=write.plan, result=result, evidence=evidence)
@@ -4491,7 +4500,13 @@ async def _run_message_bookmark(client, args, config, out) -> Outcome:
             removed = False
         readback = archive_store.read_bookmark(archive, rid=target.rid, message_id=args.id)
     result = {"channel_id": args.channel, "message_id": args.id, "bookmarked": row is not None, "removed": removed, "local": True}
-    out.payload(result)
+    where = f"message {args.id} in {target.display} ({args.channel})"
+    if not args.remove:
+        out.say(f"Bookmarked {where}, on this machine only.")
+    elif removed:
+        out.say(f"Dropped the local bookmark on {where}.")
+    else:
+        out.say(f"No local bookmark on {where} to drop.")
     if args.remove:
         evidence = (
             Evidence.verified(f"no bookmark row for message {args.id} in {target.rid}")

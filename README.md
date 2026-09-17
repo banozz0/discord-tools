@@ -294,7 +294,9 @@ destination in `DISCORD_SEND_ALLOWLIST`. `edit`, `react`, `pin`, `typing` and
 `bookmark` change something already there, and their `--yes` skips the prompt
 the way `create --yes` does. Every verb builds a plan, names the permission it
 needs and holds, re-checks the target after you answer, reads the result back
-and writes an audit line.
+and writes an audit line. Once it is done, it says so in one sentence, as
+`send` does — `Sent message 1394829911102 to #general (1394...).` — and the
+full result is in the `--json` envelope.
 
 ## The review queue
 

@@ -41,7 +41,10 @@ Same keys every time, whatever the command: `schema`, `tool`, `version`,
 `evidence`, `warnings`, `error`, `meta`. The command's own payload is under
 `result`. `--jsonl` instead streams one record per line for `search`,
 `members`, `discover` and `archive search`, then the same object as the last
-line, marked `"kind": "envelope"`.
+line, marked `"kind": "envelope"`. Without `--json`, `send` and the `message`
+verbs end on one sentence for a person (`Sent message <id> to #<channel>
+(<channel id>).`) and print no mapping at all: the ids are in `result`, so
+pass `--json` rather than scraping that line.
 
 Read `status` and `error.code` rather than the text: `ok`, `empty`, `partial`,
 `dry_run`, `cancelled`, `refused`, `failed`, and stable codes like

@@ -397,3 +397,174 @@ def test_every_message_envelope_validates_against_the_schema(monkeypatch):
     ):
         _code, out, _client = go(argv)
         assert validate_envelope(envelope(out)) == [], argv
+
+
+# -- what a person reads once the write is done ----------------------------
+#
+# Live on 2026-09-17 a confirmed send put a five-line JSON object between the
+# y and the Done screen. Without --json a write says what it did in one
+# sentence, the way `role create` or `member kick` already do; the mapping is
+# the envelope's, and only the envelope carries it.
+
+
+def human(argv, client=None, *, config=CONFIG):
+    """The same run without --json: what reaches the person's screen."""
+    code, out, client = go(argv, client, config=config, json=False)
+    return code, out.stdout.getvalue(), client
+
+
+def said_after_the_gate(printed: str) -> list[str]:
+    # The preflight line is printed above every prompted write; what matters
+    # here is everything the run printed besides it.
+    return [line for line in printed.splitlines() if not line.startswith("Permissions  ")]
+
+
+DONE_SENTENCES = [
+    pytest.param(
+        ["send", "--channel", "701", "--text", "hi", "--yes"],
+        "Sent message 901 to #health (701).",
+        id="send",
+    ),
+    pytest.param(
+        ["message", "reply", "--channel", "701", "--to", "5", "--text", "hi", "--yes"],
+        "Sent message 901 to #health (701), replying to message 5.",
+        id="reply",
+    ),
+    pytest.param(
+        ["message", "edit", "--channel", "701", "--id", "6", "--text", "changed", "--yes"],
+        "Edited message 6 in health (701).",
+        id="edit",
+    ),
+    pytest.param(
+        ["message", "react", "--channel", "701", "--id", "5", "--emoji", "👍", "--yes"],
+        "Added 👍 to message 5 in health (701).",
+        id="react",
+    ),
+    pytest.param(
+        ["message", "unreact", "--channel", "701", "--id", "5", "--emoji", "👍", "--yes"],
+        "Removed the bot's 👍 from message 5 in health (701).",
+        id="unreact",
+    ),
+    pytest.param(
+        ["message", "pin", "--channel", "701", "--id", "5", "--yes"],
+        "Pinned message 5 in health (701).",
+        id="pin",
+    ),
+    pytest.param(
+        ["message", "unpin", "--channel", "701", "--id", "5", "--yes"],
+        "Unpinned message 5 in health (701).",
+        id="unpin",
+    ),
+    pytest.param(
+        ["message", "poll", "--channel", "701", "--question", "Ship?", "--option", "yes", "--option", "no", "--hours", "2", "--yes"],
+        "Posted poll message 901 in health (701), open 2 hour(s).",
+        id="poll",
+    ),
+    pytest.param(
+        ["message", "typing", "--channel", "701", "--seconds", "3", "--yes"],
+        "Showed the bot typing in health (701) for 3 second(s).",
+        id="typing",
+    ),
+    pytest.param(
+        ["message", "forward", "--channel", "701", "--ids", "5", "--to", "702", "--yes"],
+        "Forwarded message 5 to log (702) as message 901.",
+        id="forward",
+    ),
+    pytest.param(
+        ["message", "copy", "--channel", "701", "--ids", "5", "--to", "702", "--yes"],
+        "Copied message 5 to log (702) as message 901.",
+        id="copy",
+    ),
+]
+
+
+@pytest.mark.parametrize("argv, sentence", DONE_SENTENCES)
+def test_a_done_message_write_prints_one_sentence_and_no_json(argv, sentence):
+    code, printed, _client = human(argv)
+    assert code == 0
+    assert said_after_the_gate(printed) == [sentence]
+    assert "{" not in printed
+
+
+def test_a_confirmed_send_names_the_message_and_where_it_landed(monkeypatch):
+    # The live case: no --yes, the preview answered y.
+    monkeypatch.setattr("discord_tools.cli.confirm_send", lambda preview, **_k: True)
+    code, printed, client = human(["send", "--channel", "701", "--text", "hi"])
+    assert code == 0
+    assert client.sent[0]["id"] == 901
+    assert said_after_the_gate(printed) == ["Sent message 901 to #health (701)."]
+
+
+def test_a_send_with_files_says_how_many_went(tmp_path):
+    first, second = tmp_path / "a.png", tmp_path / "b.txt"
+    first.write_bytes(b"x")
+    second.write_text("y")
+    code, printed, _client = human(
+        ["send", "--channel", "701", "--text", "hi", "--file", str(first), "--file", str(second), "--yes"]
+    )
+    assert code == 0
+    assert said_after_the_gate(printed) == ["Sent message 901 to #health (701) with 2 file(s)."]
+
+
+def test_a_declined_send_prints_no_json(monkeypatch):
+    monkeypatch.setattr("discord_tools.cli.confirm_send", lambda preview, **_k: False)
+    code, printed, client = human(["send", "--channel", "701", "--text", "hi"])
+    assert code == 1
+    assert client.sent == []
+    assert said_after_the_gate(printed) == []
+
+
+def test_a_forward_of_several_names_the_count_and_the_last_one_posted():
+    code, printed, _client = human(["message", "forward", "--channel", "701", "--ids", "5", "6", "--to", "702", "--yes"])
+    assert code == 0
+    assert said_after_the_gate(printed) == ["Forwarded 2 messages to log (702), the last as message 902."]
+
+
+def test_an_executed_delete_says_how_many_went_and_from_where(monkeypatch):
+    monkeypatch.setattr("discord_tools.messages.confirm_delete_messages", lambda *_a, **_k: True)
+    code, printed, _client = human(["message", "delete", "--channel", "701", "--ids", "5", "6", "--execute"])
+    assert code == 0
+    assert "{" not in printed
+    assert printed.splitlines()[-1] == "Deleted 2 of 2 message(s) from health (701)."
+
+
+def test_a_delete_that_stopped_says_where_it_stopped(monkeypatch):
+    monkeypatch.setattr("discord_tools.messages.confirm_delete_messages", lambda *_a, **_k: True)
+    client = a_client()
+
+    async def refuse(channel_id, message_id, *, reason=None):
+        from discord_tools.client import ClientError
+
+        if message_id == 6:
+            raise ClientError("Missing Access")
+        client.deleted_single.append((channel_id, message_id))
+
+    client.delete_message = refuse
+    code, printed, _client = human(["message", "delete", "--channel", "701", "--ids", "5", "6", "--execute"], client)
+    assert code == 1
+    assert "{" not in printed
+    last = printed.splitlines()[-1]
+    assert last.startswith("Deleted 1 of 2 message(s) from health (701), then stopped: ")
+    assert "Missing Access" in last
+
+
+@pytest.mark.skipif(not fts5_available(), reason="this SQLite has no FTS5; the archive cannot open")
+def test_a_bookmark_says_it_is_local_and_a_drop_says_whether_there_was_one(home_is_a_tmp_dir):
+    code, printed, client = human(["message", "bookmark", "--channel", "701", "--id", "5", "--yes"])
+    assert (code, said_after_the_gate(printed)) == (0, ["Bookmarked message 5 in health (701), on this machine only."])
+    drop = ["message", "bookmark", "--channel", "701", "--id", "5", "--remove", "--yes"]
+    code, printed, client = human(drop, client)
+    assert (code, said_after_the_gate(printed)) == (0, ["Dropped the local bookmark on message 5 in health (701)."])
+    code, printed, _client = human(drop, client)
+    assert (code, said_after_the_gate(printed)) == (0, ["No local bookmark on message 5 in health (701) to drop."])
+
+
+def test_under_json_the_sentence_stays_off_stdout_and_the_result_keeps_its_keys(home_is_a_tmp_dir):
+    code, out, _client = go(["--json", "send", "--channel", "701", "--text", "hi", "--yes"])
+    body = envelope(out)  # one object on stdout, nothing before or after it
+    assert code == 0
+    assert body["result"] == {"channel_id": 701, "message_id": 901, "files": 0, "sent": True, "cancelled": False}
+    assert body["evidence"]["readback"] == "message 901 is the newest in channel 701"
+    # The readback also stays in the local audit line.
+    line = json.loads(audit_path().read_text(encoding="utf-8").splitlines()[-1])
+    assert line["evidence"]["readback"] == "message 901 is the newest in channel 701"

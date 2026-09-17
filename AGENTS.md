@@ -22,8 +22,9 @@ export in five formats, retention and forget behind a typed name; only sync
 logs in) · review (attachments and links the sync saw, fetched into quarantine
 only after a y/N nobody can flag past, checked, then accepted or rejected with
 the verdict shown; list/status/accept/reject never log in) · send (`--reply-to`, `--mention`) · message (reply, edit own, delete
-behind typed DELETE and a bulk bound, forward, copy, react, pin, poll, typing,
-local bookmark; read/unread/draft are PLATFORM_UNSUPPORTED) · create (channel/thread/category, every type delete accepts) ·
+behind typed DELETE and a bulk bound, forward, copy, react, pin, poll, pins
+(a read, preflighting Read Message History), typing, local bookmark;
+read/unread/draft are PLATFORM_UNSUPPORTED) · create (channel/thread/category, every type delete accepts) ·
 delete (channel/category/thread) · structure (export a server's roles,
 categories, channels, overwrites, forum tags, AutoMod rules and settings as
 one deterministic blueprint that never carries members, messages, webhooks,

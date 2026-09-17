@@ -67,6 +67,11 @@ def test_format_marks_media_only_messages():
     assert "sven: [image] x.png" in text
 
 
+def test_a_row_says_its_time_is_utc():
+    client = FakeClient(history={55: [message(3, when=datetime(2026, 9, 17, 17, 2, 40, tzinfo=UTC))]})
+    assert format_message_records(search(client)).splitlines()[0] == "3  2026-09-17 17:02 UTC  sven: hello"
+
+
 def test_format_empty():
     assert "No messages matched" in format_message_records([])
 

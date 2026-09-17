@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from discord_tools import archive as archive_store
@@ -38,6 +40,17 @@ def test_the_preview_names_the_target_and_shows_the_message():
     assert "hello world" in text
 
 
+def test_the_preview_says_the_sent_time_is_utc():
+    text = messages.format_message_preview(
+        TARGET, a_message(date="2026-09-01T12:00:05.500000+00:00"), acting_as="harrybot", action="Pin this message"
+    )
+    assert "Sent     2026-09-01 12:00:05 UTC" in text.splitlines()
+
+
+def test_a_selection_row_says_its_time_is_utc():
+    assert messages.message_line(a_message()) == "5  2026-09-01 12:00 UTC  sven: hello world"
+
+
 def test_the_preview_lists_attachments_and_the_verb_detail():
     text = messages.format_message_preview(
         TARGET, a_message(attachments=(AttachmentInfo("a.png", "https://cdn/a.png", 1),)),
@@ -64,8 +77,22 @@ def test_copy_text_carries_the_attribution_and_the_attachment_urls_never_bytes()
         a_message(attachments=(AttachmentInfo("a.png", "https://cdn/a.png", 1),)), CHANNEL
     )
     assert body.startswith("hello world\n")
-    assert "— sven in #health, 2026-09-01 12:00 · https://discord.com/channels/10/701/5" in body
+    assert "— sven in #health, <t:1788264000:f> · https://discord.com/channels/10/701/5" in body
     assert body.endswith("https://cdn/a.png")
+
+
+def test_the_copy_attribution_is_a_discord_time_tag_not_a_bare_utc_time():
+    # The copy is read in Discord by people in other zones: the tag is drawn in
+    # each reader's own, where "2026-09-01 12:00" was a UTC time nobody could tell.
+    body = messages.copy_text(a_message(date="2026-09-01T14:00:00+02:00"), CHANNEL)
+    assert "<t:1788264000:f>" in body
+    assert "2026-09-01" not in body
+
+
+def test_a_copy_of_a_message_with_no_date_carries_no_time():
+    body = messages.copy_text(a_message(date=None), CHANNEL)
+    assert "— sven in #health · https://discord.com/channels/10/701/5" in body
+    assert "<t:" not in body
 
 
 def test_a_copy_over_discords_limit_is_refused_before_anything_is_posted():
@@ -149,6 +176,7 @@ def test_bookmark_rows_are_added_read_listed_and_removed(home_is_a_tmp_dir):
         assert [(r["message_id"], r["label"]) for r in listed] == [("5", "again")]
         assert archive_store.list_bookmarks(archive, "dc:bot:99") == []
         text = archive_store.format_bookmarks(listed)
+        assert re.match(r"5  \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC  ", text), text
         assert "[again]" in text and "(not in the archive)" in text and "local to this machine" in text
         assert archive_store.remove_bookmark(archive, rid="dc:channel:701", message_id=5) is True
         assert archive_store.remove_bookmark(archive, rid="dc:channel:701", message_id=5) is False

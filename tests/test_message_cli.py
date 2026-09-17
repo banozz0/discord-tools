@@ -433,10 +433,21 @@ def test_copy_reposts_the_text_with_attribution_and_links_and_pings_nobody():
     assert client.forwarded == []
     posted = client.sent[0]
     assert posted["channel_id"] == 702
-    assert posted["text"].startswith("hello world\n— sven in #health, 2026-09-01 12:00 · https://discord.com/channels/10/701/5")
+    assert posted["text"].startswith("hello world\n— sven in #health, <t:1788264000:f> · https://discord.com/channels/10/701/5")
     assert posted["text"].endswith("https://cdn/a.png")
     assert posted["mentions"] == ()
     assert posted["files"] == []
+
+
+def test_the_copy_preview_says_the_utc_time_and_what_the_tag_shows(monkeypatch):
+    seen = []
+    say_yes(monkeypatch, seen)
+    code, _out, _client = go(["--json", "message", "copy", "--channel", "701", "--ids", "5", "--to", "702"])
+    assert code == 0
+    lines = seen[0].splitlines()
+    assert "Sent     2026-09-01 12:00:00 UTC" in lines
+    assert "— sven in #health, <t:1788264000:f> · https://discord.com/channels/10/701/5" in lines
+    assert "Discord shows each <t:…> time in the reader's own time zone." in lines
 
 
 def test_forward_yes_needs_the_destination_allowlisted():

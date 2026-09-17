@@ -373,6 +373,11 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
   so a search cannot find them. `archive sync --full --scope <rid>` rebuilds
   one, but it refetches the whole scope from Discord: offer it, and let the
   user decide.
+- **A time on a printed row or preview is UTC and says so**
+  (`2026-09-17 07:07 UTC`); convert it before telling the user a local time.
+  `--format json` carries the ISO string. `search` and `archive` read a bare
+  `--since`/`--until` time as UTC too. A `copy`'s attribution carries a
+  Discord time tag (`<t:…:f>`), which Discord draws in each reader's own zone.
 - **Empty text on every message = the message-content intent is off.** That is
   a portal setting, not a bug here. `doctor` names it; the fix is in the
   Developer Portal (Bot → Message Content Intent), which only the user can do.

@@ -122,8 +122,10 @@ def test_pins_prints_a_table_a_person_reads():
     assert "2 pinned message(s) in" in printed and "(701), newest pin first" in printed
     lines = printed.splitlines()
     first = next(index for index, line in enumerate(lines) if line.startswith("5  "))
-    assert lines[first] == "5  2026-09-01 12:00  sven: hello world / second line [media]"
-    assert lines[first + 1] == "8  2026-09-16 08:00  sven: second pin, sent later"
+    # The row a search prints: the time says UTC, and the mark names what the
+    # message carries rather than the bare [media] this table shipped with.
+    assert lines[first] == "5  2026-09-01 12:00 UTC  sven: [image] hello world / second line"
+    assert lines[first + 1] == "8  2026-09-16 08:00 UTC  sven: second pin, sent later"
     assert "not pinned" not in printed
 
 

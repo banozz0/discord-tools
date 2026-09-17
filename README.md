@@ -46,7 +46,7 @@ scripts pass a subcommand.
 | `profiles` | Lists every stored bot by name and by the label `auth` recorded; `profiles remove --name <name>` drops one after you type its name back. Neither needs a working token |
 | `discover` | Prints the server → channel → thread tree with every ID; `--server <id>` narrows, `--json <path>` writes a file |
 | `members` | Lists a server's members (ID, username, display name, bot flag); `--output <name>` exports JSON/CSV. Needs the privileged **Server Members** intent enabled in the portal. `member list` is the same command under the group name and takes the same flags |
-| `search` | Searches a channel/thread's history locally (Discord gives bots no search API): `--keyword`, `--from-user`, `--since`, `--until`, `--limit`; `--output <name>` exports JSON, CSV, JSONL, Markdown or HTML (`--format`). `--archive` searches the local archive instead of fetching. The printed table previews long bodies at 70 characters — exports carry them whole |
+| `search` | Searches a channel/thread's history locally (Discord gives bots no search API): `--keyword`, `--from-user`, `--since`, `--until`, `--limit`; `--output <name>` exports JSON, CSV, JSONL, Markdown or HTML (`--format`). `--archive` searches the local archive instead of fetching. The printed table previews long bodies at 70 characters — exports carry them whole — and its times are UTC and say so |
 | `archive` | The local archive: `sync` fetches new history from everything the bot can read and resumes where it stopped; `status` shows scopes, rows and coverage; `search --query` is ranked full-text search with `--regex`, `--from`, `--since`, `--until`, `--context`; `export --format json/csv/jsonl/markdown/html --output` writes the same result; `retention --scope --keep 90d` and `forget --scope` prune it, dry-run by default and behind the scope's exact name. See [The archive](#the-archive) |
 | `review` | The review queue: attachments and links the archive saw, waiting. `list` shows them without contacting a host; `approve` asks y/N and fetches into quarantine (no `--yes`); `status` shows redirects, refreshes, sha256 and the verdict; `accept` shows the verdict and asks before moving a file into `media/`; `reject` deletes the bytes; `retry` resumes a failed fetch. See [The review queue](#the-review-queue) |
 | `send` | Posts as the bot after a full-message preview + y/N; `--yes` skips the prompt only for channels in `DISCORD_SEND_ALLOWLIST`. `--reply-to <message id>` answers a message; `--mention users/roles/everyone` lets it ping (nobody by default, and `everyone` always asks); `--at <time>` makes the same runner-held schedule `schedule post --at` does |
@@ -286,8 +286,9 @@ naming the right and that message. An archive search that matches nothing is
 refused as "Nothing to delete" before any preview or prompt.
 
 **`forward` is Discord's forward**, header and attachments included. **`copy`**
-re-posts the text with an attribution line — who, in which channel, when, and
-a link to the original — followed by links to the attachments; it never
+re-posts the text with an attribution line — who, in which channel, when (a
+Discord time tag, which each reader sees in their own time zone), and a link to
+the original — followed by links to the attachments; it never
 downloads them. Both select the way `delete` does: `--ids`, or `--from-search`
 over the channel's archived rows, bounded by the same `--limit` (200) and
 `--i-know` above 1000, refused with `BULK_LIMIT` rather than trimmed, and an

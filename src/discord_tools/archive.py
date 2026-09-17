@@ -30,7 +30,13 @@ from discord_tools._core.paths import FILE_MODE, ToolPaths, make_private_dir
 from discord_tools._core.plan import Plan
 from discord_tools.adapters.identity import label_for
 from discord_tools.config import Config, bot_id_from_token
-from discord_tools.records import TEXT_RENDERING, parse_date_bound, record_marks
+from discord_tools.records import (
+    TEXT_RENDERING,
+    TIME_WIDTH,
+    parse_date_bound,
+    record_marks,
+    shown_time,
+)
 from discord_tools.search import ELLIPSIS, PREVIEW_WIDTH, preview
 
 TOOL = "discord-tools"
@@ -317,7 +323,7 @@ def format_sync_report(report: SyncReport) -> str:
 
 
 def _stamp(date: str | None) -> str:
-    return (date or "")[:16].replace("T", " ")
+    return f"{shown_time(date):<{TIME_WIDTH}}"
 
 
 def format_hits(hits: Sequence[SearchHit], *, query: str) -> str:
@@ -349,10 +355,10 @@ def format_hits(hits: Sequence[SearchHit], *, query: str) -> str:
         row.setdefault("has_media", hit.media)
         marks = record_marks(row)
         for neighbour in hit.context_before:
-            lines.append(f"    {neighbour['message_id']}  {_stamp(neighbour.get('date')):<16}  {preview(neighbour.get('text') or '')}")
-        lines.append(f"{hit.message_id}  {_stamp(hit.date):<16}  {where}  {hit.sender or '?'}: {(marks + body).rstrip()}{deleted}")
+            lines.append(f"    {neighbour['message_id']}  {_stamp(neighbour.get('date'))}  {preview(neighbour.get('text') or '')}")
+        lines.append(f"{hit.message_id}  {_stamp(hit.date)}  {where}  {hit.sender or '?'}: {(marks + body).rstrip()}{deleted}")
         for neighbour in hit.context_after:
-            lines.append(f"    {neighbour['message_id']}  {_stamp(neighbour.get('date')):<16}  {preview(neighbour.get('text') or '')}")
+            lines.append(f"    {neighbour['message_id']}  {_stamp(neighbour.get('date'))}  {preview(neighbour.get('text') or '')}")
     lines.append(f"{len(hits)} hit(s)")
     if cut:
         lines.append("Long bodies are cut to fit a row - export with --output to read them in full.")
@@ -477,6 +483,6 @@ def format_bookmarks(rows: Sequence[dict[str, Any]]) -> str:
         where = row.get("scope_title") or _rid.parse(row["rid"]).id
         label = f"  [{row['label']}]" if row.get("label") else ""
         text = preview(row["text"], PREVIEW_WIDTH) if row.get("text") else "(not in the archive)"
-        lines.append(f"{row['message_id']}  {row['created'][:16].replace('T', ' ')}  {where}{label}: {text}")
+        lines.append(f"{row['message_id']}  {_stamp(row['created'])}  {where}{label}: {text}")
     lines.append(f"{len(rows)} bookmark(s), local to this machine")
     return "\n".join(lines)

@@ -63,6 +63,11 @@ The terms this codebase uses, and the boundaries they imply.
 - **Snowflake** — a Discord ID; its top bits encode a creation timestamp
   (`records.py::snowflake_time`). Threads are channels: a thread ID is valid
   anywhere a channel ID is.
+- **Shown time** — how a row or a preview prints a time
+  (`records.py::shown_time`): UTC, and saying so — `2026-09-17 07:07 UTC`. A
+  screen that prints the ISO string whole already says it with `Z` or an
+  offset; JSON keeps the ISO string. Never converted to this machine's zone,
+  because `search` and `archive` read a bare `--since` time as UTC.
 - **Intent (message-content)** — the portal toggle without which fetched
   messages have empty `content`. Read from application flags
   (`/applications/@me`); `auth` walks the user through enabling it, `doctor`
@@ -200,7 +205,8 @@ The terms this codebase uses, and the boundaries they imply.
   archive query is probed one past the hard limit so the refusal can say how
   many matched.
 - **Copy attribution** — the line a `copy` adds under the re-posted text
-  (`messages.copy_text`): author, `#channel`, date, the jump link, then one
+  (`messages.copy_text`): author, `#channel`, the date as a Discord time tag
+  (`<t:…:f>`, drawn in each reader's own zone), the jump link, then one
   line per attachment URL. Bytes are never fetched; that is P4's job. A copy
   over Discord's 2000 characters is refused before the preview.
 - **Bookmark** — a row in the archive's `bookmarks` table (`archive.py`),

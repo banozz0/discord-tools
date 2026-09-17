@@ -231,6 +231,24 @@ def test_send_flow_never_skips_the_gate():
     assert args.yes is False
 
 
+def test_a_confirmed_send_lands_one_sentence_above_the_done_screen(monkeypatch, capsys):
+    # Live on 2026-09-17 the y was followed by a five-line JSON object above the
+    # Done rows. The real command, run from the menu, now says what it did in
+    # one sentence, and the Done screen comes straight after it.
+    from discord_tools import cli
+
+    monkeypatch.setattr("discord_tools.cli.confirm_send", lambda preview, **_k: True)
+    client = make_client(channel_info={10: ChannelInfo(id=10, name="general", type="text")})
+    answers = scripted(keystrokes([SEND, "1", "1", "hello there", ".", "4", "0"]))
+    code = asyncio.run(run_menu(read=answers, write=print, session=make_session(client), runner=cli.run))
+    assert code == 0
+    assert [sent["channel_id"] for sent in client.sent] == [10]
+    lines = capsys.readouterr().out.splitlines()
+    done = next(index for index, line in enumerate(lines) if line.startswith("Main › Send › general › Done"))
+    assert lines[done - 1] == f"Sent message {client.sent[0]['id']} to #general (10)."
+    assert not any(line.lstrip().startswith(("{", "}", '"message_id"')) for line in lines)
+
+
 def test_send_flow_can_target_a_thread():
     code, calls, _output = drive([SEND, "2", "1", "hi", ".", "4", "0"])
     assert calls[0].channel == 101

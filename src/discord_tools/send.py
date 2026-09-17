@@ -64,6 +64,20 @@ def format_send_preview(
     return "\n".join(lines)
 
 
+def format_sent(channel: ChannelInfo, result: SendResult, *, reply_to: int | None = None) -> str:
+    """The one sentence a person reads once a send went through.
+
+    The message id and the channel it landed in, named the way the preview
+    named it. The result mapping is the envelope's to carry, under --json.
+    """
+    line = f"Sent message {result.message_id} to #{channel.name} ({channel.id})"
+    if result.files:
+        line += f" with {result.files} file(s)"
+    if reply_to:
+        line += f", replying to message {reply_to}"
+    return line + "."
+
+
 def confirm_send(preview: str, *, read: Callable[[str], str] = input, write: Callable[[str], None] = print) -> bool:
     write(preview)
     answer = read("Send it? [y/N]: ").strip().lower()

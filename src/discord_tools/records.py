@@ -376,6 +376,21 @@ def says_nothing_about_content(record: Mapping[str, Any]) -> bool:
     return bool(record.get("stickers")) and not record.get("has_media") and text.startswith(STICKER_MARKER)
 
 
+def reply_target(message: Any) -> int | None:
+    """The id of the message this one answers, or None.
+
+    Discord points three different things at another message through the same
+    reference: a reply, a forward (at the message it moved) and its own events
+    (a pin notice at the pinned message, a thread's starter row at the one the
+    thread grew from). Only the first is a reply; read as one, the other two
+    made a forward and a pin look exactly like an answer to the same message.
+    """
+    reference = getattr(message, "reference", None)
+    if reference is None or forward_of(message) is not None or service_of(message) is not None:
+        return None
+    return _int_or_none(getattr(reference, "message_id", None))
+
+
 # What one sampled message says about the message-content intent.
 EVIDENCE_TEXT = "text"
 EVIDENCE_NONE = "inconclusive"
@@ -403,7 +418,6 @@ def content_evidence(message: Any) -> str:
 
 def message_to_record(message: Any, *, channel_id: int | None = None) -> dict[str, Any]:
     author = getattr(message, "author", None)
-    reference = getattr(message, "reference", None)
     when = message_date(message)
     source = carrier(message)
     attachments = list(getattr(source, "attachments", None) or ())
@@ -415,7 +429,7 @@ def message_to_record(message: Any, *, channel_id: int | None = None) -> dict[st
         "date": when.isoformat() if when else None,
         "author_id": getattr(author, "id", None),
         "author_name": getattr(author, "name", None),
-        "reply_to_msg_id": getattr(reference, "message_id", None) if reference and "forwarded_from" not in body.extras else None,
+        "reply_to_msg_id": reply_target(message),
         "has_media": bool(attachments) or bool(getattr(source, "embeds", None)),
         "attachments": [getattr(attachment, "filename", "") for attachment in attachments],
         "text": body.text,

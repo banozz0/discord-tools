@@ -173,13 +173,31 @@ def test_a_forward_carries_its_text_and_its_origin_in_the_record():
     assert "forwarded_from" not in message_to_record(copied(), channel_id=10)
 
 
-def test_a_forward_is_not_read_as_a_reply_and_a_reply_still_is():
-    reply = build(111, type=19, content="agreed", message_reference={"type": 0, "channel_id": "10", "message_id": "101"})
+def a_reply() -> discord.Message:
+    return build(111, type=19, content="agreed", message_reference={"type": 0, "channel_id": "10", "message_id": "101"})
 
-    assert message_to_record(forwarded(), channel_id=10)["reply_to_msg_id"] is None
-    assert message_record(forwarded(), channel_id=10, cursor="102:102")["reply_to"] is None
+
+@pytest.mark.parametrize("message", [forwarded(), pin_event()], ids=["forward", "pin-notice"])
+def test_a_forward_and_a_pin_notice_are_not_read_as_replies(message, tmp_path):
+    """Live 2026-09-17: a forward and Discord's pin notice both carried
+    reply_to_msg_id, the source id and the pinned id, so search could not tell
+    either from a real reply to the same message."""
+    assert message_to_record(message, channel_id=10)["reply_to_msg_id"] is None
+    assert message_record(message, channel_id=10, cursor="1:1")["reply_to"] is None
+
+    exported = json.loads(write_records([message_to_record(message, channel_id=10)], tmp_path / "out.json", "json").read_text())
+    assert exported[0]["reply_to_msg_id"] is None
+    shown = write_records([message_to_record(message, channel_id=10)], tmp_path / "out.jsonl", "jsonl").read_text()
+    assert json.loads(shown)["reply_to_msg_id"] is None
+
+
+def test_a_real_reply_still_is_one(tmp_path):
+    reply = a_reply()
+
     assert message_to_record(reply, channel_id=10)["reply_to_msg_id"] == 101
     assert message_record(reply, channel_id=10, cursor="111:111")["reply_to"] == "101"
+    exported = json.loads(write_records([message_to_record(reply, channel_id=10)], tmp_path / "out.json", "json").read_text())
+    assert exported[0]["reply_to_msg_id"] == 101
     assert row(reply).endswith("sven: agreed")
 
 

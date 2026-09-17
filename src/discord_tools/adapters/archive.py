@@ -47,6 +47,7 @@ from discord_tools.records import (
     message_body,
     message_date,
     parse_date_bound,
+    reply_target,
 )
 
 PLATFORM = "discord"
@@ -184,7 +185,6 @@ def attachment_id_of(url: str | None) -> str | None:
 def message_record(message: Any, *, channel_id: int, cursor: str) -> dict[str, Any]:
     """One history row in the shape the shared archive stores."""
     when = message_date(message)
-    reference = getattr(message, "reference", None)
     edited = getattr(message, "edited_at", None)
     # A forward's words and files are in its snapshot; its own are empty.
     source = carrier(message)
@@ -195,17 +195,15 @@ def message_record(message: Any, *, channel_id: int, cursor: str) -> dict[str, A
     # only identifying text is not its `content` reaches `text` -- the one
     # column `messages_fts` indexes -- rather than landing as an empty row.
     body = message_body(message)
-    # A forward's reference names the message it moved, not one it answers.
-    replied = reference is not None and "forwarded_from" not in body.extras
+    # A forward's and a pin notice's reference name a message they do not answer.
+    replied = reply_target(message)
     return {
         "message_id": str(int(getattr(message, "id"))),
         "date": when.isoformat() if when else None,
         "text": body.text,
         "author": author,
         "author_rid": author["rid"] if author else None,
-        "reply_to": (
-            str(reference.message_id) if replied and getattr(reference, "message_id", None) else None
-        ),
+        "reply_to": None if replied is None else str(replied),
         "edited": edited.isoformat() if edited is not None else None,
         "platform_json": {
             "channel_id": channel_id,

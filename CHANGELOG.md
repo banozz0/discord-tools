@@ -1,5 +1,161 @@
 # Changelog
 
+## Unreleased
+
+A live run through the whole menu on 2026-09-17 found what the suite could
+not: rows that did not say what a message was, times with no zone, writes that
+ended in a block of JSON, two crashes behind an empty selection, and a handful
+of screens that named the wrong thing. This is that pass, plus the two fixes
+that had been waiting on a release since 2026-09-12.
+
+### A row says what its message is
+
+- **`search` and `archive search` rows carry a mark in front of the text.**
+  `[fwd #<channel id>]` is Discord's own forward and the channel it came from
+  (a `message copy` carries no mark, which is how the two tell apart);
+  `[poll]`, `[image]`, `[video]`, `[audio]`, `[voice]`, `[file]` and
+  `[sticker]` say what the message carries; `[event]` is a row Discord wrote
+  itself, such as a pin notice or a thread's starter. `[media]` is now left for
+  an embed-only message.
+- **A message with no words of its own gets a derived line** — `[poll] ship
+  it? — yes / no`, `[file] report.pdf`, `[event] message pinned` — and that
+  line is what `--keyword` matches and what the archive stores and searches.
+  A forward, a poll and a pin used to be an empty row nothing could find.
+- **`--format json`, `--jsonl` and `--format csv` carry the same facts** as
+  the additive keys `forwarded_from`, `poll`, `attachment_kinds`, `stickers`
+  and `service`; markdown and html put the marks in front of the text.
+- **Fixed: a channel of forwards, polls or pins is archived rather than
+  skipped.** `archive sync` and `doctor --channel` sample five messages and
+  read an all-empty sample as the message-content intent being off; a forward,
+  a poll and a pin each have empty `content` by design, so a channel whose
+  newest five were those was skipped with the intent on and failed `doctor`.
+  One rule now says what proves the intent: a person's words, a forward's moved
+  words, or a poll.
+- **Fixed: a forward and a pin notice are no longer read as replies.** Discord
+  points a reply, a forward and its own event rows at another message through
+  the same reference, and only the first is a reply. `reply_to_msg_id` on the
+  live record and `reply_to` on the archive row — and every export that carries
+  them — now say so.
+- **`archive status` reports the rendering each scope was stored with**, so a
+  scope written before the tool derived those lines can be named rather than
+  silently unsearchable. It counts and never rewrites: a rebuild refetches
+  from Discord, so it is offered, not performed.
+
+### What a channel has pinned
+
+- **`message pins --channel <id>`** lists what a channel or thread holds
+  pinned, newest pin first: id, when it was sent, who wrote it and the text, in
+  the shape a search row prints. `--json` carries `result.pins` (a search row's
+  keys plus `pinned_at`, null on discord.py older than 2.6) and `matched`;
+  `--jsonl` streams one pin per line. It only reads — no prompt, no plan, no
+  audit line.
+- **It preflights *Read Message History* before it fetches.** Discord answers a
+  bot without that right with no pins rather than a refusal, so an unchecked
+  empty list would be a wrong answer; the command exits 2 with
+  `PERMISSION_DENIED` naming the missing right instead.
+- **The menu's Write group** gains "List a channel's pinned messages" as its
+  last row, after "List my bookmarks", so rows 3.1–3.12 stay exactly where they
+  were.
+
+### Every printed time says its zone
+
+- **A time on a printed row or preview is UTC and says so** —
+  `2026-09-17 07:07 UTC`. Seven places cut the ISO string and dropped the
+  offset with it: the message preview's `Sent` line, the delete-selection and
+  reply-preview rows, `search` rows, `archive search` hits and their context
+  rows, and bookmark rows. UTC rather than this machine's zone, because
+  `search` and `archive` read a bare `--since`/`--until` as UTC, so a time
+  copied off a row means the same moment typed back.
+- **A `message copy`'s attribution carries a Discord time tag** (`<t:…:f>`)
+  rather than a bare stamp, so every reader sees it on their own clock. The
+  copy preview says so under "Posted as:".
+- `--json` is unchanged: it keeps its ISO strings.
+
+### One sentence when a write is done
+
+- **`send` and every `message` verb end on one past-tense sentence** — `Sent
+  message 1394829911102 to #general (1394...).` — the way the thirteen writes
+  built since already do. They used to print their result mapping as a block of
+  indented JSON, in the menu and on the plain CLI alike. `edit`, `react`,
+  `unreact`, `pin`, `unpin`, `poll`, `typing`, `bookmark`, `forward`, `copy`
+  and an executed `delete` each name the message and the channel the way their
+  previews do; a declined send says nothing more.
+- Under `--json` nothing moves: the result mapping keeps every key and the
+  sentence goes to stderr like every other human line. The ids are in `result`,
+  so read them there rather than scraping the sentence.
+
+### Deleting your bot's own messages
+
+- **`message delete` asks for *Manage Messages* only when it needs it.** A
+  selection of nothing but the bot's own messages dry-runs without the right
+  and deletes one by one, which is what Discord's single-message endpoint
+  allows. One message by anybody else and the dry-run is `PERMISSION_DENIED`
+  naming that message and its author, before the typed `DELETE` and before any
+  delete call. `clear-messages` always needs the right.
+- **A right lost while the prompt sat now refuses before the first delete**
+  rather than surfacing as a 403 and a half-finished run.
+- **Fixed: an archive search that matches nothing is refused, not crashed.**
+  `message delete --from-search` over a query matching no message dry-ran as a
+  zero-message plan, offered "Delete them for real", and then raised
+  `IndexError`; `message forward` and `message copy` did the same and took the
+  whole menu down with it. All three now refuse straight after the selection
+  with `TARGET_NOT_FOUND` — "Nothing to delete: archive search '<query>'
+  matched no message in <channel>." — with a hint to check the query or sync
+  first.
+- **Fixed: a `--ids` selection past the preview counts every id.** Twenty-five
+  ids drew "Delete 20 message(s)" on the screen right above the typed `DELETE`
+  that removed all twenty-five.
+
+### The menu
+
+- **A typed `no` at a `y/N` says it cancelled**, as a blank answer already did.
+  All seven gates — the message verbs, `create`, `send`, `role`, the review
+  fetch, the bot edit and the watch writes — print "Answered no - cancelled."
+- **`Find IDs` says where its JSON file landed** — "Wrote N server(s) to
+  <path> (<bytes> bytes)" — and `~` typed at the path prompt now means the home
+  directory rather than a directory literally named `~`. `bot --json <path>`
+  and the menu's "Save this profile to a JSON file" say the same.
+- **`Find IDs` names the picked server in its titles**, the way Members and the
+  other server flows do.
+- **The forward and copy titles name the source and the destination**, and the
+  Done title's last step is what the banner targets.
+- **The channel pickers mark a channel that is not text** — `(voice channel)`
+  after the id — so a voice `# General` no longer sits beside a text `# general`
+  with nothing but case between them.
+- **The audit log can drop its time limit.** "Since when?" now offers "No time
+  limit (the newest 50 entries)" or "Since a time"; blank used to cancel, so
+  the filter could never be dropped from the menu.
+- **The create gate names the bot**, as the message previews do, and a create
+  that went through prints what it read back.
+- **`channel show` names the category it sits under** — "Text channels
+  (1548285155293003796)" — from the path it already fetched.
+- **Fixed: a reaction or bookmark preview said its preposition twice** — "Add
+  reaction 👍 to in Text channels > general".
+- **Fixed: "Main menu" after an offline action reached the root** instead of
+  exiting with `AttributeError`. Eight flows that need no login — archive
+  prune, the auth wizard, a rule write, a rules test, an offline review verb
+  and a schedule cancel — went through the same path.
+- **Fixed: a dry-run the command refused no longer offers the for-real row.**
+  Eleven gates read "the dry-run returned nothing" as the only failure, so a
+  refusal, a cancel, a partial scan and an interrupt all drew "Dry-run done"
+  over a plan that was never produced.
+
+### Elsewhere
+
+- **Fixed: the archive table's `[media]` comes off the message, not off the
+  media store.** It was marked from the count of media files this archive
+  holds, and `archive sync` downloads nothing, so the count is zero until the
+  files are approved through `review` — every attachment-carrying message
+  printed from the archive as a plain line while the same message printed
+  `[media]` read live. The manifest count is still in `result.hits[].media`.
+- **The vendored core goes v0.8 to v0.11.** An archive hit now carries the
+  extras a sync recorded about a message, which is what lets the rows above say
+  what a message is, and the store stamps the rendering each scope was written
+  with.
+- The three recorded terminal transcripts under `docs/transcripts/` are named
+  for the menu rather than for the release, so a version bump no longer means
+  re-recording a menu that did not change.
+
 ## 0.19.0 — 2026-09-12
 
 ### See a channel before you change it

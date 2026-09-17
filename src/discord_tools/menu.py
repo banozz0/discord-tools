@@ -186,6 +186,20 @@ async def _call(args, *, session, runner, write) -> int | None:
         return None
 
 
+async def _dry_run_passed(args, *, session, runner, write) -> bool:
+    """Run a flow's dry-run. True only when it really produced its plan.
+
+    Exit code 0 -- ok, empty, dry_run -- is the only pass. A refused preflight
+    or a platform error is 2, a declined confirm or a cancel at a gate is 1, an
+    interrupt is 130, and None is a MENU_ERRORS exception `_call` already
+    printed. Every one of those means there is no plan on screen, so the caller
+    must not offer the for-real row above it: whatever was said, the command or
+    `_call` has already printed it, and the flow goes straight to its
+    after-action prompt.
+    """
+    return await _call(args, session=session, runner=runner, write=write) == 0
+
+
 # After-run row keys. AGAIN is answered inside _act. STAY is the flow's own next
 # step -- back to its filled form, or whatever "another" means there -- which only
 # the flow can answer, so _act hands it back. Anything else (MENU, EXIT) leaves the
@@ -1042,7 +1056,7 @@ async def _flow_message_delete(*, session, runner, read, write) -> bool:
         if selection is BACK:
             continue
         dry_run = _namespace(command="message", message_kind="delete", channel=picked.id, **selection, limit=None, i_know=False, execute=False)
-        if await _call(dry_run, session=session, runner=runner, write=write) is None:
+        if not await _dry_run_passed(dry_run, session=session, runner=runner, write=write):
             return after_action(read=read, write=write)
         choice = choose(
             ["Delete them for real (asks you to type DELETE)"],
@@ -1317,7 +1331,7 @@ async def _flow_delete(*, session, runner, read, write) -> bool:
 
         # The dry-run always runs first: the menu must never be a shorter path
         # to a deletion than the flags are.
-        if await _call(dry_run, session=session, runner=runner, write=write) is None:
+        if not await _dry_run_passed(dry_run, session=session, runner=runner, write=write):
             return after_action(read=read, write=write)
 
         choice = choose(
@@ -1353,7 +1367,7 @@ async def _flow_leave(*, session, runner, read, write) -> bool:
 
         where = crumb(trail, server.name)
         dry_run = _namespace(command="leave-server", server=server.id, execute=False)
-        if await _call(dry_run, session=session, runner=runner, write=write) is None:
+        if not await _dry_run_passed(dry_run, session=session, runner=runner, write=write):
             return after_action(read=read, write=write)
 
         choice = choose(
@@ -1442,7 +1456,7 @@ async def _flow_structure_apply(*, session, runner, read, write) -> bool:
 
         # The dry-run always runs first: the steps and what is left alone are on
         # the screen before anyone is offered the real thing.
-        if await _call(dry_run, session=session, runner=runner, write=write) is None:
+        if not await _dry_run_passed(dry_run, session=session, runner=runner, write=write):
             return after_action(read=read, write=write)
 
         choice = choose(
@@ -1628,7 +1642,7 @@ async def _flow_role_delete(*, session, runner, read, write) -> bool:
 
         # The dry-run always runs first: the menu is never a shorter path to a
         # deletion than the flags are.
-        if await _call(dry_run, session=session, runner=runner, write=write) is None:
+        if not await _dry_run_passed(dry_run, session=session, runner=runner, write=write):
             return after_action(read=read, write=write)
 
         choice = choose(
@@ -1777,7 +1791,7 @@ def _member_removal(verb: str, what: str):
             dry_run = _namespace(
                 command="member", member_kind=verb, server=server.id, member=str(member["id"]), reason=reason, execute=False
             )
-            if await _call(dry_run, session=session, runner=runner, write=write) is None:
+            if not await _dry_run_passed(dry_run, session=session, runner=runner, write=write):
                 return after_action(read=read, write=write)
             choice = choose(
                 [f"{what} for real - the next screen asks for their exact username"],
@@ -1979,7 +1993,7 @@ async def _flow_invite_revoke(*, session, runner, read, write) -> bool:
             continue
         where = crumb(trail, str(chosen["code"]))
         dry_run = _namespace(command="invite", invite_kind="revoke", server=server.id, code=str(chosen["code"]), execute=False)
-        if await _call(dry_run, session=session, runner=runner, write=write) is None:
+        if not await _dry_run_passed(dry_run, session=session, runner=runner, write=write):
             return after_action(read=read, write=write)
         choice = choose(
             ["Revoke it for real - the next screen asks for its exact code"],
@@ -2122,7 +2136,7 @@ def _integration_removal(command: str, *, verb: str, title: str, said: str):
             dry_run = _namespace(
                 command=command, **{f"{command}_kind": verb}, server=server.id, **{reference: str(row["id"])}, execute=False
             )
-            if await _call(dry_run, session=session, runner=runner, write=write) is None:
+            if not await _dry_run_passed(dry_run, session=session, runner=runner, write=write):
                 return after_action(read=read, write=write)
             choice = choose(
                 [f"{said} it for real - the next screen asks for its exact name"],
@@ -2554,7 +2568,7 @@ async def _flow_clear(*, session, runner, read, write) -> bool:
         if target == scanned:
             write("Same target as the last dry-run; its counts still stand.")
         else:
-            if await _call(dry_run, session=session, runner=runner, write=write) is None:
+            if not await _dry_run_passed(dry_run, session=session, runner=runner, write=write):
                 return after_action(read=read, write=write)
             scanned = target
 
@@ -2876,7 +2890,7 @@ async def _flow_archive_prune(*, session, runner, read, write) -> bool:
         )
         # The dry-run always runs first: the menu is never a shorter path to
         # a removal than the flags are.
-        if await _call(dry_run, session=None, runner=runner, write=write) is None:
+        if not await _dry_run_passed(dry_run, session=None, runner=runner, write=write):
             return after_action(read=read, write=write)
 
         go = choose(
@@ -3844,7 +3858,7 @@ async def _flow_event_delete(*, session, runner, read, write) -> bool:
             continue
         where = crumb(trail, str(row["name"]))
         args = _event_namespace(session, event_kind="delete", server=server.id, event_id=row["id"], execute=False)
-        if await _call(args, session=session, runner=runner, write=write) is None:
+        if not await _dry_run_passed(args, session=session, runner=runner, write=write):
             if not after_action(read=read, write=write):
                 return False
             continue

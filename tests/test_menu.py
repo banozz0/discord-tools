@@ -16,6 +16,7 @@ DISCOVER = ("1",)
 SEARCH = ("2", "1")
 MEMBERS = ("2", "2")
 SEND = ("3", "1")
+MESSAGE_DELETE = ("3", "4")
 CREATE = ("4", "1")
 DELETE = ("4", "2")
 STRUCTURE_EXPORT = ("4", "3")
@@ -84,7 +85,7 @@ def keystrokes(answers):
     return [key for answer in answers for key in ((answer,) if isinstance(answer, str) else tuple(answer))]
 
 
-def drive(answers, *, session=None, runner=None, result=0):
+def drive(answers, *, session=None, runner=None, result=0, prompts=None):
     calls = []
 
     async def default_runner(args, *, client=None, config=None):
@@ -92,9 +93,19 @@ def drive(answers, *, session=None, runner=None, result=0):
         return result
 
     output = []
+    asked = scripted(keystrokes(answers))
+
+    def read(prompt):
+        # `prompts` is how a test says which question it was asked: a screen is
+        # written, but a bare prompt like the after-action one only ever reaches
+        # `read`.
+        if prompts is not None:
+            prompts.append(prompt)
+        return asked(prompt)
+
     code = asyncio.run(
         run_menu(
-            read=scripted(keystrokes(answers)),
+            read=read,
             write=output.append,
             session=session or make_session(),
             runner=runner or default_runner,
@@ -622,6 +633,69 @@ def test_enter_on_an_offline_flows_after_run_screen_reaches_the_root_too():
     assert [args.execute for args in calls] == [False, True]
     titles = [text.split("\n")[0] for text in output if "\n" in text]
     assert titles[-1] == "discord-tools"
+
+
+# A dry-run the command itself refused -- a missing permission, a declined
+# confirm -- comes back as a non-zero exit code, and the for-real row must not
+# be offered off a plan that was never produced. Live on 2026-09-17, Write 3.4
+# drew "Dry-run done" and "Delete them for real" after the command had printed
+# "The bot is missing manage_messages on Text channels > general".
+# The presses below reach each flow's dry-run; the next press would be its
+# for-real row.
+REFUSED_DRY_RUNS = {
+    "message delete": [MESSAGE_DELETE, "1", "1", "5 6"],
+    "channel delete": [DELETE, "1"],
+    "leave-server": [LEAVE],
+    "clear-messages": [CLEAR, "1", "1"],
+    "member kick": [MEMBER_KICK, "1", "raiding"],
+    "member ban": [MEMBER_BAN, "1", "raiding"],
+    "archive prune": [ARCHIVE_PRUNE, "1", "10", "2"],
+}
+
+
+@pytest.mark.parametrize("answers", list(REFUSED_DRY_RUNS.values()), ids=list(REFUSED_DRY_RUNS))
+def test_a_refused_dry_run_never_offers_the_for_real_row(answers):
+    prompts: list[str] = []
+    # The zeros are the way out of whatever screen comes next, so a regression
+    # fails on the assertions below rather than on a script that ran out.
+    code, calls, output = drive([*answers, "0", "0", "0", "0", "0", "0"], result=2, prompts=prompts)
+    assert code == 0
+    # One call: the dry-run. The execute is never even offered.
+    assert [getattr(args, "execute", None) for args in calls] == [False]
+    assert "Dry-run done" not in screens(output)
+    assert "for real" not in screens(output)
+    # The flow ends on the after-action prompt, the same one a printed error gets.
+    assert prompts[-1] == "Enter = menu, 0 = exit: "
+
+
+# Scheduled events sit two groups down, and their delete is the same gate under
+# another name: its dry-run is not called `dry_run`, so it was missed by the
+# grep that found the rest.
+EVENT_DELETE = ("7", "10", "4")
+
+
+def test_a_refused_event_dry_run_never_offers_the_delete_row():
+    session = make_session(
+        make_client(
+            scheduled_events={
+                1: [
+                    {
+                        "id": 5, "name": "Standup", "description": None, "place": "voice", "status": "scheduled",
+                        "channel_id": 10, "channel_name": "general", "location": None,
+                        "start": "2026-10-01T09:00:00+00:00", "end": None, "subscribers": 0, "creator_id": None,
+                    }
+                ]
+            }
+        )
+    )
+    prompts: list[str] = []
+    code, calls, output = drive(
+        [EVENT_DELETE, "1", "0", "0", "0", "0", "0"], session=session, result=2, prompts=prompts
+    )
+    assert code == 0
+    assert [(args.event_kind, args.execute) for args in calls] == [("delete", False)]
+    assert "asks for the event's exact name" not in screens(output)
+    assert prompts[-1] == "Enter = menu, 0 = exit: "
 
 
 def test_backing_out_of_a_flow_still_lands_on_its_group():

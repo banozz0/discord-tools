@@ -134,6 +134,26 @@ since 2026-09-12.
   now does the same, so a tie refuses only where the target really is above.
   `HIERARCHY_DENIED` names both ids as well as both positions when the tie is
   what decided it.
+- **Fixed: `member ban` reaches somebody who has already left.** That is the
+  case a ban exists for, and Discord's own endpoint says so — `PUT
+  /guilds/{guild}/bans/{user}` takes a *user*, where the kick beside it takes a
+  member — but every member write was resolved through one fetch of the guild
+  member, whose 404 refused with `TARGET_NOT_FOUND` before a plan was ever
+  built. A ban now tolerates that 404, and only that 404: a refusal to look is
+  Discord saying the bot may not, which is not the same as nobody being there.
+  `kick`, `timeout`, `untimeout` and `nick` are unchanged — they each need a
+  member and still say `TARGET_NOT_FOUND` on an ID that is not one. With no ban
+  ever reachable, `member unban` was stranded on a small server too; it reads
+  Discord's ban list rather than the member list, and now has something to
+  lift, including a ban row Discord attached no account to.
+- **A ban's preview says the target is not there instead of drawing blank
+  fields** — the ID, "not in this server", "Roles        none here", and a
+  detail line saying nothing is removed. No hierarchy check applies: Discord
+  ranks somebody by the greatest position among their roles, and a user with no
+  member record in that server holds no role to compare. The typed gate stays,
+  and asks for their **user ID** — named as the ID on the dry-run line, in the
+  parser help, in the menu row and in its own warning block — because a ban by
+  bare id with no name on screen is worse than one with.
 
 ### The menu
 

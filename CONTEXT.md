@@ -314,15 +314,20 @@ Architecture decisions with more context than fits here go to `docs/adr/`.
   A role write plans against two targets, the server first so preflight
   probes the server-wide rights, the role second so drift catches a rename.
   `--role everyone` names the default role, whose id is the server's own.
-- **Top role** — the highest role the bot holds (`roles.top_role`, from the
-  seam's `bot_role_ids`); @everyone when it holds nothing else. What Discord
+- **Rank** — where a role sits in Discord's own order (`roles.rank`): the
+  position, and on a tie the id, the lower id sitting higher. The tie is the
+  ordinary case, not an edge — Discord puts every role it creates at position
+  1, a bot's own managed role included.
+- **Top role** — the highest role the bot holds by rank (`roles.top_role`, from
+  the seam's `bot_role_ids`); @everyone when it holds nothing else. What Discord
   measures every role write against, and what `role list` names last.
 - **Hierarchy** — the check after preflight (`roles.hierarchy`): Manage Roles
-  held but unusable. A target at or above the top role, a managed role, or a
+  held but unusable. A target above the top role by rank, a managed role, or a
   role the bot itself holds (never @everyone, which everyone holds) is
-  `HIERARCHY_DENIED` with both positions named. The third rule is this tool's
-  own — it never edits or elevates its own roles — and applies whatever the
-  bot's position.
+  `HIERARCHY_DENIED` with both positions named, and with both ids named when the
+  positions tied and the id decided. The third rule is this tool's own — it
+  never edits or elevates its own roles — and applies whatever the bot's
+  position.
 - **Grant rule** — `roles.ungrantable`: a role's permissions or an overwrite's
   allow and deny may only name rights the bot holds where it writes (the
   preflight's `held`; Administrator holds everything). Refused as

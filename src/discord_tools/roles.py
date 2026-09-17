@@ -7,11 +7,15 @@ beyond a plan: the two checks Discord makes after the permission check and
 before the write, the role as a Target, the flag parsing, and the screens.
 
 **Hierarchy.** A held Manage Roles is not enough. Discord lets a role act only on
-roles below its own top role, never on a managed role (an integration's, a
-bot's own, the booster role), and this tool adds one rule of its own: it never
+roles below its own top role — below in Discord's own order, which is the
+position and then, on a tie, the id, the lower id sitting higher (Discord puts
+every role it creates at position 1, so the tie is the ordinary case on a small
+server). It lets nobody act on a managed role (an integration's, a bot's own,
+the booster role), and this tool adds one rule of its own: it never
 edits or removes a role the bot itself holds, because a tool that can raise its
 own rights is the wrong tool to give a bot. Each is refused as `HIERARCHY_DENIED`
-with both positions named, before anything is written.
+with both positions named — and both ids where the positions tied — before
+anything is written.
 
 **Grants.** A role or an overwrite can only carry rights the bot itself holds
 (Discord refuses the rest with a 403 that names nothing). The tool checks that
@@ -83,6 +87,29 @@ def role_target(server: Target, role: Mapping[str, Any]) -> Target:
 # -- the two checks after preflight --------------------------------------------
 
 
+def rank(role: Mapping[str, Any]) -> tuple[int, int]:
+    """Where a role sits in Discord's own order, highest last: the position, and
+    on a tie the id — the lower id sitting higher.
+
+    Discord's role object documents the tie ("roles with the same position are
+    sorted by id"), and it is the ordinary case rather than an edge: every role
+    Discord creates arrives at position 1, a bot's own managed role included, so
+    a role this tool just made ties with the bot's own on any small server.
+    """
+    return (int(role.get("position", 0)), -int(role["id"]))
+
+
+def tie_note(role: Mapping[str, Any], top: Mapping[str, Any]) -> str:
+    """The sentence a refusal adds when the position decided nothing and the id did.
+    Empty when the two sit at different positions, and when they are one role."""
+    if int(role.get("position", 0)) != int(top.get("position", 0)) or int(role["id"]) == int(top["id"]):
+        return ""
+    return (
+        f" Both sit at the same position, and Discord breaks that tie by ID: {role['name']} ({role['id']}) sits "
+        f"above {top['name']} ({top['id']}) because its ID is lower."
+    )
+
+
 def top_role(roles: Sequence[Mapping[str, Any]], bot_role_ids: Iterable[int]) -> dict[str, Any]:
     """The bot's highest role: what Discord measures every role write against.
     A bot holding nothing but @everyone has @everyone as its top."""
@@ -90,7 +117,7 @@ def top_role(roles: Sequence[Mapping[str, Any]], bot_role_ids: Iterable[int]) ->
     held = [role for role in roles if int(role["id"]) in mine]
     if not held:
         held = [role for role in roles if int(role.get("position", 0)) == 0] or [dict(roles[0])]
-    return dict(max(held, key=lambda role: int(role.get("position", 0))))
+    return dict(max(held, key=rank))
 
 
 def hierarchy(
@@ -116,12 +143,13 @@ def hierarchy(
             hint="Change the bot's roles in Server Settings → Roles, as the server owner.",
         )
     top = top_role(roles, bot_role_ids)
-    if position >= int(top.get("position", 0)):
+    if rank(role) >= rank(top):
         return Error(
             code="HIERARCHY_DENIED",
             message=(
                 f"The bot's top role {top['name']} sits at position {int(top.get('position', 0))} and "
                 f"{name} at position {position}: Discord lets a role {verb} only roles below its own."
+                + tie_note(role, top)
             ),
             hint=f"Move the bot's role above {name} in Server Settings → Roles, then run this again.",
         )

@@ -449,10 +449,12 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
   backed up". `export` and `diff` need Manage Server on the bot;
   `PERMISSION_DENIED` names it.
 - **A role write can be valid and still impossible.** `HIERARCHY_DENIED`
-  means the bot holds Manage Roles but its top role sits at or below the
-  target's, the role is managed by an integration, or it is one of the bot's
-  own roles — the tool never edits or elevates those. `PERMISSION_DENIED` on a
-  grant means the bot cannot hand out a right it does not hold. Both name the
+  means the bot holds Manage Roles but its top role sits below the target's
+  (the same position is a tie Discord breaks by ID, the lower ID sitting higher,
+  so a role the tool just made is reachable), the role is managed by an
+  integration, or it is one of the bot's own roles — the tool never edits or
+  elevates those. `PERMISSION_DENIED` on a grant means the bot cannot hand out
+  a right it does not hold. Both name the
   role and the fix (move the bot's role above it, or give the bot the right);
   relay that rather than retrying, because nothing on the command line changes
   it. `role list` prints the positions and the bot's top role.

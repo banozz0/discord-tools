@@ -229,6 +229,40 @@ def test_role_edit_is_hierarchy_denied_where_manage_roles_cannot_reach(role_id, 
     assert writes(client) == [] and client.reasons == []
 
 
+def tied(**overrides) -> FakeClient:
+    """The live shape: Discord puts a new role at position 1, where the bot's own
+    managed role already sits, and orders the tie by id — the lower id higher."""
+    return agency(
+        roles={10: [role(10, "@everyone", 0), role(20, "Harry", 1, managed=True), role(30, "campaign-role", 1)]},
+        bot_roles={10: [20]},
+        **overrides,
+    )
+
+
+def test_a_role_the_bot_just_made_ties_with_its_own_and_is_still_editable():
+    client = tied()
+    code, body, _stderr = go(["--json", "role", "edit", "--server", "10", "--role", "30", "--name", "campaign-role-2", "--yes"], client)
+    assert (code, body["status"]) == (0, "ok"), body
+    assert client.structure_writes[-1] == ("edit_role", "campaign-role", {"name": "campaign-role-2"})
+
+
+def test_a_role_the_bot_just_made_ties_with_its_own_and_is_still_deletable(monkeypatch):
+    client = tied()
+    answer(monkeypatch, "campaign-role")
+    code, body, _stderr = go(["--json", "role", "delete", "--server", "10", "--role", "30", "--execute"], client)
+    assert (code, body["status"]) == (0, "ok"), body
+    assert client.deleted_roles == [30]
+
+
+def test_a_role_made_before_the_bots_own_ties_with_it_and_is_still_refused():
+    client = tied()
+    client.roles[10].append(role(15, "Elders", 1))
+    code, body, _stderr = go(["--json", "role", "edit", "--server", "10", "--role", "15", "--name", "x", "--yes"], client)
+    assert (code, body["error"]["code"]) == (2, "HIERARCHY_DENIED"), body
+    assert "Elders (15) sits above Harry (20) because its ID is lower" in body["error"]["message"]
+    assert writes(client) == [] and client.reasons == []
+
+
 def test_role_edit_touching_administrator_is_typed_name_either_way(monkeypatch):
     client = agency(default_permissions={"administrator": True}, bot_roles={10: [16]})
     client.roles[10].append(role(16, "Overlord", 9, permissions="8"))

@@ -63,7 +63,7 @@ def test_a_member_at_or_above_the_bots_top_role_is_refused_with_both_positions()
     refusal = moderation.hierarchy(ROLES, [14], member(roles=(12, 11)), verb="ban", owner_id=1, bot_id=99)
     assert refusal.code == "HIERARCHY_DENIED"
     assert "Harrybot sits at position 2" in refusal.message and "Moderators at position 3" in refusal.message
-    # Equal position is refused too: Discord's rule is strictly below.
+    # The bot's own top role is refused too: a role is not below itself.
     same = moderation.hierarchy(ROLES, [14], member(roles=(14,)), verb="ban", owner_id=1, bot_id=99)
     assert same.code == "HIERARCHY_DENIED"
 
@@ -77,6 +77,25 @@ def test_the_owner_and_the_bot_itself_are_refused_before_any_position_is_compare
 
 def test_a_member_holding_nothing_but_everyone_is_reachable():
     assert moderation.hierarchy(ROLES, [14], member(roles=()), verb="timeout", owner_id=1, bot_id=99) is None
+
+
+# Discord gives every bot it adds a managed role at position 1, so two bots on a
+# default server always tie; the id breaks it, the lower id sitting higher.
+TIED = [role(10, "@everyone", 0), role(20, "Harrybot", 1), role(30, "dummy-testing", 1), role(15, "founders", 1)]
+
+
+def test_a_member_tied_with_the_bots_top_role_is_reachable_when_their_role_id_is_higher():
+    assert moderation.hierarchy(TIED, [20], member(roles=(30,)), verb="kick", owner_id=1, bot_id=99) is None
+    assert moderation.hierarchy(TIED, [20], member(roles=(10,)), verb="rename", owner_id=1, bot_id=99) is None
+
+
+def test_a_member_tied_with_the_bots_top_role_is_refused_when_their_role_id_is_lower():
+    refusal = moderation.hierarchy(TIED, [20], member(roles=(30, 15)), verb="ban", owner_id=1, bot_id=99)
+    assert refusal.code == "HIERARCHY_DENIED"
+    # Their top role is the lower of the two tied ids, not the first one they hold.
+    assert "Both sit at the same position" in refusal.message
+    assert "founders (15) sits above Harrybot (20) because its ID is lower" in refusal.message
+    assert "Move the bot's role above founders" in refusal.hint
 
 
 # -- bounds ---------------------------------------------------------------------------

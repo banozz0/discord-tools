@@ -183,6 +183,50 @@ def test_a_missing_right_is_named_before_the_hierarchy_is_even_consulted():
     assert writes(client) == []
 
 
+def tied() -> FakeClient:
+    """Two bots on a default server: Discord gives each the managed role it adds at
+    position 1, so the id — not the position — says which of them is above."""
+    return agency(
+        roles={10: [role(10, "@everyone", 0), role(20, "Harry", 1, managed=True), role(30, "dummy-testing", 1, managed=True)]},
+        bot_roles={10: [20]},
+        guild_members={
+            10: [
+                person(1, "sven", roles=(20,)),
+                person(42, "harrybot", roles=(20,), bot=True),
+                person(50, "ana", display_name="Ana R", roles=(30,)),
+            ]
+        },
+    )
+
+
+@pytest.mark.parametrize(
+    "argv,typed,wrote",
+    [
+        (["member", "kick", "--server", "10", "--member", "50", "--reason", "x", "--execute"], "ana", lambda c: c.kicked == [(10, 50)]),
+        (["member", "ban", "--server", "10", "--member", "50", "--reason", "x", "--execute"], "ana", lambda c: c.banned == [(10, 50)]),
+        (["member", "nick", "--server", "10", "--member", "50", "--nick", "Boss", "--yes"], None, lambda c: c.nicks == [(10, 50, "Boss")]),
+    ],
+    ids=["kick", "ban", "nick"],
+)
+def test_a_member_whose_top_role_ties_with_the_bots_is_reachable_when_its_id_is_higher(monkeypatch, argv, typed, wrote):
+    client = tied()
+    if typed is not None:
+        answer(monkeypatch, typed)
+    code, body, _stderr = go(["--json", *argv], client)
+    assert (code, body["status"]) == (0, "ok"), body
+    assert wrote(client)
+
+
+def test_a_member_whose_top_role_ties_with_the_bots_is_refused_when_its_id_is_lower():
+    client = tied()
+    client.roles[10].append(role(15, "founders", 1))
+    client.guild_members[10][2]["roles"] = [30, 15]
+    code, body, _stderr = go(["--json", "member", "kick", "--server", "10", "--member", "50", "--reason", "x", "--execute"], client)
+    assert (code, body["error"]["code"]) == (2, "HIERARCHY_DENIED"), body
+    assert "founders (15) sits above Harry (20) because its ID is lower" in body["error"]["message"]
+    assert writes(client) == [] and client.reasons == []
+
+
 def test_an_id_that_is_not_a_member_is_target_not_found():
     client = agency()
     code, body, _stderr = go(["--json", "member", "kick", "--server", "10", "--member", "999", "--reason", "x"], client)

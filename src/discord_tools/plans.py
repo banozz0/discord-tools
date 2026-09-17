@@ -218,6 +218,12 @@ async def drifted(shown: Write, rederive) -> Error | None:
     `rederive` builds the plan again from live state. A target renamed or
     deleted while the confirm sat on screen means the answer was given about
     something else, and the safe reading of that is not to write.
+
+    A right is part of that world. The rebuilt plan is preflighted against the
+    rights the bot holds *now*, and that refusal is returned rather than
+    dropped: a permission taken away while the gate sat on screen stops the
+    write here, before the first call, instead of arriving as a 403 halfway
+    through one that has already changed something.
     """
     try:
         again = await rederive()
@@ -230,13 +236,13 @@ async def drifted(shown: Write, rederive) -> Error | None:
             hint="Run the command again; it re-checks the target from scratch.",
         )
     differences = drift(shown.plan, again.plan)
-    if not differences:
-        return None
-    return Error(
-        code="PLAN_DRIFT",
-        message="Something changed between the preview and the answer: " + "; ".join(differences),
-        hint="Run the command again to see the target as it is now.",
-    )
+    if differences:
+        return Error(
+            code="PLAN_DRIFT",
+            message="Something changed between the preview and the answer: " + "; ".join(differences),
+            hint="Run the command again to see the target as it is now.",
+        )
+    return again.refusal
 
 
 # -- readback -------------------------------------------------------------

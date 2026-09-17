@@ -122,9 +122,12 @@ The terms this codebase uses, and the boundaries they imply.
   rights held, missing ones named. Discord's Administrator holds everything,
   which is resolved against the rights a write asks for rather than expanded
   into a list of every permission Discord has.
-- **Drift** — the target changing between the preview and the answer to it. The
-  plan is re-derived after the gate and compared; a difference refuses with
-  `PLAN_DRIFT` rather than acting on what the preview promised.
+- **Drift** — the world changing between the preview and the answer to it. The
+  plan is re-derived after the gate and compared; a difference in the target
+  refuses with `PLAN_DRIFT` rather than acting on what the preview promised,
+  and the re-derived plan's own preflight refuses with `PERMISSION_DENIED` a
+  right that has gone since — both before the first call, never as a 403
+  partway through a write that has already changed something.
 - **Readback** — the state fetched *after* a write and reported as `evidence`.
   One that cannot be fetched says `unverified: <reason>`; it is never reported
   as verified.

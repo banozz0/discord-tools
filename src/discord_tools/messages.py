@@ -85,18 +85,41 @@ def format_message_preview(
     return "\n".join(lines)
 
 
-def format_selection_preview(target: Target, messages: Sequence[MessageInfo], *, bulk: int, single: int, source: str) -> str:
-    """What a delete selected, listed up to PREVIEW_ROWS, with the bulk split."""
+def format_selection_preview(
+    target: Target,
+    messages: Sequence[MessageInfo],
+    *,
+    bulk: int,
+    single: int,
+    source: str,
+    own_only: bool = False,
+    count: int | None = None,
+) -> str:
+    """What a delete selected, listed up to PREVIEW_ROWS, with the bulk split.
+
+    `own_only` is a selection of the bot's own messages made without
+    manage_messages: none of it can take the bulk endpoint, whatever its age.
+    `count` is the whole selection when `messages` holds only the rows fetched
+    for the preview; the header and the tail count it, not the rows.
+    """
+    total = len(messages) if count is None else count
+    shown = min(len(messages), PREVIEW_ROWS)
+    split = (
+        f"All {single} go one by one, about one a second: every one is the bot's own, "
+        "and Discord's bulk delete needs manage_messages even for those"
+        if own_only
+        else f"{bulk} within the 14-day bulk window, {single} older (deleted one by one, about one a second)"
+    )
     lines = [
-        f"Delete {len(messages)} message(s) from {target.display} ({target.ids[target.kind]})",
+        f"Delete {total} message(s) from {target.display} ({target.ids[target.kind]})",
         f"Selected by {source}",
-        f"{bulk} within the 14-day bulk window, {single} older (deleted one by one, about one a second)",
+        split,
         RULE,
     ]
     for message in messages[:PREVIEW_ROWS]:
         lines.append(message_line(message))
-    if len(messages) > PREVIEW_ROWS:
-        lines.append(f"{ELLIPSIS} and {len(messages) - PREVIEW_ROWS} more")
+    if total > shown:
+        lines.append(f"{ELLIPSIS} and {total - shown} more")
     lines.append(RULE)
     return "\n".join(lines)
 

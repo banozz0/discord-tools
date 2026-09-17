@@ -389,7 +389,17 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
   bound is the same: 200 a run, `BULK_LIMIT` above it rather than the first
   200, and `--limit` past 1000 needs `--i-know`, which a user passes, not an
   agent. Every selected message is fetched from Discord, so the preview under
-  `--yes` reflects the channel now, not the archive.
+  `--yes` reflects the channel now, not the archive. A `--from-search` that
+  matches nothing is `TARGET_NOT_FOUND` ("Nothing to forward/copy") before the
+  preview, as it is for `delete`.
+- **`message delete` asks for `manage_messages` only when it needs it.** A
+  selection of nothing but the bot's own messages dry-runs without the right
+  and, when the user runs it, deletes one by one (Discord's bulk delete wants
+  the right even for those). One message by anybody else and the dry-run is
+  `PERMISSION_DENIED` naming the right and that message: relay it, or narrow
+  the selection to the bot's own. `clear-messages` always needs the right.
+  A `--from-search` that matches nothing is `TARGET_NOT_FOUND` ("Nothing to
+  delete") before any preview or prompt: check the query, or sync first.
 - **`PLATFORM_UNSUPPORTED` on a message verb is the answer, not a bug.**
   `message read`, `unread` and `draft` cannot be done by a Discord bot; the
   error says why (read state belongs to a user account; drafts live in the

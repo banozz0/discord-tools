@@ -56,9 +56,12 @@ REQUIRED_RIGHTS = {
     # edit is of the bot's own message, an unreact is of the bot's own
     # reaction, and a bookmark is a local row. `pin_messages` is the right
     # Discord split out of Manage Messages in 2025; naming the old one would
-    # refuse a bot that can pin.
+    # refuse a bot that can pin. A delete needs manage_messages for anybody
+    # else's message and nothing for the bot's own, which Discord deletes one
+    # at a time: its bulk endpoint wants the right whoever wrote them.
     "message-edit": (),
     "message-delete": ("manage_messages",),
+    "message-delete-own": (),
     "message-forward": ("send_messages",),
     "message-copy": ("send_messages",),
     "message-react": ("add_reactions",),

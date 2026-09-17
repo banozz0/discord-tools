@@ -4009,6 +4009,27 @@ class _Selection:
     source: str
 
 
+def _nothing_selected(verb: str, selected: _Selection, target, channel_id: int) -> Outcome:
+    """An empty selection, refused before anything is fetched, previewed or asked.
+
+    Only an archive search can select nothing (--ids takes at least one), and
+    nothing selected is no plan: no preview to draw, no preflight to run and no
+    answer to ask for.
+    """
+    return Outcome(
+        status="refused",
+        target=target,
+        error=Error(
+            code="TARGET_NOT_FOUND",
+            message=f"Nothing to {verb}: {selected.source} matched no message in {target.display}.",
+            hint=(
+                f"Check the query with `discord-tools archive search --query ... --scope {channel_id}`, "
+                "or run `discord-tools archive sync` first if the messages are newer than the archive."
+            ),
+        ),
+    )
+
+
 def _select_messages(args, target, *, verb: str) -> _Selection | Error:
     """--ids as typed, or --from-search answered by the archive; either way inside the bound."""
     limit = message_ops.bulk_limit(args.limit, i_know=args.i_know, verb=verb)
@@ -4031,6 +4052,21 @@ def _select_messages(args, target, *, verb: str) -> _Selection | Error:
     return _Selection(ids, [], "--ids")
 
 
+async def _first_not_the_bots(client, channel_id: int, ids: list[int], fetched, bot_id: int) -> MessageInfo | None:
+    """The first selected message someone other than the bot wrote, read from Discord.
+
+    Every id is answered by Discord, never by an archive row, and a message
+    the preview already fetched is not fetched twice. A message that cannot
+    be read refuses the way the preview's own fetch does.
+    """
+    known = {message.id: message for message in fetched}
+    for message_id in ids:
+        message = known.get(message_id) or await client.get_message(channel_id, message_id)
+        if message.author_id != bot_id:
+            return message
+    return None
+
+
 async def _run_message_delete(client, args, config, out) -> Outcome:
     resolver = DiscordTargetResolver(client)
     target = await resolver.resolve(args.channel)
@@ -4040,15 +4076,22 @@ async def _run_message_delete(client, args, config, out) -> Outcome:
     if isinstance(selected, Error):
         return Outcome(status="refused", target=target, error=selected)
     ids, source = selected.ids, selected.source
+    if not ids:
+        # A dry-run that exited 0 would have the menu offer a for-real run of it.
+        return _nothing_selected("delete", selected, target, args.channel)
     if selected.hits:
         listed = [_hit_as_message(hit, args.channel) for hit in selected.hits]
     else:
         # The first rows of the preview are fetched so the person sees words,
-        # not numbers; the rest are listed by id. A wrong id past the preview
+        # not numbers; the rest are counted. A wrong id past the preview
         # fails its own delete and is reported, never silently skipped.
         listed = [await client.get_message(args.channel, message_id) for message_id in ids[: message_ops.PREVIEW_ROWS]]
     bulk, single = split_bulk_window(ids)
     gate_kind = "typed_delete"
+    # Discord wants manage_messages for anybody else's message and nothing for
+    # the bot's own - on the one-at-a-time endpoint. Without the right, a
+    # selection that is all the bot's own is deleted that way, whatever its age.
+    own_only = False
 
     async def build():
         return await _plan(
@@ -4064,10 +4107,29 @@ async def _run_message_delete(client, args, config, out) -> Outcome:
                 ),
             ),
             approval=gate_kind,
-            rights=plans.REQUIRED_RIGHTS["message-delete"],
+            rights=plans.REQUIRED_RIGHTS["message-delete-own" if own_only else "message-delete"],
         )
 
     write = await build()
+    if write.refusal is not None:
+        stranger = await _first_not_the_bots(
+            client, args.channel, ids, [] if selected.hits else listed, int(_rid.parse(identity.id).id)
+        )
+        if stranger is not None:
+            error = write.refusal
+            refusal = Error(
+                code=error.code,
+                message=(
+                    f"{error.message.rstrip('.')}, and message {stranger.id} is by "
+                    f"{stranger.author_name or stranger.author_id}: without manage_messages "
+                    "Discord lets a bot delete only its own messages."
+                ),
+                hint=f"{error.hint} Or select only the bot's own messages.",
+            )
+            return Outcome(status="refused", target=target, plan=write.plan, error=refusal)
+        own_only = True
+        bulk, single = [], ids
+        write = await build()
     if write.refusal is not None:
         return Outcome(status="refused", target=target, plan=write.plan, error=write.refusal)
     result = {
@@ -4081,7 +4143,11 @@ async def _run_message_delete(client, args, config, out) -> Outcome:
         "cancelled": False,
     }
     out.say(plans.format_preflight(write.plan))
-    out.say(message_ops.format_selection_preview(target, listed, bulk=len(bulk), single=len(single), source=source))
+    out.say(
+        message_ops.format_selection_preview(
+            target, listed, bulk=len(bulk), single=len(single), source=source, own_only=own_only, count=len(ids)
+        )
+    )
     if not args.execute:
         out.say("Dry run: nothing deleted. Add --execute to delete these (you will type DELETE).")
         return Outcome(status="dry_run", target=target, plan=write.plan, result=result)
@@ -4095,7 +4161,17 @@ async def _run_message_delete(client, args, config, out) -> Outcome:
     if not message_ops.confirm_delete_messages(len(ids), write=out.say):
         result["cancelled"] = True
         return Outcome(status="cancelled", target=target, plan=write.plan, result=result)
-    await _drift_guard(out, write, build)()
+    # Preflight again, after the answer: a right lost while the typed word sat
+    # on screen refuses here, before the first delete, not as a 403 halfway.
+    rebuilt: list[plans.Write] = []
+
+    async def rederive():
+        rebuilt.append(await build())
+        return rebuilt[-1]
+
+    await _drift_guard(out, write, rederive)()
+    if rebuilt and rebuilt[-1].refusal is not None:
+        return Outcome(status="refused", target=target, plan=write.plan, error=rebuilt[-1].refusal)
 
     deleted, error = await delete_message_ids(
         client, args.channel, ids, bulk, single, progress=out.say, sleep=asyncio.sleep, reason=write.reason
@@ -4145,6 +4221,8 @@ async def _run_message_repost(client, args, config, out, *, copy: bool) -> Outco
     if isinstance(selected, Error):
         return Outcome(status="refused", target=source, error=selected)
     ids = selected.ids
+    if not ids:
+        return _nothing_selected("copy" if copy else "forward", selected, source, args.channel)
     # Every selected message is fetched, from the archive's ids too: a copy
     # re-posts the text and attachment links as they are now, not as archived.
     messages = [await client.get_message(args.channel, message_id) for message_id in ids]

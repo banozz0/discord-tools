@@ -748,6 +748,85 @@ def test_a_refused_event_dry_run_never_offers_the_delete_row():
     assert prompts[-1] == "Enter = menu, 0 = exit: "
 
 
+def archived_hello():
+    """A session over the real command, and an archive holding one row, "hello",
+    which the tests' query never matches. Returns the session, the calls list
+    and the runner that records into it."""
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    from discord_tools.cli import build_parser, run
+
+    client = make_client(
+        history={
+            10: [
+                SimpleNamespace(
+                    id=5, content="hello", created_at=datetime.now(UTC),
+                    author=SimpleNamespace(id=42, name="testbot", display_name="testbot", bot=True),
+                    attachments=[], embeds=[], reference=None, edited_at=None,
+                )
+            ]
+        }
+    )
+    session = make_session(client)
+    synced = asyncio.run(run(build_parser().parse_args(["archive", "sync", "--scope", "10"]), client=client, config=session.config))
+    assert synced == 0
+    calls = []
+
+    async def runner(args, *, client=None, config=None):
+        calls.append(args)
+        return await run(args, client=client, config=config)
+
+    return session, calls, runner
+
+
+def test_an_archive_search_that_matches_nothing_never_offers_the_for_real_row(capsys):
+    # The real command behind the menu: an empty selection has no plan to act on.
+    session, calls, runner = archived_hello()
+    prompts: list[str] = []
+    code, _calls, output = drive(
+        [MESSAGE_DELETE, "1", "2", "nothingmatchesthis", "0", "0", "0", "0", "0", "0"],
+        session=session, runner=runner, prompts=prompts,
+    )
+    assert code == 0
+    assert [(args.from_search, args.execute) for args in calls] == [("nothingmatchesthis", False)]
+    assert "Dry-run done" not in screens(output)
+    assert "for real" not in screens(output)
+    assert "Nothing to delete" in capsys.readouterr().err
+    assert prompts[-1] == "Enter = menu, 0 = exit: "
+
+
+
+FORWARD = ("3", "5")
+COPY = ("3", "6")
+# From #general, by an archive search that matches nothing, to #general; a
+# copy also asks who it may ping, and "1" is nobody.
+EMPTY_REPOSTS = {
+    "forward": [FORWARD, "1", "2", "nothingmatchesthis", "1"],
+    "copy": [COPY, "1", "2", "nothingmatchesthis", "1", "1"],
+}
+
+
+@pytest.mark.parametrize("verb", list(EMPTY_REPOSTS))
+def test_a_repost_whose_archive_search_matches_nothing_asks_nothing(verb, monkeypatch, capsys):
+    session, calls, runner = archived_hello()
+    client = session._client  # the menu lets go of it when it exits
+    asked = []
+    monkeypatch.setattr("discord_tools.messages.confirm_write", lambda preview, *_a, **_k: asked.append(preview) or True)
+    prompts: list[str] = []
+    code, _calls, output = drive(
+        [*EMPTY_REPOSTS[verb], "0", "0", "0", "0", "0", "0"], session=session, runner=runner, prompts=prompts
+    )
+    assert code == 0
+    assert [(args.message_kind, args.from_search) for args in calls] == [(verb, "nothingmatchesthis")]
+    # Refused before the preview and the y/N: nothing was shown to answer.
+    assert asked == []
+    assert f"Nothing to {verb}" in capsys.readouterr().err
+    assert "Not done" in screens(output)
+    assert client.forwarded == [] and client.sent == []
+
+
+
 def test_backing_out_of_a_flow_still_lands_on_its_group():
     code, _calls, output = drive([SEARCH, "0", "0", "0"])
     titles = [text.split("\n")[0] for text in output if "\n" in text]

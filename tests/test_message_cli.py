@@ -5,6 +5,9 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+from dataclasses import replace
+from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 
@@ -17,6 +20,7 @@ from discord_tools.config import Config
 from discord_tools.envelope import Run, command_name, echoed_args
 from discord_tools.models import AttachmentInfo, ChannelInfo, MessageInfo, ServerInfo
 from discord_tools.plans import audit_path
+from discord_tools.records import DISCORD_EPOCH_MS
 
 BOT_42 = "NDI.fake.sig"
 CONFIG = Config(token=BOT_42, profile="harry", tokens={"harry": BOT_42}, send_allowlist=(701, 702))
@@ -230,6 +234,184 @@ def test_delete_missing_permission_is_named():
     assert "manage_messages" in envelope(out)["error"]["message"]
 
 
+class KeepsDiscordsDeleteRule(FakeClient):
+    """The fake, holding Discord's own rule for deleting messages.
+
+    The single-message endpoint lets an author delete its own message with no
+    right at all and wants manage_messages for anybody else's; the bulk
+    endpoint wants manage_messages whoever wrote the messages. A path the
+    tool picks that Discord would refuse fails here the way it fails live.
+    """
+
+    def _manages(self, channel_id) -> bool:
+        held = self.permissions.get(channel_id, self.default_permissions)
+        return bool(held.get("manage_messages") or held.get("administrator"))
+
+    async def delete_message(self, channel_id, message_id, *, reason=None):
+        if not self._manages(channel_id) and self._message(channel_id, message_id).author_id != self.identity.id:
+            raise PermissionError("403 Forbidden (error code: 50013): Missing Permissions")
+        await super().delete_message(channel_id, message_id, reason=reason)
+
+    async def bulk_delete(self, channel_id, message_ids, *, reason=None):
+        if not self._manages(channel_id):
+            raise PermissionError("403 Forbidden (error code: 50013): Missing Permissions")
+        await super().bulk_delete(channel_id, message_ids, reason=reason)
+
+
+def fresh_id(n: int) -> int:
+    """A snowflake minted a minute ago: inside the 14-day bulk window."""
+    minted = int(datetime.now(UTC).timestamp() * 1000) - 60_000
+    return ((minted - DISCORD_EPOCH_MS) << 22) + n
+
+
+# What a bot without manage_messages holds in #health: it can read and post.
+NO_MANAGE = {701: {"read_messages": True, "read_message_history": True, "send_messages": True}}
+
+
+def with_messages(authors: list[int], *, rights=NO_MANAGE) -> tuple[KeepsDiscordsDeleteRule, list[int]]:
+    """A channel holding one fresh message per entry, written by that author id."""
+    ids = [fresh_id(n) for n in range(len(authors))]
+    messages = {
+        (701, message_id): MessageInfo(
+            id=message_id, channel_id=701, author_id=author,
+            author_name="testbot#0" if author == 42 else "sven", text=f"row {n}",
+        )
+        for n, (message_id, author) in enumerate(zip(ids, authors))
+    }
+    base = a_client()
+    client = KeepsDiscordsDeleteRule(
+        servers=base.servers, channels=base.channels, channel_info=base.channel_info,
+        messages=messages, permissions=rights, default_permissions={},
+    )
+    return client, ids
+
+
+def test_deleting_only_the_bots_own_messages_needs_no_manage_messages_and_goes_one_by_one(monkeypatch):
+    # More than the preview fetches, so the author check cannot lean on it.
+    client, ids = with_messages([42] * 25)
+    argv = ["--json", "message", "delete", "--channel", "701", "--ids", *map(str, ids)]
+    code, out, client = go(argv, client)
+    body = envelope(out)
+    assert (code, body["status"]) == (0, "dry_run"), body
+    assert body["plan"]["preflight"]["required"] == []
+    # Fresh messages, but Discord's bulk delete wants manage_messages even for
+    # the bot's own: every one of them goes the single way.
+    assert (body["result"]["bulk_deletable"], body["result"]["single_delete_only"]) == (0, 25)
+    assert "one by one" in out.stderr.getvalue() and "manage_messages" in out.stderr.getvalue()
+
+    monkeypatch.setattr("discord_tools.messages.confirm_delete_messages", lambda *_a, **_k: True)
+    monkeypatch.setattr("discord_tools.delete.SINGLE_DELETE_PAUSE", 0)
+    code, out, client = go([*argv, "--execute"], client)
+    body = envelope(out)
+    assert (code, body["status"]) == (0, "ok"), body
+    assert body["result"]["deleted"] == 25
+    assert client.deleted_bulk == []
+    assert client.deleted_single == [(701, message_id) for message_id in ids]
+
+
+def test_one_message_by_someone_else_without_manage_messages_is_refused_by_name_before_any_call(monkeypatch):
+    # The stranger sits past the preview's twenty rows.
+    client, ids = with_messages([42] * 21 + [7])
+    asked = []
+    monkeypatch.setattr("discord_tools.messages.confirm_delete_messages", lambda *_a, **_k: asked.append(1) or True)
+    for execute in ([], ["--execute"]):
+        code, out, client = go(["--json", "message", "delete", "--channel", "701", "--ids", *map(str, ids), *execute], client)
+        error = envelope(out)["error"]
+        assert (code, error["code"]) == (2, "PERMISSION_DENIED"), error
+        assert "manage_messages" in error["message"]
+        assert str(ids[-1]) in error["message"] and "sven" in error["message"]
+    assert asked == []
+    assert client.deleted_single == [] and client.deleted_bulk == []
+
+
+def test_manage_messages_lost_after_the_typed_word_refuses_before_the_first_delete(monkeypatch):
+    client, ids = with_messages([42, 7], rights={701: {**NO_MANAGE[701], "manage_messages": True}})
+
+    def revoked_while_the_prompt_sat(*_a, **_k):
+        client.permissions[701] = dict(NO_MANAGE[701])
+        return True
+
+    monkeypatch.setattr("discord_tools.messages.confirm_delete_messages", revoked_while_the_prompt_sat)
+    code, out, client = go(["--json", "message", "delete", "--channel", "701", "--ids", *map(str, ids), "--execute"], client)
+    body = envelope(out)
+    assert (code, body["status"]) == (2, "refused"), body
+    assert body["error"]["code"] == "PERMISSION_DENIED"
+    assert "manage_messages" in body["error"]["message"]
+    assert client.deleted_single == [] and client.deleted_bulk == []
+
+
+@pytest.mark.skipif(not fts5_available(), reason="this SQLite has no FTS5; the archive cannot open")
+def test_an_archive_selection_is_checked_against_discord_not_the_archive(home_is_a_tmp_dir):
+    client, ids = with_messages([42, 42])
+    client.history = {
+        701: [
+            SimpleNamespace(
+                id=message_id, content=f"spam {n}", created_at=datetime.now(UTC),
+                author=SimpleNamespace(id=42, name="testbot", display_name="testbot", bot=True),
+                attachments=[], embeds=[], reference=None, edited_at=None,
+            )
+            for n, message_id in enumerate(reversed(ids))
+        ]
+    }
+    code, out, client = go(["--json", "archive", "sync", "--scope", "701"], client)
+    assert (code, envelope(out)["status"]) == (0, "ok")
+    code, out, client = go(["--json", "message", "delete", "--channel", "701", "--from-search", "spam"], client)
+    assert (code, envelope(out)["status"]) == (0, "dry_run"), envelope(out)
+    # The row's author is the archive's copy; what Discord answers is what
+    # decides, so a message Discord says someone else wrote is refused.
+    client.messages[(701, ids[1])] = replace(client.messages[(701, ids[1])], author_id=7, author_name="sven")
+    code, out, client = go(["--json", "message", "delete", "--channel", "701", "--from-search", "spam"], client)
+    assert (code, envelope(out)["error"]["code"]) == (2, "PERMISSION_DENIED")
+    assert str(ids[1]) in envelope(out)["error"]["message"]
+
+
+
+def test_an_ids_selection_past_the_preview_counts_every_id_not_the_rows_fetched():
+    # Only the first twenty are fetched for the preview; the header and the
+    # tail count the whole selection, which is what the typed word deletes.
+    client, ids = with_messages([42] * 25, rights={701: {**NO_MANAGE[701], "manage_messages": True}})
+    code, out, client = go(["--json", "message", "delete", "--channel", "701", "--ids", *map(str, ids)], client)
+    assert (code, envelope(out)["result"]["matched"]) == (0, 25)
+    printed = out.stderr.getvalue()
+    assert "Delete 25 message(s) from health (701)" in printed
+    assert "and 5 more" in printed
+
+
+def archived_hello(*, rights) -> KeepsDiscordsDeleteRule:
+    """A channel whose archive holds one row, "hello", which the tests' query never matches."""
+    client, ids = with_messages([42], rights=rights)
+    client.history = {
+        701: [
+            SimpleNamespace(
+                id=ids[0], content="hello", created_at=datetime.now(UTC),
+                author=SimpleNamespace(id=42, name="testbot", display_name="testbot", bot=True),
+                attachments=[], embeds=[], reference=None, edited_at=None,
+            )
+        ]
+    }
+    code, out, client = go(["--json", "archive", "sync", "--scope", "701"], client)
+    assert (code, envelope(out)["status"]) == (0, "ok")
+    return client
+
+
+@pytest.mark.skipif(not fts5_available(), reason="this SQLite has no FTS5; the archive cannot open")
+@pytest.mark.parametrize("execute", [False, True], ids=["dry-run", "execute"])
+def test_an_archive_search_that_matches_nothing_says_so_before_the_typed_word(home_is_a_tmp_dir, monkeypatch, execute):
+    # manage_messages held: the right is not what stops it, the empty selection is.
+    client = archived_hello(rights={701: {**NO_MANAGE[701], "manage_messages": True}})
+    asked = []
+    monkeypatch.setattr("discord_tools.messages.confirm_delete_messages", lambda *_a, **_k: asked.append(1) or True)
+    argv = ["--json", "message", "delete", "--channel", "701", "--from-search", "nothingmatchesthis"]
+    code, out, client = go([*argv, "--execute"] if execute else argv, client)
+    body = envelope(out)
+    assert (code, body["status"]) == (2, "refused"), body
+    assert body["error"]["code"] == "TARGET_NOT_FOUND"
+    assert "Nothing to delete" in body["error"]["message"]
+    assert "nothingmatchesthis" in body["error"]["message"]
+    assert body["plan"] is None
+    assert asked == []
+    assert client.deleted_single == [] and client.deleted_bulk == []
+
 # -- forward and copy -----------------------------------------------------
 
 
@@ -412,6 +594,26 @@ def test_read_unread_and_draft_refuse_with_the_reason_before_any_login(verb):
     assert body["error"]["platform"] == "discord"
     assert validate_envelope(body) == []
 
+
+@pytest.mark.skipif(not fts5_available(), reason="this SQLite has no FTS5; the archive cannot open")
+@pytest.mark.parametrize("yes", [False, True], ids=["asks", "yes"])
+@pytest.mark.parametrize("verb", ["forward", "copy"])
+def test_a_repost_whose_archive_search_matches_nothing_says_so_before_the_preview(home_is_a_tmp_dir, monkeypatch, verb, yes):
+    client = archived_hello(rights={701: {"administrator": True}, 702: {"administrator": True}})
+    asked = []
+    monkeypatch.setattr("discord_tools.messages.confirm_write", lambda preview, *_a, **_k: asked.append(preview) or True)
+    argv = ["--json", "message", verb, "--channel", "701", "--from-search", "nothingmatchesthis", "--to", "702"]
+    code, out, client = go([*argv, "--yes"] if yes else argv, client)
+    body = envelope(out)
+    assert (code, body["status"]) == (2, "refused"), body
+    assert body["error"]["code"] == "TARGET_NOT_FOUND"
+    assert f"Nothing to {verb}" in body["error"]["message"]
+    assert "nothingmatchesthis" in body["error"]["message"]
+    assert body["plan"] is None
+    # Refused before the preview: nothing printed it and nothing asked about it.
+    assert asked == []
+    assert "Permissions" not in out.stderr.getvalue()
+    assert client.forwarded == [] and client.sent == []
 
 def test_every_message_envelope_validates_against_the_schema(monkeypatch):
     say_yes(monkeypatch)

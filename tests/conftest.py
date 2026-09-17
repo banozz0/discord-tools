@@ -100,6 +100,7 @@ class FakeClient:
         bot_roles: dict[int, list[int]] | None = None,
         scheduled_events: dict[int, list[dict]] | None = None,
         guild_members: dict[int, list[dict]] | None = None,
+        users: dict[int, dict] | None = None,
         owners: dict[int, int] | None = None,
         bans: dict[int, list[dict]] | None = None,
         invites: dict[int, list[dict]] | None = None,
@@ -171,6 +172,11 @@ class FakeClient:
                 server_id,
                 [{"id": p.id, "username": p.username, "display_name": p.display_name, "bot": p.bot, "roles": [], "joined_at": None, "timed_out_until": None} for p in people],
             )
+        # Discord accounts that exist but are in none of these servers: what the
+        # ban list shows for somebody who has already left. A ban reaches them,
+        # a kick does not, and a user the fake was never told about is banned
+        # with no name, exactly as Discord would report one it could not attach.
+        self.users: dict[int, dict] = {int(k): dict(v) for k, v in (users or {}).items()}
         # Who owns each server; Discord lets nobody moderate the owner.
         self.owners: dict[int, int] = dict(owners or {})
         self.bans: dict[int, list[dict]] = {k: [dict(row) for row in v] for k, v in (bans or {}).items()}
@@ -548,11 +554,24 @@ class FakeClient:
         self.reasons.append(reason)
 
     async def ban_member(self, server_id, user_id, *, reason=None):
+        """Discord's `PUT /guilds/{guild}/bans/{user}` takes a user, in the
+        server or not, so this does too: a member is removed on the way out and
+        somebody who was never here is simply added to the ban list."""
+        from discord_tools.client import ClientError
+
         self._maybe_fail("ban_member", user_id)
-        member = self._member(server_id, user_id)
-        self.guild_members[server_id] = [row for row in self.guild_members[server_id] if int(row["id"]) != int(user_id)]
+        try:
+            account = self._member(server_id, user_id)
+            self.guild_members[server_id] = [row for row in self.guild_members[server_id] if int(row["id"]) != int(user_id)]
+        except ClientError:
+            account = self.users.get(int(user_id), {})
         self.bans.setdefault(server_id, []).append(
-            {"id": int(user_id), "username": member["username"], "display_name": member.get("display_name"), "reason": reason}
+            {
+                "id": int(user_id),
+                "username": account.get("username"),
+                "display_name": account.get("display_name"),
+                "reason": reason,
+            }
         )
         self.banned.append((server_id, user_id))
         self.reasons.append(reason)

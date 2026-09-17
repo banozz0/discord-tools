@@ -850,8 +850,9 @@ positional arguments:
                         intent)
     kick                Remove a member from the server (dry-run by default; --execute asks for
                         their exact username)
-    ban                 Remove a member and stop them coming back (dry-run by default; --execute
-                        asks for their exact username)
+    ban                 Ban a user, here or already gone, so they cannot come back (dry-run by
+                        default; --execute asks for their exact username, or their ID when they
+                        are not here)
     unban               Lift a ban so the user can be invited back (preview + y/N)
     timeout             Stop a member posting, reacting and speaking until a time you name
                         (preview + y/N)
@@ -894,10 +895,10 @@ usage: discord-tools member ban [-h] --server SERVER --member MEMBER --reason RE
 options:
   -h, --help       show this help message and exit
   --server SERVER  Server ID
-  --member MEMBER  User ID of the member
+  --member MEMBER  User ID; they need not be in the server
   --reason REASON  Why; Discord stores it in the server's own audit log
-  --execute        Remove a member and stop them coming back for real after typing their exact
-                   username (no --yes exists)
+  --execute        Ban them for real after typing their exact username, or their ID when they are
+                   not here (no --yes exists)
 
 ========================================================================
 discord-tools member unban --help

@@ -471,6 +471,27 @@ def test_discover_json_writes_a_file_not_stdout(tmp_path, capsys):
     assert tree[0]["name"] == "Ops"
 
 
+def test_bot_json_path_says_where_the_profile_landed(tmp_path, capsys, monkeypatch):
+    # Live on 2026-09-17 `bot --json PATH` wrote its file and said nothing. stdout
+    # stays empty for the script that asked for a file; the person hears where.
+    client = FakeClient()
+    path = tmp_path / "bot.json"
+    assert run_cli(["bot", "--json", str(path)], client) == 0
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert json.loads(path.read_text())["username"] == "testbot#0"
+    assert captured.err.splitlines() == [f"Wrote the profile of testbot#0 (42) to {path.resolve()} ({path.stat().st_size} bytes)"]
+
+    # The menu has no shell, so `~` typed at its path prompt means the home directory.
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / "work").mkdir()
+    monkeypatch.chdir(tmp_path / "work")
+    assert run_cli(["bot", "--json", "~/again.json"], client) == 0
+    landed = tmp_path / "again.json"
+    assert landed.exists() and not (tmp_path / "work" / "~").exists()
+    assert capsys.readouterr().err.splitlines() == [f"Wrote the profile of testbot#0 (42) to {landed.resolve()} ({landed.stat().st_size} bytes)"]
+
+
 # -- delete ---------------------------------------------------------------
 
 DELETE_SERVER = ServerInfo(id=1, name="My Server")

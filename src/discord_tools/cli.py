@@ -4548,7 +4548,14 @@ async def _run_bot(client, args, config, out) -> Outcome:
     if not requested:
         profile = bot_identity.to_dict()
         if args.json_output:
-            _write_json(profile, args.json_output)
+            # Expanded here as well as wherever the writer does it: the menu has
+            # no shell, and the line below has to name the file that was written.
+            written = Path(args.json_output).expanduser().resolve()
+            _write_json(profile, str(written))
+            out.frame(
+                f"Wrote the profile of {bot_identity.username} ({bot_identity.id}) to {written} "
+                f"({written.stat().st_size} bytes)"
+            )
         elif not out.machine:
             print(format_bot_profile(bot_identity, profile=config.profile))
         return Outcome(status="ok", result=profile)

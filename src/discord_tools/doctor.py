@@ -15,6 +15,7 @@ from discord_tools.config import (
     load_config,
     loose_entries,
 )
+from discord_tools.records import EVIDENCE_NONE, EVIDENCE_TEXT, content_evidence
 
 MIN_PYTHON = (3, 11)
 
@@ -340,8 +341,8 @@ def check_content_probe(sampled: int, with_text: int, media_only: int) -> Doctor
     if media_only == sampled:
         return DoctorCheck(
             "WARN",
-            f"All {sampled} sampled message(s) are media-only - this channel cannot show whether "
-            "message text is readable; trust the intent check above",
+            f"All {sampled} sampled message(s) are media-only, stickers or Discord's own events - this channel "
+            "cannot show whether message text is readable; trust the intent check above",
         )
     return DoctorCheck(
         "FAIL",
@@ -363,10 +364,11 @@ async def channel_checks(client, channel_id: int, *, sample: int = 5) -> list[Do
     media_only = 0
     async for message in client.iter_history(channel_id, limit=sample):
         sampled += 1
-        text = getattr(message, "content", "") or ""
-        if text.strip():
+        # `records.content_evidence` is the rule `archive sync` probes with too.
+        evidence = content_evidence(message)
+        if evidence == EVIDENCE_TEXT:
             with_text += 1
-        elif getattr(message, "attachments", None) or getattr(message, "embeds", None):
+        elif evidence == EVIDENCE_NONE:
             media_only += 1
     checks.append(check_content_probe(sampled, with_text, media_only))
     return checks

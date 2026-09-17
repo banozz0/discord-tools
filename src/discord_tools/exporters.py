@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from discord_tools.config import exports_dir
+from discord_tools.records import record_marks
 
 
 def json_text(payload: Any) -> str:
@@ -46,6 +47,10 @@ def archive_row(record: dict[str, Any]) -> dict[str, Any]:
     message id, a sender label, a media count - so a record fetched live is
     mapped once here rather than teaching the writers a second shape. The
     record itself is unchanged: `json` and `csv` still write it as is.
+
+    The columns are fixed, so the marks the printed line carries go in front of
+    the text here -- the same `records.record_marks`, minus `[media]`, which is
+    what the media column already says.
     """
     from discord_tools._core import rid as _rid
 
@@ -58,10 +63,29 @@ def archive_row(record: dict[str, Any]) -> dict[str, Any]:
         "author": record.get("author_name") or "",
         "media": 1 if record.get("has_media") else 0,
         "date": record.get("date"),
-        "text": record.get("text") or "",
+        "text": record_marks(record, media=False) + (record.get("text") or ""),
         "highlight": "",
         "reply_to": record.get("reply_to_msg_id"),
     }
+
+
+def marked_rows(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Archive rows for the two human formats, with the marks in front of what they show.
+
+    `json`, `jsonl` and `csv` carry the extras as keys and the text as stored;
+    markdown and html have fixed columns, so the marks ride in the text. The
+    media column there counts the files the archive holds, not what the message
+    carried, so `[media]` is kept where that column is empty.
+    """
+    marked = []
+    for row in rows:
+        marks = record_marks(row, media=not row.get("media"))
+        shaped = dict(row)
+        shaped["text"] = marks + str(row.get("text") or "")
+        if row.get("highlight"):
+            shaped["highlight"] = marks + str(row["highlight"])
+        marked.append(shaped)
+    return marked
 
 
 def write_records(records: Iterable[dict[str, Any]], output: str | Path, fmt: str, *, home: Path | None = None) -> Path:

@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from discord_tools.records import message_date, message_matches_filters, message_to_record, parse_date_bound
+from discord_tools.records import (
+    message_date,
+    message_matches_filters,
+    message_to_record,
+    parse_date_bound,
+    record_marks,
+    says_nothing_about_content,
+)
 
 
 async def search_messages(
@@ -42,8 +49,11 @@ def all_content_empty(records: list[dict[str, Any]]) -> bool:
 
     That shape has one common cause — the message-content intent is off in the
     portal — and it must be named at the moment it happens, not only in doctor.
+    A pin, a join or a sticker arrives the same with the intent off, so those
+    rows are left out rather than read as proof that it is on.
     """
-    return bool(records) and all(not record["text"] and not record["has_media"] for record in records)
+    telling = [record for record in records if not says_nothing_about_content(record)]
+    return bool(telling) and all(not record["text"] and not record["has_media"] for record in telling)
 
 
 # The ID and the timestamp already cost about 45 columns, so 70 is what keeps a
@@ -64,8 +74,11 @@ def preview(text: str, width: int = PREVIEW_WIDTH) -> str:
 
 
 def format_message_records(records: list[dict[str, Any]]) -> str:
-    """A readable table: date, author, a preview of the text — with media flagged
-    so an attachment-only message never reads as an empty row."""
+    """A readable table: date, author, what the message is, a preview of the text.
+
+    `records.record_marks` is the one place a record's marks are derived, so
+    this row, the archive's and the exports mark the same message the same way.
+    """
     if not records:
         return "No messages matched."
 
@@ -73,12 +86,12 @@ def format_message_records(records: list[dict[str, Any]]) -> str:
     cut = False
     for record in records:
         stamp = (record["date"] or "")[:16].replace("T", " ")
-        # Outside the preview, so a long body can never push it off the row.
-        media = " [media]" if record["has_media"] else ""
+        # Outside the preview, so a long body can never push a mark off the row.
+        marks = record_marks(record)
         author = record["author_name"] or record["author_id"] or "?"
         body = preview(record["text"])
         cut = cut or body.endswith(ELLIPSIS)
-        lines.append(f"{record['id']}  {stamp:<16}  {author}: {body}{media}")
+        lines.append(f"{record['id']}  {stamp:<16}  {author}: {(marks + body).rstrip()}")
     lines.append(f"{len(records)} message(s)")
     if cut:
         # Said once, and only when something really was cut: a table that hides

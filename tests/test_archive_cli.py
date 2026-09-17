@@ -374,8 +374,9 @@ def test_an_archived_message_with_an_attachment_prints_media(home_is_a_tmp_dir, 
 
     carried = next(row for row in rows if row.startswith("5 "))
     typed = next(row for row in rows if row.startswith("6 "))
-    assert carried.endswith(" [media]"), "the archive downloaded no file; the message still carried one"
-    assert not typed.endswith(" [media]")
+    # The mark sits in front of the body and names the kind (card agent-bo-95422244).
+    assert "Sven: [file] «numbers» inside" in carried, "the archive downloaded no file; the message still carried one"
+    assert "[file]" not in typed and "[media]" not in typed
 
 
 def test_an_archived_row_and_a_live_row_for_one_message_agree_about_media(home_is_a_tmp_dir, capsys):
@@ -388,4 +389,4 @@ def test_an_archived_row_and_a_live_row_for_one_message_agree_about_media(home_i
         source = with_a_file(message_id, "numbers inside") if carried else message(message_id, "numbers typed out")
         live = format_message_records([message_to_record(source, channel_id=10)]).splitlines()[0]
         row = next(row for row in archive_rows(capsys, "numbers") if row.startswith(f"{message_id} "))
-        assert row.endswith(" [media]") == live.endswith(" [media]") == carried
+        assert (": [file] " in row) == (": [file] " in live) == carried

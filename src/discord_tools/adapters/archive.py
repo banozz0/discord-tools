@@ -39,7 +39,16 @@ from discord_tools._core.archive import ScopeListing
 from discord_tools._core.identity import Target
 from discord_tools._core.review import Candidate
 from discord_tools.models import ChannelInfo, ThreadInfo
-from discord_tools.records import message_date, parse_date_bound
+from discord_tools.records import (
+    EVIDENCE_NONE,
+    EVIDENCE_TEXT,
+    carrier,
+    content_evidence,
+    message_body,
+    message_date,
+    parse_date_bound,
+    reply_target,
+)
 
 PLATFORM = "discord"
 # Channels whose own history is a scope. Forum and media channels hold posts,
@@ -176,26 +185,35 @@ def attachment_id_of(url: str | None) -> str | None:
 def message_record(message: Any, *, channel_id: int, cursor: str) -> dict[str, Any]:
     """One history row in the shape the shared archive stores."""
     when = message_date(message)
-    reference = getattr(message, "reference", None)
     edited = getattr(message, "edited_at", None)
-    attachments = list(getattr(message, "attachments", None) or ())
-    embeds = list(getattr(message, "embeds", None) or ())
+    # A forward's words and files are in its snapshot; its own are empty.
+    source = carrier(message)
+    attachments = list(getattr(source, "attachments", None) or ())
+    embeds = list(getattr(source, "embeds", None) or ())
     author = author_of(message)
+    # The same derivation the printed line and the exports use: a message whose
+    # only identifying text is not its `content` reaches `text` -- the one
+    # column `messages_fts` indexes -- rather than landing as an empty row.
+    body = message_body(message)
+    # A forward's and a pin notice's reference name a message they do not answer.
+    replied = reply_target(message)
     return {
         "message_id": str(int(getattr(message, "id"))),
         "date": when.isoformat() if when else None,
-        "text": getattr(message, "content", "") or "",
+        "text": body.text,
         "author": author,
         "author_rid": author["rid"] if author else None,
-        "reply_to": (
-            str(reference.message_id) if reference and getattr(reference, "message_id", None) else None
-        ),
+        "reply_to": None if replied is None else str(replied),
         "edited": edited.isoformat() if edited is not None else None,
         "platform_json": {
             "channel_id": channel_id,
             "attachments": [getattr(attachment, "filename", "") for attachment in attachments],
             "embeds": len(embeds),
             "has_media": bool(attachments) or bool(embeds),
+            # Additive, and only for a message that has them: `platform_json`
+            # is the extension point the schema already carries, so no
+            # migration is needed and every row written before stays as it is.
+            **body.extras,
         },
         "cursor": cursor,
     }
@@ -234,13 +252,14 @@ class DiscordArchiveSource:
         return all(held.get(right, False) for right in READ_RIGHTS)
 
     async def _content_missing(self, channel_id: int) -> bool:
-        """The doctor's five-message probe: all empty and not all media means the intent is off."""
+        """The doctor's five-message probe: all empty and not all inconclusive means the intent is off."""
         sampled = with_text = media_only = 0
         async for message in self._client.iter_history(channel_id, limit=PROBE_SAMPLE):
             sampled += 1
-            if (getattr(message, "content", "") or "").strip():
+            evidence = content_evidence(message)
+            if evidence == EVIDENCE_TEXT:
                 with_text += 1
-            elif getattr(message, "attachments", None) or getattr(message, "embeds", None):
+            elif evidence == EVIDENCE_NONE:
                 media_only += 1
         return content_looks_missing(sampled, with_text, media_only)
 

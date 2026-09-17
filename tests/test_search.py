@@ -63,7 +63,8 @@ def test_search_returns_full_records():
 def test_format_marks_media_only_messages():
     client = FakeClient(history={55: [message(3, content="", attachments=[SimpleNamespace(filename="x.png")])]})
     text = format_message_records(search(client))
-    assert "[media]" in text
+    # The kind, from the file name when Discord sent no content type (card agent-bo-95422244).
+    assert "sven: [image] x.png" in text
 
 
 def test_format_empty():
@@ -105,4 +106,4 @@ def test_the_cut_notice_only_appears_when_something_was_cut():
 
 def test_media_survives_the_cut():
     client = FakeClient(history={55: [message(1, content=WALL, attachments=[SimpleNamespace(filename="a.png")])]})
-    assert "[media]" in format_message_records(search(client))
+    assert "sven: [image] Batch 5 recorded." in format_message_records(search(client))

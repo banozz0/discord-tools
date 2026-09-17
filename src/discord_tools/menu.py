@@ -196,14 +196,21 @@ RUN_AGAIN = (AGAIN, "Run it again")
 TWEAK = (STAY, "Tweak it")
 
 
-async def _act(args, *, session, runner, read, write, trail: str = MAIN, rows=(RUN_AGAIN, TWEAK)) -> Any:
+async def _act(
+    args, *, session, runner, read, write, trail: str = MAIN, rows=(RUN_AGAIN, TWEAK), offline: bool = False
+) -> Any:
     """Run one action, then the after-run screen. Returns STAY, MENU or EXIT.
 
     The title says what happened: Done on exit code 0, Not done when a confirm
     was declined (the CLI returns 1), Failed after a printed error.
+
+    `offline` runs the action without the menu's login -- a prune, a rule write,
+    the auth wizard -- and nothing else: the session itself is still wanted here,
+    because "Main menu" is a fact about the menu's own screens rather than about
+    the action, and the flag that carries it out of a group lives on the session.
     """
     while True:
-        code = await _call(args, session=session, runner=runner, write=write)
+        code = await _call(args, session=None if offline else session, runner=runner, write=write)
         outcome = "Done" if code == 0 else ("Failed" if code is None else "Not done")
         result = after_run(read=read, write=write, title=crumb(trail, outcome), rows=rows)
         if result is not AGAIN:
@@ -2885,7 +2892,8 @@ async def _flow_archive_prune(*, session, runner, read, write) -> bool:
         for_real = _namespace(**{**vars(dry_run), "execute": True})
         result = await _act(
             for_real,
-            session=None,
+            session=session,
+            offline=True,
             runner=runner,
             read=read,
             write=write,
@@ -2967,7 +2975,8 @@ def _review_by_ids(kind: str, *, title: str, offline: bool):
             args = _namespace(command="review", review_kind=kind, ids=ids, profile=session.profile)
             result = await _act(
                 args,
-                session=None if offline else session,
+                session=session,
+                offline=offline,
                 runner=runner,
                 read=read,
                 write=write,
@@ -3130,12 +3139,13 @@ async def _flow_bot(*, session, runner, read, write) -> bool:
 
 
 async def _flow_auth(*, session, runner, read, write) -> bool:
-    # No session: auth talks the user through its own login and never touches
-    # the menu's. A new token is picked up on the next start. The menu's
-    # profile rides along so the wizard's default matches what was asked for.
+    # Offline: auth talks the user through its own login and never touches the
+    # menu's. A new token is picked up on the next start. The menu's profile
+    # rides along so the wizard's default matches what was asked for.
     result = await _act(
         _namespace(command="auth", profile=session.profile),
-        session=None,
+        session=session,
+        offline=True,
         runner=runner,
         read=read,
         write=write,
@@ -3432,7 +3442,8 @@ async def _flow_rules_add(*, session, runner, read, write) -> bool:
             continue
         result = await _act(
             _rule_namespace(session, rules_kind="add", name=name, on=on, **actions, **filters),
-            session=None,
+            session=session,
+            offline=True,
             runner=runner,
             read=read,
             write=write,
@@ -3488,7 +3499,8 @@ async def _flow_rules_edit(*, session, runner, read, write) -> bool:
             extra["clear"] = [part for part in str(parts).split() if part]
         result = await _act(
             _rule_namespace(session, rules_kind="edit", name=name, **extra),
-            session=None,
+            session=session,
+            offline=True,
             runner=runner,
             read=read,
             write=write,
@@ -3508,7 +3520,8 @@ async def _flow_rules_remove(*, session, runner, read, write) -> bool:
         # The preview and its y/N are asked inside the command.
         result = await _act(
             _rule_namespace(session, rules_kind="remove", name=name),
-            session=None,
+            session=session,
+            offline=True,
             runner=runner,
             read=read,
             write=write,
@@ -3554,7 +3567,8 @@ async def _flow_rules_test(*, session, runner, read, write) -> bool:
                 continue
         result = await _act(
             _rule_namespace(session, rules_kind="test", event=path, name=name),
-            session=None,
+            session=session,
+            offline=True,
             runner=runner,
             read=read,
             write=write,
@@ -3654,7 +3668,8 @@ async def _flow_schedule_cancel(*, session, runner, read, write) -> bool:
             _namespace(
                 command="schedule", schedule_kind="cancel", schedule_id=schedule_id, yes=False, profile=session.profile
             ),
-            session=None,
+            session=session,
+            offline=True,
             runner=runner,
             read=read,
             write=write,

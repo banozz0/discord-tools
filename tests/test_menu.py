@@ -600,6 +600,30 @@ def test_main_menu_from_inside_a_group_reaches_the_root_not_the_group():
     assert code == 0
 
 
+# Archive: prune sits under Read and runs with no login, so it used to hand the
+# after-run screen session=None -- and "Main menu" there died on the session the
+# flag lives on. The empty archive sends the scope picker to a typed ID.
+ARCHIVE_PRUNE = ("2", "6")
+
+
+def test_main_menu_from_an_offline_flow_reaches_the_root_not_a_crash():
+    code, calls, output = drive([ARCHIVE_PRUNE, "1", "10", "2", "1", "2", "0"])
+    assert code == 0
+    # Dry-run first, then the execute the after-run screen is asked about.
+    assert [(args.archive_kind, args.execute) for args in calls] == [("retention", False), ("retention", True)]
+    titles = [text.split("\n")[0] for text in output if "\n" in text]
+    assert titles[-1] == "discord-tools"
+
+
+def test_enter_on_an_offline_flows_after_run_screen_reaches_the_root_too():
+    # Enter is the same answer as the Main menu row, by the same door.
+    code, calls, output = drive([ARCHIVE_PRUNE, "1", "10", "2", "1", "", "0"])
+    assert code == 0
+    assert [args.execute for args in calls] == [False, True]
+    titles = [text.split("\n")[0] for text in output if "\n" in text]
+    assert titles[-1] == "discord-tools"
+
+
 def test_backing_out_of_a_flow_still_lands_on_its_group():
     code, _calls, output = drive([SEARCH, "0", "0", "0"])
     titles = [text.split("\n")[0] for text in output if "\n" in text]

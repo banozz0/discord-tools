@@ -1711,8 +1711,11 @@ def _drift_guard(out, write, rebuild):
     """The hook a write runs between the answer and the first API call.
 
     Between a preview and the answer to it, someone else can rename, replace
-    or delete the target. Re-deriving the plan and comparing is what keeps the
-    answer attached to the thing it was given about.
+    or delete the target, or take away a right the write needs. Re-deriving
+    the plan is what catches both: the comparison keeps the answer attached to
+    the thing it was given about, and the rebuilt plan's own preflight refuses
+    a right that has gone since — before the first call, never as a 403 partway
+    through. `plans.drifted` holds both rules, so every write has them.
     """
 
     async def before_write():
@@ -4179,18 +4182,7 @@ async def _run_message_delete(client, args, config, out) -> Outcome:
     if not message_ops.confirm_delete_messages(len(ids), write=out.say):
         result["cancelled"] = True
         return Outcome(status="cancelled", target=target, plan=write.plan, result=result)
-    # Preflight again, after the answer: a right lost while the typed word sat
-    # on screen refuses here, before the first delete, not as a 403 halfway.
-    rebuilt: list[plans.Write] = []
-
-    async def rederive():
-        rebuilt.append(await build())
-        return rebuilt[-1]
-
-    await _drift_guard(out, write, rederive)()
-    if rebuilt and rebuilt[-1].refusal is not None:
-        return Outcome(status="refused", target=target, plan=write.plan, error=rebuilt[-1].refusal)
-
+    await _drift_guard(out, write, build)()
     deleted, error = await delete_message_ids(
         client, args.channel, ids, bulk, single, progress=out.say, sleep=asyncio.sleep, reason=write.reason
     )

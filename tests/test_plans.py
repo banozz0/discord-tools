@@ -16,6 +16,8 @@ from discord_tools.cli import build_parser, run
 from discord_tools.config import Config
 from discord_tools.envelope import Run, command_name, echoed_args
 from discord_tools.models import ChannelInfo, ServerInfo
+from test_member_cli import agency as members_agency
+from test_role_cli import agency as roles_agency
 
 CONFIG = Config(token="a.b.c", profile="default", tokens={"default": "a.b.c"}, send_allowlist=(701,))
 
@@ -194,6 +196,87 @@ def test_a_bot_edit_someone_else_made_first_refuses(monkeypatch):
 
     assert (code, envelope_of(stdout)["error"]["code"]) == (2, "PLAN_DRIFT")
     assert client.application_edits == []
+
+
+# A right the bot held when the plan was drawn can be gone by the time the
+# answer lands: someone takes away its role, or a channel override, while the
+# gate sits on screen. The rebuilt plan carries its own preflight, and every
+# write honours it — the refusal arrives before the first API call rather than
+# as a 403 partway through. The rows below take one write of each call shape:
+# the guard handed to a helper as `before_write`, the guard awaited in place,
+# and the inline `plans.drifted` the moderation writes use.
+@pytest.mark.parametrize(
+    "client_of,argv,gate,answer,right,revoke,wrote",
+    [
+        pytest.param(
+            lambda: a_server(permissions={701: {"send_messages": True}}),
+            ["--json", "send", "--channel", "701", "--text", "hi"],
+            "discord_tools.cli.confirm_send", True, "send_messages",
+            lambda client: client.permissions.update({701: {}}),
+            lambda client: client.sent,
+            id="send",
+        ),
+        pytest.param(
+            lambda: a_server(guild_permissions={10: {"manage_channels": True}}),
+            ["--json", "create", "channel", "--server", "10", "--name", "new"],
+            "discord_tools.cli.confirm_create", True, "manage_channels",
+            lambda client: client.guild_perms.update({10: {}}),
+            lambda client: client.created,
+            id="create-channel",
+        ),
+        pytest.param(
+            lambda: a_server(permissions={701: {"manage_channels": True}}),
+            ["--json", "delete", "channel", "--channel", "701", "--execute"],
+            "discord_tools.cli.confirm_delete", "health", "manage_channels",
+            lambda client: client.permissions.update({701: {}}),
+            lambda client: client.deleted_channels,
+            id="delete-channel",
+        ),
+        pytest.param(
+            lambda: a_server(permissions={701: {"manage_messages": True, "read_message_history": True}}),
+            ["--json", "clear-messages", "--channel", "701", "--execute"],
+            "discord_tools.cli.confirm_clear_messages", "DELETE", "manage_messages",
+            lambda client: client.permissions.update({701: {}}),
+            lambda client: client.deleted_bulk + client.deleted_single,
+            id="clear-messages",
+        ),
+        pytest.param(
+            lambda: roles_agency(guild_permissions={10: {"manage_roles": True}}),
+            ["--json", "role", "create", "--server", "10", "--name", "Helpers"],
+            "builtins.input", "y", "manage_roles",
+            lambda client: client.guild_perms.update({10: {}}),
+            lambda client: client.structure_writes,
+            id="role-create",
+        ),
+        pytest.param(
+            lambda: members_agency(guild_permissions={10: {"kick_members": True}}),
+            ["--json", "member", "kick", "--server", "10", "--member", "50", "--reason", "x", "--execute"],
+            "builtins.input", "ana", "kick_members",
+            lambda client: client.guild_perms.update({10: {}}),
+            lambda client: client.kicked,
+            id="member-kick",
+        ),
+    ],
+)
+def test_a_right_lost_after_the_answer_refuses_before_the_first_call(
+    monkeypatch, client_of, argv, gate, answer, right, revoke, wrote
+):
+    client = client_of()
+
+    def revoke_it_then_answer(*_args, **_kwargs):
+        # Someone takes the right away while the gate is on screen.
+        revoke(client)
+        return answer
+
+    monkeypatch.setattr(gate, revoke_it_then_answer)
+    code, stdout, _stderr = emit(argv, client)
+    body = envelope_of(stdout)
+
+    assert (code, body["status"]) == (2, "refused"), body
+    assert body["error"]["code"] == "PERMISSION_DENIED", body["error"]
+    assert right in body["error"]["message"]
+    assert wrote(client) == []
+    assert client.reasons == [], "nothing reached Discord, so nothing carried an audit reason"
 
 
 # -- readback -------------------------------------------------------------

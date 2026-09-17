@@ -3786,7 +3786,13 @@ async def _run_channel(client, args, config, out) -> Outcome:
     if args.channel_kind == "show":
         # The same read `edit` diffs against and the same row it reads back,
         # so a show before an edit and the readback after it print one shape.
-        out.say(settings.format_channel(before, heading=f"{before['type']} channel {before['name']} ({channel_id})"))
+        # The resolve above already fetched the parent to name the target, so
+        # its name is the first half of the path whenever it could be read.
+        named = target.ids.get("parent") == str(before.get("parent_id")) and len(target.path) > 1
+        out.say(settings.format_channel(
+            before, heading=f"{before['type']} channel {before['name']} ({channel_id})",
+            category=target.path[0] if named else None,
+        ))
         return Outcome(status="ok", target=target, result={"channel": settings.channel_row(before)})
     fields = settings.channel_fields(args, before)
     if not fields:

@@ -231,8 +231,24 @@ def test_a_channel_show_is_one_fetch_no_write_and_the_shape_edit_reads_back():
         "id": 101, "type": "text", "parent_id": 100, "name": "deploys", "topic": "what shipped", "nsfw": False,
         "slowmode": 0, "position": 0, "counts": {"overwrites": 0, "role_overwrites": 0, "member_overwrites": 0, "tags": 0},
     }
-    assert "Category     100" in stderr and "Topic        what shipped" in stderr and "Overwrites   0 (0 roles, 0 members)" in stderr
+    # The category's name comes off the resolve that already named the target.
+    assert "Category     Ops (100)" in stderr and "Topic        what shipped" in stderr and "Overwrites   0 (0 roles, 0 members)" in stderr
     assert "plan" not in body or body["plan"] is None, "a read has no plan"
+
+
+def test_a_channel_show_whose_category_cannot_be_named_prints_its_id():
+    client = agency()
+    real = client.get_channel
+
+    async def no_category(channel_id):
+        if channel_id == 100:
+            raise ClientError("No channel or thread with ID 100")
+        return await real(channel_id)
+
+    client.get_channel = no_category
+    code, body, stderr = go(["--json", "channel", "show", "--channel", "101"], client)
+    assert (code, body["status"]) == (0, "ok")
+    assert "Category     100" in stderr.splitlines()
 
 
 def test_a_channel_show_of_a_thread_is_refused_by_naming_its_parent():

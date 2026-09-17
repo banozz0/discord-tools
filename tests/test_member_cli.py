@@ -227,12 +227,121 @@ def test_a_member_whose_top_role_ties_with_the_bots_is_refused_when_its_id_is_lo
     assert writes(client) == [] and client.reasons == []
 
 
-def test_an_id_that_is_not_a_member_is_target_not_found():
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["member", "kick", "--server", "10", "--member", "999", "--reason", "x"],
+        ["member", "timeout", "--server", "10", "--member", "999", "--until", "2h", "--yes"],
+        ["member", "untimeout", "--server", "10", "--member", "999", "--yes"],
+        ["member", "nick", "--server", "10", "--member", "999", "--nick", "Boss", "--yes"],
+    ],
+    ids=["kick", "timeout", "untimeout", "nick"],
+)
+def test_an_id_that_is_not_a_member_is_target_not_found_for_every_write_but_ban(argv):
+    """The four writes Discord runs against a *member*: no member, no write.
+
+    Ban is the exception and has its own rows below — `PUT /guilds/{guild}/bans/
+    {user}` takes a user who is not in the guild.
+    """
     client = agency()
-    code, body, _stderr = go(["--json", "member", "kick", "--server", "10", "--member", "999", "--reason", "x"], client)
-    assert (code, body["error"]["code"]) == (2, "TARGET_NOT_FOUND")
-    code, body, _stderr = go(["--json", "member", "kick", "--server", "10", "--member", "ana", "--reason", "x"], client)
-    assert (code, body["error"]["code"]) == (2, "TARGET_NOT_FOUND") and "not a user ID" in body["error"]["message"]
+    code, body, _stderr = go(["--json", *argv], client)
+    assert (code, body["error"]["code"]) == (2, "TARGET_NOT_FOUND"), body
+    assert writes(client) == []
+
+
+def test_a_name_instead_of_an_id_is_refused_for_ban_too():
+    """The one thing that stays a refusal on the ban path: Discord gives a bot no
+    way to look a member up by name, and a ban is not the place to guess."""
+    client = agency()
+    for verb in ("kick", "ban"):
+        code, body, _stderr = go(["--json", "member", verb, "--server", "10", "--member", "ana", "--reason", "x"], client)
+        assert (code, body["error"]["code"]) == (2, "TARGET_NOT_FOUND")
+        assert "not a user ID" in body["error"]["message"]
+    assert writes(client) == []
+
+
+# -- banning somebody who is not in the server ---------------------------------------
+
+
+def test_a_ban_previews_a_user_who_is_not_in_the_server_instead_of_refusing():
+    client = agency()
+    code, body, stderr = go(["--json", "member", "ban", "--server", "10", "--member", "999", "--reason", "raiding"], client)
+    assert (code, body["status"], body["result"]["dry_run"]) == (0, "ok", True), body
+    assert body["target"]["rid"] == "dc:member:10:999" and body["target"]["title"] == "999"
+    assert body["result"]["member"] == {
+        "id": 999, "username": None, "display_name": None, "bot": None, "roles": [], "timed_out_until": None, "in_server": False,
+    }
+    assert "not in this server" in stderr and "Ban 999" in stderr
+    assert "Add --execute to ban them; it will ask for their exact user ID." in stderr
+    assert writes(client) == [] and client.reasons == []
+
+
+def test_a_ban_on_a_user_who_is_here_still_asks_for_the_username():
+    client = agency()
+    code, body, stderr = go(["--json", "member", "ban", "--server", "10", "--member", "50", "--reason", "raiding"], client)
+    assert (code, body["status"]) == (0, "ok"), body
+    assert body["result"]["member"]["in_server"] is True and body["result"]["member"]["username"] == "ana"
+    assert "Add --execute to ban them; it will ask for their exact username." in stderr
+
+
+def test_a_ban_on_a_user_who_is_not_here_takes_the_typed_id_and_reads_the_ban_list_back(monkeypatch):
+    client = agency(users={999: {"username": "ghost", "display_name": "Ghost"}})
+    answer(monkeypatch, "999")
+    code, body, stderr = go(["--json", "member", "ban", "--server", "10", "--member", "999", "--reason", "raiding", "--execute"], client)
+    assert (code, body["status"], body["plan"]["approval"]) == (0, "ok", "typed_name"), body
+    assert "WARNING: BAN A USER WHO IS NOT HERE" in stderr and "Nothing is removed" in stderr
+    assert client.banned == [(10, 999)] and [row["id"] for row in client.bans[10]] == [999]
+    assert client.reasons == [f"cli-tools member ban plan {body['plan']['plan_id'][:8]}: raiding"]
+    assert body["evidence"]["readback"] == "user 999 is banned from server 10"
+
+
+def test_a_wrong_id_typed_back_bans_nobody(monkeypatch):
+    client = agency()
+    answer(monkeypatch, "998")
+    code, body, _stderr = go(["--json", "member", "ban", "--server", "10", "--member", "999", "--reason", "x", "--execute"], client)
+    assert (code, body["status"]) == (1, "cancelled"), body
+    assert writes(client) == [] and client.reasons == []
+
+
+def test_a_user_who_is_not_here_holds_no_role_to_outrank_the_bot(monkeypatch):
+    """Discord's hierarchy compares the two members' highest roles, and roles live
+    inside the guild: somebody who is not in it has none there, so there is
+    nothing of theirs to be above the bot's. The bot on @everyone alone — the
+    bottom of every hierarchy — still reaches them."""
+    client = agency(bot_roles={10: []})
+    answer(monkeypatch, "999")
+    code, body, _stderr = go(["--json", "member", "ban", "--server", "10", "--member", "999", "--reason", "x", "--execute"], client)
+    assert (code, body["status"]) == (0, "ok"), body
+    assert client.banned == [(10, 999)]
+
+
+def test_a_ban_on_somebody_who_was_never_a_member_can_be_lifted(monkeypatch):
+    """The other half of the strand: with nobody bannable, `member unban` had
+    nothing to lift on a two-account server, forever."""
+    client = agency(users={999: {"username": "ghost", "display_name": "Ghost"}})
+    answer(monkeypatch, "999")
+    code, body, _stderr = go(["--json", "member", "ban", "--server", "10", "--member", "999", "--reason", "raiding", "--execute"], client)
+    assert (code, body["status"]) == (0, "ok"), body
+
+    code, body, stderr = go(["--json", "member", "unban", "--server", "10", "--member", "999", "--yes"], client)
+    assert (code, body["status"]) == (0, "ok"), body
+    assert client.unbanned == [(10, 999)] and client.bans[10] == []
+    assert "Unbanned Ghost (ghost) (999)." in stderr
+    assert body["evidence"]["readback"] == "user 999 is no longer banned from server 10"
+
+
+def test_a_ban_the_tool_never_learned_a_name_for_is_lifted_by_its_id(monkeypatch):
+    """Discord names the account in its own ban list; a row that carries no name
+    still lifts, and the ID is what the screen calls them — once, not twice."""
+    client = agency(bans={10: [{"id": 999, "username": None, "display_name": None, "reason": None}]})
+    answer(monkeypatch, "n")
+    code, body, stderr = go(["--json", "member", "unban", "--server", "10", "--member", "999"], client)
+    assert (code, body["status"]) == (1, "cancelled"), body
+    assert body["target"]["title"] == "999" and "Unban 999\n" in stderr and "(no reason recorded)" in stderr
+
+    client = agency(bans={10: [{"id": 999, "username": None, "display_name": None, "reason": None}]})
+    code, body, stderr = go(["--json", "member", "unban", "--server", "10", "--member", "999", "--yes"], client)
+    assert (code, body["status"]) == (0, "ok") and "Unbanned 999." in stderr, body
 
 
 # -- member timeout ------------------------------------------------------------------

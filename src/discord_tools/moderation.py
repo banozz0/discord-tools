@@ -13,7 +13,10 @@ bot itself, which this tool never moderates; and a member whose top role is not
 below the bot's, with both positions named and, where the positions tied and the
 id decided it, both ids. The bot's top role is read with `roles.top_role` and
 both sides are ordered with `roles.rank`, the same functions the role commands
-measure against.
+measure against. A ban is the one of the five whose target need not be here at
+all: `absent_member` stands in for a user Discord will not describe, every
+screen says so rather than printing blanks, and the hierarchy check has nothing
+to compare because roles are the guild's and they hold none of them.
 
 **Reasons.** Discord stores a reason against its own audit entry, and for a
 kick or a ban that reason is what a member sees and what the next moderator
@@ -22,9 +25,10 @@ reads. `--reason` is required on both and is appended to the plan's own
 
 **Gates.** Kicking, banning and revoking an invite dry-run first and then take
 the target's exact label typed back, with no `--yes` to answer for anyone — a
-kick is not reversible and a ban is the widest thing this group does. Timeout,
-nickname, unban and invite create preview and ask y/N, with `--yes` skipping
-the prompt the way `create --yes` does.
+kick is not reversible and a ban is the widest thing this group does. That
+label is the username, or the user ID when the target is not in the server to
+have a username read. Timeout, nickname, unban and invite create preview and
+ask y/N, with `--yes` skipping the prompt the way `create --yes` does.
 
 **Bounds.** A timeout is `--until`, always: Discord's own maximum is 28 days,
 and a mute with no end is a thing nobody remembers to lift.
@@ -67,12 +71,44 @@ AUDIT_ACTIONS_ARE = "Discord's own snake_case names (kick, ban, member_update, i
 # -- members as targets ---------------------------------------------------------
 
 
+def absent_member(user_id: int) -> dict[str, Any]:
+    """A user who is not in the server, in the shape every member screen reads.
+
+    Discord's own `PUT /guilds/{guild.id}/bans/{user.id}` takes a *user*, not a
+    member — banning somebody who has already left is the ordinary case — and
+    for that user it hands a bot nothing: no username, no roles, no join date.
+    So this carries the ID and says the rest is unknown rather than guessing at
+    it, and `absent` is what a screen, a gate and the hierarchy check read to
+    say so out loud.
+    """
+    return {"id": int(user_id), "username": None, "display_name": None, "bot": None, "roles": (), "absent": True}
+
+
+def is_absent(member: Mapping[str, Any]) -> bool:
+    """Whether `member` stands for a user who is not in the server."""
+    return bool(member.get("absent"))
+
+
 def member_label(member: Mapping[str, Any]) -> str:
     """What a screen calls the member: the username, with the nickname Discord
-    renders beside it when they differ."""
-    username = str(member["username"])
+    renders beside it when they differ.
+
+    A user who is not in the server has neither a bot can read, and a ban list
+    row Discord answered with no account attached has neither either, so the ID
+    is their label: the one string that is true.
+    """
+    username = member.get("username")
+    if not username:
+        return str(member["id"])
     display = str(member.get("display_name") or username)
-    return username if display == username else f"{display} ({username})"
+    return str(username) if display == str(username) else f"{display} ({username})"
+
+
+def member_headline(member: Mapping[str, Any]) -> str:
+    """The member named once the way a line of prose names them: the label with
+    the ID after it, or the ID alone when the ID is the label."""
+    label = member_label(member)
+    return label if label == str(member["id"]) else f"{label} ({member['id']})"
 
 
 def typed_label(member: Mapping[str, Any]) -> str:
@@ -84,6 +120,17 @@ def typed_label(member: Mapping[str, Any]) -> str:
     to type without copying it.
     """
     return str(member["username"])
+
+
+def typed_gate(member: Mapping[str, Any]) -> tuple[str, str]:
+    """The string a removal asks to have typed back, and the word for it.
+
+    A ban on somebody who is not in the server has no username to ask for, and
+    a ban by bare ID with no name on screen is worse than one with a name, not
+    better — so the gate stays and asks for the ID the operator supplied, and
+    every line that mentions it calls it the ID rather than the username.
+    """
+    return (str(member["id"]), "user ID") if is_absent(member) else (typed_label(member), "username")
 
 
 BY_ID_ONLY = "Run `discord-tools member list --server <id>` to see every member with their ID."
@@ -140,7 +187,18 @@ def hierarchy(
     owner_id: int | None = None,
     bot_id: int | None = None,
 ) -> Error | None:
-    """The refusal when the right is held but cannot reach `member`, else None."""
+    """The refusal when the right is held but cannot reach `member`, else None.
+
+    Nothing can outrank the bot in a server it is not in. Discord's own rule is
+    "a bot can only kick, ban, and edit nicknames for users whose highest role
+    is lower than the bot's highest role", and a highest role is "its role that
+    has the greatest position value *in the guild*" — roles are the guild's, so
+    a user with no member record there holds none of them and has no highest
+    role to compare. The owner and the bot itself are both members of it by
+    definition, so neither can reach this by that door either.
+    """
+    if is_absent(member):
+        return None
     label, who = member_label(member), int(member["id"])
     if owner_id is not None and who == int(owner_id):
         return Error(
@@ -263,18 +321,34 @@ def _when(value: Any) -> str:
 
 
 def member_row(member: Mapping[str, Any], roles: Sequence[Mapping[str, Any]] = ()) -> dict[str, Any]:
+    """The member as JSON. `in_server` is False for a ban's target who is not
+    here: every other field is then null or empty because Discord knows nothing
+    about them to report, not because the tool failed to ask."""
     names = {int(role["id"]): role["name"] for role in roles}
+    absent = is_absent(member)
     return {
         "id": int(member["id"]),
         "username": member["username"],
         "display_name": member.get("display_name") or member["username"],
-        "bot": bool(member.get("bot", False)),
+        "bot": None if absent else bool(member.get("bot", False)),
         "roles": [names.get(int(entry), str(entry)) for entry in member.get("roles", ())],
         "timed_out_until": _when(member.get("timed_out_until")) if member.get("timed_out_until") else None,
+        "in_server": not absent,
     }
 
 
 def format_member(member: Mapping[str, Any], roles: Sequence[Mapping[str, Any]], *, heading: str) -> str:
+    if is_absent(member):
+        return "\n".join(
+            [
+                heading,
+                RULE,
+                f"ID           {member['id']}",
+                "Member       not in this server — they have left, or were never here",
+                "Roles        none here, so nothing of theirs sits above the bot",
+                RULE,
+            ]
+        )
     names = {int(role["id"]): role["name"] for role in roles}
     held = [names.get(int(entry), str(entry)) for entry in member.get("roles", ())]
     lines = [
@@ -294,7 +368,7 @@ def format_member(member: Mapping[str, Any], roles: Sequence[Mapping[str, Any]],
 
 def format_member_plan(member: Mapping[str, Any], *, action: str, reason: str, detail: str = "") -> str:
     """The preview every member write shows: who, what, and the words Discord will store."""
-    lines = [f"{action} {member_label(member)} ({member['id']})", RULE]
+    lines = [f"{action} {member_headline(member)}", RULE]
     if detail:
         lines.append(detail)
     lines.append(f"Discord will record the reason: {reason}")
@@ -414,6 +488,15 @@ WARNING: BAN A MEMBER
 They leave the server and cannot return on any
 invite, from any account they hold, until somebody
 runs `member unban`.
+===================================================="""
+
+BAN_ABSENT_WARNING = """\
+====================================================
+WARNING: BAN A USER WHO IS NOT HERE
+
+Nothing is removed: they are not in this server. They
+cannot join it again, on any invite, from any account
+they hold, until somebody runs `member unban`.
 ===================================================="""
 
 REVOKE_WARNING = """\

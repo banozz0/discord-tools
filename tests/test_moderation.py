@@ -38,6 +38,18 @@ def test_the_label_shows_a_nickname_beside_the_username_and_the_typed_one_is_the
     assert moderation.typed_label(member(username="ana", display_name="Ana R")) == "ana"
 
 
+def test_a_user_who_is_not_in_the_server_is_labelled_by_the_only_thing_discord_gives():
+    absent = moderation.absent_member(999)
+    assert moderation.is_absent(absent) and not moderation.is_absent(member())
+    assert moderation.member_label(absent) == "999" and moderation.member_headline(absent) == "999"
+    assert moderation.member_headline(member(username="ana", display_name="Ana R")) == "Ana R (ana) (42)"
+
+
+def test_the_typed_gate_asks_for_the_username_when_there_is_one_and_the_id_when_there_is_not():
+    assert moderation.typed_gate(member(username="ana", display_name="Ana R")) == ("ana", "username")
+    assert moderation.typed_gate(moderation.absent_member(999)) == ("999", "user ID")
+
+
 def test_a_member_target_carries_both_ids_and_an_invite_target_carries_the_code():
     target = moderation.member_target(SERVER, member())
     assert (target.rid, target.kind, target.ids) == ("dc:member:10:42", "member", {"guild": "10", "member": "42"})
@@ -77,6 +89,13 @@ def test_the_owner_and_the_bot_itself_are_refused_before_any_position_is_compare
 
 def test_a_member_holding_nothing_but_everyone_is_reachable():
     assert moderation.hierarchy(ROLES, [14], member(roles=()), verb="timeout", owner_id=1, bot_id=99) is None
+
+
+def test_a_user_who_is_not_in_the_server_holds_no_role_there_to_outrank_the_bot():
+    """The same rule as the row above, arrived at from outside: roles are the
+    guild's, so a user with no member record in it holds none of them."""
+    assert moderation.hierarchy(ROLES, [14], moderation.absent_member(999), verb="ban", owner_id=1, bot_id=99) is None
+    assert moderation.hierarchy(ROLES, [], moderation.absent_member(999), verb="ban", owner_id=1, bot_id=99) is None
 
 
 # Discord gives every bot it adds a managed role at position 1, so two bots on a
@@ -160,6 +179,17 @@ def test_an_audit_row_hides_a_link_a_moderator_typed_into_a_reason():
 def test_the_member_screen_names_the_roles_and_a_live_timeout():
     text = moderation.format_member(member(roles=(12,), timed_out_until="2026-09-10T12:00:00+00:00"), ROLES, heading="Kick from Agency (10)")
     assert "Kick from Agency (10)" in text and "Roles        Members" in text and "Timed out    until 2026-09-10T12:00:00Z" in text
+
+
+def test_the_member_screen_says_plainly_that_a_user_is_not_here_rather_than_printing_blanks():
+    text = moderation.format_member(moderation.absent_member(999), ROLES, heading="Ban from Agency (10)")
+    assert "Ban from Agency (10)" in text and "ID           999" in text
+    assert "not in this server" in text and "none here" in text
+    assert "Joined" not in text and "Account" not in text
+    assert moderation.member_row(moderation.absent_member(999), ROLES) == {
+        "id": 999, "username": None, "display_name": None, "bot": None, "roles": [], "timed_out_until": None, "in_server": False,
+    }
+    assert moderation.member_row(member(), ROLES)["in_server"] is True
 
 
 def test_the_member_plan_prints_the_reason_discord_will_store():

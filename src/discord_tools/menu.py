@@ -1812,7 +1812,10 @@ async def _flow_member_list(*, session, runner, read, write) -> bool:
 
 def _member_removal(verb: str, what: str):
     """Kick and ban: pick, dry-run, then the same command with --execute, which
-    asks for the exact username itself."""
+    asks for the exact username itself — or the ID, when a ban's target is not
+    in the server and Discord will name nobody. The dry-run screen above this
+    row says which of the two it will be."""
+    typed = "username" if verb == "kick" else "username, or their ID if they are not in the server"
 
     async def flow(*, session, runner, read, write) -> bool:
         trail = crumb(MAIN, f"Members: {verb}")
@@ -1835,7 +1838,7 @@ def _member_removal(verb: str, what: str):
             if not await _dry_run_passed(dry_run, session=session, runner=runner, write=write):
                 return after_action(read=read, write=write)
             choice = choose(
-                [f"{what} for real - the next screen asks for their exact username"],
+                [f"{what} for real - the next screen asks for their exact {typed}"],
                 title=crumb(where, "Dry-run done"),
                 read=read,
                 write=write,

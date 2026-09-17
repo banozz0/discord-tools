@@ -1025,6 +1025,8 @@ EVENT_CREATE = ("7", "10", "2")
 def test_a_filter_left_out_does_not_throw_the_typed_rule_away():
     # Live on 2026-09-17: five fields typed, a blank at "Only these senders"
     # because the rule needed no sender, and the form restarted at "Rule name".
+    # Red against the five prompts in a row: the row numbers below were answers
+    # to them, so the rule went out with scope ["1"] and media_type ["6"].
     prompts: list[str] = []
     code, calls, output = drive(
         [
@@ -1060,6 +1062,8 @@ def test_a_filter_left_out_does_not_throw_the_typed_rule_away():
 def test_an_event_with_no_description_is_created_instead_of_restarting_the_form():
     # Live on 2026-09-17: "What it is about (blank for none) (blank cancels)" —
     # the blank the label invites cancelled, and the form restarted at the server.
+    # Red against that prompt: the "1" below was typed into it, and the event was
+    # created with the description "1".
     prompts: list[str] = []
     code, calls, _output = drive(
         [

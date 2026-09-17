@@ -110,10 +110,11 @@ class Run:
     def frame(self, text: str) -> None:
         """A line *about* the run rather than from it. Always stderr.
 
-        The identity banner is the one of these. stdout is the data channel
-        even without `--json` — `bot --invite` prints a URL and nothing else,
-        `discover --json PATH` prints nothing at all — so a line naming the
-        bot goes beside that output, never into it.
+        The identity banner is one of these, and so is the line saying where
+        `discover --json PATH` wrote its file. stdout is the data channel even
+        without `--json` — `bot --invite` prints a URL and nothing else,
+        `discover --json PATH` prints nothing there at all — so a line naming
+        the bot goes beside that output, never into it.
         """
         print(text, file=self.stderr)
 

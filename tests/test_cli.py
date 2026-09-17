@@ -441,6 +441,17 @@ def test_discover_json_writes_a_file_not_stdout(tmp_path, capsys):
     assert tree[0]["name"] == "Ops"
 
 
+def test_discover_json_says_where_the_file_landed(tmp_path, capsys):
+    # stdout stays the empty data channel a script relies on; the line for the
+    # person goes beside it, with the whole path and the size written.
+    client = FakeClient(servers=[ServerInfo(id=1, name="Ops")])
+    path = tmp_path / "tree.json"
+    assert run_cli(["discover", "--json", str(path)], client) == 0
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.splitlines() == [f"Wrote 1 server(s) to {path.resolve()} ({path.stat().st_size} bytes)"]
+
+
 # -- delete ---------------------------------------------------------------
 
 DELETE_SERVER = ServerInfo(id=1, name="My Server")

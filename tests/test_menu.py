@@ -132,6 +132,38 @@ def test_discover_flow_builds_the_command():
     assert "Main › Servers & channels" in screens(output)
 
 
+def test_discover_titles_name_the_picked_server_and_every_server_keeps_the_plain_trail():
+    # One server: every screen after the pick says which, as Members does.
+    _code, _calls, output = drive([DISCOVER, "2", "1", "0"])
+    titles = [screen.split("\n")[0] for screen in output]
+    assert "Main › Servers & channels › Ops › Where should it go?" in titles
+    assert "Main › Servers & channels › Ops › Done" in titles
+
+    # Every server: there is no one server to name.
+    _code, _calls, output = drive([DISCOVER, "1", "1", "0"])
+    titles = [screen.split("\n")[0] for screen in output]
+    assert "Main › Servers & channels › Where should it go?" in titles
+    assert "Main › Servers & channels › Done" in titles
+
+
+def test_discover_to_a_json_file_says_where_it_landed(tmp_path, monkeypatch, capsys):
+    # The menu has no shell to expand `~`, so the prompt's own example has to
+    # work as typed, and the Done screen must not be the only thing said.
+    from discord_tools.cli import run
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    # Unexpanded, the path lands under a directory literally named `~` in the
+    # working directory; keep that one inside the test's own tree.
+    monkeypatch.chdir(tmp_path / "home")
+    prompts = []
+    code, _calls, _output = drive([DISCOVER, "1", "2", "~/ids.json", "0"], runner=run, prompts=prompts)
+    assert code == 0
+    landed = tmp_path / "ids.json"
+    assert landed.exists()
+    assert f"Wrote 1 server(s) to {landed.resolve()} ({landed.stat().st_size} bytes)" in capsys.readouterr().err
+    assert "JSON file path, e.g. ~/discord-ids.json (blank cancels): " in prompts
+
+
 def test_members_flow_prints_here_by_default():
     code, calls, output = drive([MEMBERS, "1", "0"])
     assert code == 0

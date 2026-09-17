@@ -8,9 +8,11 @@
 
 A live run through the whole menu on 2026-09-17 found what the suite could
 not: rows that did not say what a message was, times with no zone, writes that
-ended in a block of JSON, two crashes behind an empty selection, and a handful
-of screens that named the wrong thing. This is that pass, plus the two fixes
-that had been waiting on a release since 2026-09-12.
+ended in a block of JSON, two crashes behind an empty selection, a role the
+menu could not edit after making it, a form one blank answer threw away, a hint
+that did not run as printed, and a handful of screens that named the wrong
+thing. This is that pass, plus the two fixes that had been waiting on a release
+since 2026-09-12.
 
 ### A row says what its message is
 
@@ -96,8 +98,6 @@ that had been waiting on a release since 2026-09-12.
   allows. One message by anybody else and the dry-run is `PERMISSION_DENIED`
   naming that message and its author, before the typed `DELETE` and before any
   delete call. `clear-messages` always needs the right.
-- **A right lost while the prompt sat now refuses before the first delete**
-  rather than surfacing as a 403 and a half-finished run.
 - **Fixed: an archive search that matches nothing is refused, not crashed.**
   `message delete --from-search` over a query matching no message dry-ran as a
   zero-message plan, offered "Delete them for real", and then raised
@@ -109,6 +109,31 @@ that had been waiting on a release since 2026-09-12.
 - **Fixed: a `--ids` selection past the preview counts every id.** Twenty-five
   ids drew "Delete 20 message(s)" on the screen right above the typed `DELETE`
   that removed all twenty-five.
+
+### What a write checks before it acts
+
+- **Every write re-checks its rights after the gate, not only `message
+  delete`.** The plan is re-derived once the `y/N` or the typed name is
+  answered, and until now only a change in the *target* refused: a right taken
+  off the bot while the preview sat on screen — someone editing its role, or a
+  channel override — reached Discord as a 403 partway through a write that had
+  already changed something. The re-derived plan's own preflight now refuses
+  with `PERMISSION_DENIED` before the first call, at the one seam all
+  thirty-six writes share — `send`, `create`, `delete`, `leave-server`,
+  `clear-messages`, `structure apply`, every role, permission, member, invite,
+  webhook, emoji, sticker, automod and channel write, the twelve `message`
+  verbs, the bot profile, and scheduled posts and events. `PLAN_DRIFT` still
+  wins when the target moved too.
+- **Fixed: a role or a member tied with the bot's own top role is reachable.**
+  Discord puts every role it creates at position 1, the managed role it hands
+  each bot included, and the hierarchy check refused anything *at or above*
+  that position — so a role the menu had just made could never be edited or
+  deleted, and `member kick`, `ban`, `timeout` and `nick` all refused against a
+  second bot's role. Discord's documented order breaks a tie by id, the lower
+  id sitting higher, which is what both client libraries implement; the check
+  now does the same, so a tie refuses only where the target really is above.
+  `HIERARCHY_DENIED` names both ids as well as both positions when the tie is
+  what decided it.
 
 ### The menu
 
@@ -131,6 +156,16 @@ that had been waiting on a release since 2026-09-12.
   the filter could never be dropped from the menu.
 - **The create gate names the bot**, as the message previews do, and a create
   that went through prints what it read back.
+- **Fixed: a blank answer no longer throws a whole form away.** The five
+  filters of a watch rule were asked in a row, and a blank meant both "leave
+  this one out" and "back out" — it backed out, so a name, an event kind, an
+  action and a scope typed in were lost to one blank at the sender, and a
+  keyword-only rule was unreachable without filling all five and emptying
+  three. The narrowing is a form now: a row per filter saying what it holds or
+  what it leaves open, keep, change and clear on each, a Done row, and `0` to
+  step back one screen. A scheduled event's description is a "No description"
+  row for the same reason. Blank keeps the one meaning every other prompt in
+  this menu gives it, and costs only the field it is typed at.
 - **`channel show` names the category it sits under** — "Text channels
   (1548285155293003796)" — from the path it already fetched.
 - **Fixed: a reaction or bookmark preview said its preposition twice** — "Add
@@ -146,6 +181,16 @@ that had been waiting on a release since 2026-09-12.
 
 ### Elsewhere
 
+- **Fixed: every hint that names `--profile` puts the flag where the parser
+  takes it.** `--profile` hangs off the root parser, so the flag has to come
+  before the subcommand — and three of the tool's own hints told the reader to
+  type it after, where argparse answers with a usage dump: the auth wizard's
+  closing line, `doctor`'s unrecorded-profile WARN and the identity-mismatch
+  refusal. All three now print the whole command, flag first, and the wizard
+  names the profile it just saved rather than leaving the reader to work out
+  whether it is the default. A new test reads every string in the package
+  through `ast`, and every command in `README.md`, `AGENTS.md`, `CONTEXT.md`
+  and `skill/SKILL.md`, and asserts the real parser accepts each one.
 - **Fixed: the archive table's `[media]` comes off the message, not off the
   media store.** It was marked from the count of media files this archive
   holds, and `archive sync` downloads nothing, so the count is zero until the

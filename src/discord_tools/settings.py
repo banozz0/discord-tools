@@ -392,15 +392,20 @@ def channel_row(channel: Mapping[str, Any], fields: Iterable[str] = ()) -> dict[
     }
 
 
-def format_channel(channel: Mapping[str, Any], *, heading: str) -> str:
+def format_channel(channel: Mapping[str, Any], *, heading: str, category: str | None = None) -> str:
+    """`category` is the parent's name when the caller already has it; the id alone otherwise."""
     kind = str(channel["type"])
     parent = channel.get("parent_id")
+    if parent is None or kind == "category":
+        under = "-"
+    else:
+        under = f"{category} ({parent})" if category else str(parent)
     lines = [
         heading, RULE,
         f"Name         {channel['name']}",
         f"ID           {channel['id']}",
         f"Type         {kind}",
-        f"Category     {parent if parent is not None and kind != 'category' else '-'}",
+        f"Category     {under}",
     ]
     for key, label in (("topic", "Topic"), ("nsfw", "Age-gated"), ("slowmode", "Slow mode"), ("position", "Position")):
         if key in CHANNEL_FIELDS.get(kind, ()):

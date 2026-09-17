@@ -154,6 +154,36 @@ def test_confirm_write_needs_an_explicit_y():
     assert messages.confirm_write("p", "Pin it?", read=answers(""), write=lambda _: None) is False
 
 
+def _every_y_n_gate():
+    """Each y/N the tool asks, called the same way: (answer, write) -> bool."""
+    from discord_tools import bot, create, review, roles, send, watch
+
+    return {
+        "message": lambda read, write: messages.confirm_write("p", "Pin it?", read=read, write=write),
+        "create": lambda read, write: create.confirm_create("p", read=read, write=write),
+        "send": lambda read, write: send.confirm_send("p", read=read, write=write),
+        "role": lambda read, write: roles.confirm_role("p", "Create it?", read=read, write=write),
+        "review": lambda read, write: review.confirm("Fetch it?", read=read, write=write),
+        "bot": lambda read, write: bot.confirm_bot_edits("p", read=read, write=write),
+        "watch": lambda read, write: watch.confirm("Write it?", read=read, write=write),
+    }
+
+
+@pytest.mark.parametrize("gate", sorted(_every_y_n_gate()))
+def test_a_typed_no_says_so_before_not_done_as_a_blank_does(gate):
+    # Live on 2026-09-17: "Pin it? [y/N]: N" was followed straight by the Not
+    # done screen, while a blank answer printed its own line. Both cancel; both
+    # say so, and a y says nothing extra.
+    ask = _every_y_n_gate()[gate]
+    for typed, line in (("N", "Answered no - cancelled."), ("no", "Answered no - cancelled."), ("", "No answer read - cancelled.")):
+        said = []
+        assert ask(answers(typed), said.append) is False
+        assert said[-1] == line, (typed, said)
+    said = []
+    assert ask(answers("y"), said.append) is True
+    assert not any("cancelled" in line for line in said)
+
+
 def test_the_unsupported_verbs_say_why():
     for verb in ("read", "unread", "draft"):
         error = messages.platform_unsupported(verb)

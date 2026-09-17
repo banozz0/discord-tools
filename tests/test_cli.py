@@ -139,6 +139,36 @@ def test_create_channel_with_yes(capsys):
     assert json.loads(capsys.readouterr().out)["created"] is True
 
 
+def test_create_says_who_acts_and_what_it_read_back(capsys, monkeypatch):
+    # Live on 2026-09-17: the create preview named no bot, and the command's own
+    # fetch of the new channel printed nothing. stdout stays the result mapping.
+    from discord_tools import create as create_ops
+
+    shown = []
+
+    def answer_y(preview, **kwargs):
+        shown.append(preview)
+        return create_ops.confirm_create(preview, read=lambda _prompt: "y", **kwargs)
+
+    monkeypatch.setattr("discord_tools.cli.confirm_create", answer_y)
+    client = FakeClient(servers=[ServerInfo(id=1, name="Ops")])
+    assert run_cli(["create", "channel", "--server", "1", "--name", "builds"], client) == 0
+    captured = capsys.readouterr()
+    assert shown and shown[0].startswith("Acting as testbot#0")
+    made = json.loads(captured.out[captured.out.index("{"):])
+    assert made["created"] is True
+    # The fake names a channel it did not list channel-<id>; the id is the check.
+    said = captured.err.splitlines()
+    assert len(said) == 1 and said[0].startswith("Read back: channel ") and said[0].endswith(f"({made['id']}) exists as a text"), said
+
+    # Declined, there is nothing to read back and nothing says there was.
+    monkeypatch.setattr("discord_tools.cli.confirm_create", lambda preview, **_kwargs: False)
+    assert run_cli(["create", "channel", "--server", "1", "--name", "other"], client) == 1
+    captured = capsys.readouterr()
+    assert json.loads(captured.out[captured.out.index("{"):])["cancelled"] is True
+    assert "Read back" not in captured.err
+
+
 def test_create_without_kind_errors():
     with pytest.raises(ValueError):
         run_cli(["create"], FakeClient())
@@ -450,6 +480,27 @@ def test_discover_json_says_where_the_file_landed(tmp_path, capsys):
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err.splitlines() == [f"Wrote 1 server(s) to {path.resolve()} ({path.stat().st_size} bytes)"]
+
+
+def test_bot_json_path_says_where_the_profile_landed(tmp_path, capsys, monkeypatch):
+    # Live on 2026-09-17 `bot --json PATH` wrote its file and said nothing. stdout
+    # stays empty for the script that asked for a file; the person hears where.
+    client = FakeClient()
+    path = tmp_path / "bot.json"
+    assert run_cli(["bot", "--json", str(path)], client) == 0
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert json.loads(path.read_text())["username"] == "testbot#0"
+    assert captured.err.splitlines() == [f"Wrote the profile of testbot#0 (42) to {path.resolve()} ({path.stat().st_size} bytes)"]
+
+    # The menu has no shell, so `~` typed at its path prompt means the home directory.
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / "work").mkdir()
+    monkeypatch.chdir(tmp_path / "work")
+    assert run_cli(["bot", "--json", "~/again.json"], client) == 0
+    landed = tmp_path / "again.json"
+    assert landed.exists() and not (tmp_path / "work" / "~").exists()
+    assert capsys.readouterr().err.splitlines() == [f"Wrote the profile of testbot#0 (42) to {landed.resolve()} ({landed.stat().st_size} bytes)"]
 
 
 # -- delete ---------------------------------------------------------------

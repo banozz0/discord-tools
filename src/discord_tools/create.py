@@ -7,10 +7,16 @@ from discord_tools.models import CreateResult
 RULE = "--------------------------------------------"
 
 
-def format_create_preview(kind: str, name: str, *, where: str) -> str:
-    """What is about to exist and where, so the confirm is an informed answer."""
+def format_create_preview(kind: str, name: str, *, where: str, acting_as: str) -> str:
+    """Who is acting, what is about to exist and where, so the confirm is an informed answer.
+
+    It opens the way the message previews do, on the bot that will own the new
+    object.
+    """
     return "\n".join(
         [
+            f"Acting as {acting_as}",
+            RULE,
             "About to create a real, visible object on Discord:",
             RULE,
             f"Kind   {kind}",
@@ -27,7 +33,10 @@ def confirm_create(preview: str, *, read: Callable[[str], str] = input, write: C
     if not answer:
         write("No answer read - cancelled.")
         return False
-    return answer == "y"
+    if answer != "y":
+        write("Answered no - cancelled.")
+        return False
+    return True
 
 
 async def _gate(confirm, before_write, cancelled: CreateResult) -> CreateResult | None:

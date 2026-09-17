@@ -359,7 +359,7 @@ MANAGE_ROWS = {
     "invite list": [("6", "4", "1")],
     "invite create": [("6", "4", "2"), "1", "2", "1", "1"],
     "invite revoke": [("6", "4", "3"), "1"],
-    "audit-log list": [("6", "5"), "1", "24h"],
+    "audit-log list": [("6", "5"), "1", "2", "24h"],
     # Row 6 was the last "not built yet"; this pack took it rather than pushing
     # a row in below, so 1 to 5 above are the numbers they always were.
     "webhook list": [("6", "6", "1")],

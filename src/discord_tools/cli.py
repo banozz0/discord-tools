@@ -1906,7 +1906,8 @@ async def _run_create(client, args, config, out) -> Outcome:
         if refusal is not None:
             return Outcome(status="refused", target=parent, plan=write.plan, error=refusal)
         out.say(plans.format_preflight(write.plan))
-        confirm = partial(confirm_create, format_create_preview(shown, args.name, where=where), write=out.say)
+        preview = format_create_preview(shown, args.name, where=where, acting_as=identity.label)
+        confirm = partial(confirm_create, preview, write=out.say)
 
     guard = _drift_guard(out, write, build)
     reason = write.reason
@@ -1936,14 +1937,19 @@ async def _run_create(client, args, config, out) -> Outcome:
             reason=reason,
         )
 
-    out.payload(created.to_dict())
     if created.cancelled:
+        out.payload(created.to_dict())
         return Outcome(status="cancelled", target=parent, plan=write.plan, result=created.to_dict())
 
     evidence = await plans.read_back(
         "the new object could not be read back",
         lambda: _describe_created(client, created),
     )
+    if not out.machine:
+        # Said out loud: without an envelope, the fetch of the new object is
+        # otherwise invisible. stderr, because stdout is the result mapping.
+        out.frame(f"Read back: {evidence.readback}")
+    out.payload(created.to_dict())
     return Outcome(status="ok", target=parent, plan=write.plan, result=created.to_dict(), evidence=evidence)
 
 
@@ -3796,7 +3802,13 @@ async def _run_channel(client, args, config, out) -> Outcome:
     if args.channel_kind == "show":
         # The same read `edit` diffs against and the same row it reads back,
         # so a show before an edit and the readback after it print one shape.
-        out.say(settings.format_channel(before, heading=f"{before['type']} channel {before['name']} ({channel_id})"))
+        # The resolve above already fetched the parent to name the target, so
+        # its name is the first half of the path whenever it could be read.
+        named = target.ids.get("parent") == str(before.get("parent_id")) and len(target.path) > 1
+        out.say(settings.format_channel(
+            before, heading=f"{before['type']} channel {before['name']} ({channel_id})",
+            category=target.path[0] if named else None,
+        ))
         return Outcome(status="ok", target=target, result={"channel": settings.channel_row(before)})
     fields = settings.channel_fields(args, before)
     if not fields:
@@ -4683,7 +4695,14 @@ async def _run_bot(client, args, config, out) -> Outcome:
     if not requested:
         profile = bot_identity.to_dict()
         if args.json_output:
-            _write_json(profile, args.json_output)
+            # Expanded here as well as wherever the writer does it: the menu has
+            # no shell, and the line below has to name the file that was written.
+            written = Path(args.json_output).expanduser().resolve()
+            _write_json(profile, str(written))
+            out.frame(
+                f"Wrote the profile of {bot_identity.username} ({bot_identity.id}) to {written} "
+                f"({written.stat().st_size} bytes)"
+            )
         elif not out.machine:
             print(format_bot_profile(bot_identity, profile=config.profile))
         return Outcome(status="ok", result=profile)

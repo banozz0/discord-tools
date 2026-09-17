@@ -249,7 +249,10 @@ def confirm(question: str, *, read: Callable[[str], str] | None = None, write: C
     if not answer:
         write("No answer read - cancelled.")
         return False
-    return answer == "y"
+    if answer != "y":
+        write("Answered no - cancelled.")
+        return False
+    return True
 
 
 def pick_queued(rows: Sequence[QueueRow], *, read: Callable[[str], str] | None = None, write: Callable[[str], None] = print) -> list[str]:

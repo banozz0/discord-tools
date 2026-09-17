@@ -223,6 +223,14 @@ def test_a_channel_screen_names_its_category_and_counts_what_one_fetch_can_count
     assert "Category     -" in settings.format_channel(channel(type="category"), heading="Now"), "a category is under nothing"
 
 
+def test_a_channel_screen_puts_the_category_name_before_its_id_when_it_has_one():
+    # Live on 2026-09-17: "Category     1548285155293003796", an id where the
+    # name "Text channels" was known.
+    text = settings.format_channel(channel(parent_id=100), heading="Now", category="Ops")
+    assert "Category     Ops (100)" in text
+    assert "Category     -" in settings.format_channel(channel(type="category"), heading="Now", category="Ops")
+
+
 def test_a_channel_row_carries_its_parent_and_the_counts_beside_the_editable_fields():
     row = settings.channel_row(channel(parent_id=100, overwrites=[{"target_id": 1, "target_type": "member"}]))
     assert row["parent_id"] == 100 and row["counts"] == {"overwrites": 1, "role_overwrites": 0, "member_overwrites": 1, "tags": 0}

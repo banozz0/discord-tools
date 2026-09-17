@@ -83,7 +83,7 @@ from discord_tools.create import (
     create_thread,
     format_create_preview,
 )
-from discord_tools.exporters import FORMATS as EXPORT_FORMATS, json_text, write_records
+from discord_tools.exporters import FORMATS as EXPORT_FORMATS, json_text, marked_rows, write_records
 from discord_tools.models import GUILD_CHANNEL_TYPES
 from discord_tools.members import format_member_records, list_server_members
 from discord_tools.search import all_content_empty, format_message_records, search_messages
@@ -1342,7 +1342,8 @@ async def _run_archive_search(args, out) -> Outcome:
         target.parent.mkdir(parents=True, exist_ok=True)
         # The file is 0600 like everything the tool writes; the directory is
         # left as the user keeps it, because exports are theirs to share.
-        write_private(target, render_export(rows, args.format, query=args.query, title="discord-tools archive export"))
+        shown = marked_rows(rows) if args.format in ("markdown", "html") else rows
+        write_private(target, render_export(shown, args.format, query=args.query, title="discord-tools archive export"))
         written = str(target)
         out.say(f"Exported {len(rows)} hit(s) to {written}")
     elif not out.machine:

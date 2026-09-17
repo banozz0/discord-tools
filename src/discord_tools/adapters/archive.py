@@ -39,7 +39,7 @@ from discord_tools._core.archive import ScopeListing
 from discord_tools._core.identity import Target
 from discord_tools._core.review import Candidate
 from discord_tools.models import ChannelInfo, ThreadInfo
-from discord_tools.records import message_date, parse_date_bound
+from discord_tools.records import carrier, message_body, message_date, parse_date_bound
 
 PLATFORM = "discord"
 # Channels whose own history is a scope. Forum and media channels hold posts,
@@ -178,17 +178,25 @@ def message_record(message: Any, *, channel_id: int, cursor: str) -> dict[str, A
     when = message_date(message)
     reference = getattr(message, "reference", None)
     edited = getattr(message, "edited_at", None)
-    attachments = list(getattr(message, "attachments", None) or ())
-    embeds = list(getattr(message, "embeds", None) or ())
+    # A forward's words and files are in its snapshot; its own are empty.
+    source = carrier(message)
+    attachments = list(getattr(source, "attachments", None) or ())
+    embeds = list(getattr(source, "embeds", None) or ())
     author = author_of(message)
+    # The same derivation the printed line and the exports use: a message whose
+    # only identifying text is not its `content` reaches `text` -- the one
+    # column `messages_fts` indexes -- rather than landing as an empty row.
+    body = message_body(message)
+    # A forward's reference names the message it moved, not one it answers.
+    replied = reference is not None and "forwarded_from" not in body.extras
     return {
         "message_id": str(int(getattr(message, "id"))),
         "date": when.isoformat() if when else None,
-        "text": getattr(message, "content", "") or "",
+        "text": body.text,
         "author": author,
         "author_rid": author["rid"] if author else None,
         "reply_to": (
-            str(reference.message_id) if reference and getattr(reference, "message_id", None) else None
+            str(reference.message_id) if replied and getattr(reference, "message_id", None) else None
         ),
         "edited": edited.isoformat() if edited is not None else None,
         "platform_json": {
@@ -196,6 +204,10 @@ def message_record(message: Any, *, channel_id: int, cursor: str) -> dict[str, A
             "attachments": [getattr(attachment, "filename", "") for attachment in attachments],
             "embeds": len(embeds),
             "has_media": bool(attachments) or bool(embeds),
+            # Additive, and only for a message that has them: `platform_json`
+            # is the extension point the schema already carries, so no
+            # migration is needed and every row written before stays as it is.
+            **body.extras,
         },
         "cursor": cursor,
     }

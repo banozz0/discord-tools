@@ -348,13 +348,26 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
 - **`--output` takes a file name, not a place.** Relative names land in
   `~/.discord-tools/exports/`, never the working directory, so chat data
   cannot leak into a repo. An absolute path is honored as written.
-- **`[media]` in a `search` row means an attachment or embed.** A media-only
-  message has no text at all; without the marker it would read as empty.
-  `--format json` carries the same fact as `has_media`. An `archive search` row
-  carries the same mark from the same fact, so a message read back out of the
-  archive says what it carried the way it does read live. Not the same number as
-  `result.hits[].media`, which counts the files this archive actually holds for
-  the message — zero until they are approved through `review`.
+- **A `search` row says what the message is, in front of its text.**
+  `[fwd #<channel id>]` is Discord's own forward and the channel it came from
+  (a `message copy` carries no mark, which is how the two tell apart);
+  `[poll]`, `[image]`, `[video]`, `[audio]`, `[voice]`, `[file]` and
+  `[sticker]` name what it carries; `[event]` is a row Discord wrote itself (a
+  pin, a join, a thread created). A message with no words of its own shows a
+  derived line instead — `[poll] ship it? — yes / no`, `[file] report.pdf`,
+  `[event] message pinned` — and that line is what `--keyword` matches and what
+  the archive stores and searches. `[media]` is left for an embed-only message.
+  `--format json` carries the same facts as `forwarded_from`, `poll`,
+  `attachment_kinds`, `stickers`, `service` and `has_media`; markdown and html
+  put the marks in front of the text. An `archive search` row carries the same
+  marks from the same facts. Not the same number as `result.hits[].media`,
+  which counts the files this archive actually holds for the message — zero
+  until they are approved through `review`.
+- **`Rendering` in `archive status` names scopes stored before the tool
+  derived those lines.** Their rows keep the empty text they were written with,
+  so a search cannot find them. `archive sync --full --scope <rid>` rebuilds
+  one, but it refetches the whole scope from Discord: offer it, and let the
+  user decide.
 - **Empty text on every message = the message-content intent is off.** That is
   a portal setting, not a bug here. `doctor` names it; the fix is in the
   Developer Portal (Bot → Message Content Intent), which only the user can do.

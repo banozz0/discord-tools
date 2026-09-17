@@ -30,7 +30,7 @@ from discord_tools._core.paths import FILE_MODE, ToolPaths, make_private_dir
 from discord_tools._core.plan import Plan
 from discord_tools.adapters.identity import label_for
 from discord_tools.config import Config, bot_id_from_token
-from discord_tools.records import parse_date_bound
+from discord_tools.records import TEXT_RENDERING, parse_date_bound, record_marks
 from discord_tools.search import ELLIPSIS, PREVIEW_WIDTH, preview
 
 TOOL = "discord-tools"
@@ -77,7 +77,11 @@ def open_archive(home: Path | None = None) -> Archive:
     paths = tool_paths(home)
     make_private_dir(paths.root)
     archive = Archive.open(
-        paths.archive, budgets=budgets(home), core_version=core_version(), tool_version=__version__
+        paths.archive,
+        budgets=budgets(home),
+        core_version=core_version(),
+        tool_version=__version__,
+        render_version=TEXT_RENDERING,
     )
     tighten(paths.archive)
     return archive
@@ -262,7 +266,34 @@ def format_status(status: dict[str, Any], scopes: Sequence[dict[str, Any]]) -> s
             mark = "  " if scope["visible"] else "! "
             note = f" skipped ({scope['skipped_reason']})" if scope["skipped_reason"] else f" {scope['messages']} messages"
             lines.append(f"{mark}{' › '.join(scope['path'])}  {scope['rid']}{note}")
+    lines.extend(format_rendering(status.get("rendering")))
     return "\n".join(lines)
+
+
+# How many stale scopes the screen names before it stops counting them out. The
+# rest are in the envelope; a person needs one rid to start with, not all of them.
+RENDERING_SHOWN = 5
+
+
+def format_rendering(rendering: dict[str, Any] | None) -> list[str]:
+    """What the store says about rows an older text rendering wrote, or nothing.
+
+    The archive's own answer, printed rather than acted on: a full sync
+    refetches every message in the scope, so it is offered and never run for
+    the person. Nothing when every scope is current, and nothing from a copy of
+    the shared tree too old to report it.
+    """
+    if not rendering or not rendering.get("behind"):
+        return []
+    behind = rendering["behind"]
+    lines = ["", f"Rendering    {rendering['summary']}"]
+    for row in behind[:RENDERING_SHOWN]:
+        lines.append(f"             {row['rid']}  {row['title']}  {row['messages']} message(s)")
+    if len(behind) > RENDERING_SHOWN:
+        lines.append(f"             and {len(behind) - RENDERING_SHOWN} more")
+    if rendering.get("hint"):
+        lines.append(f"             {rendering['hint']}")
+    return lines
 
 
 def format_sync_report(report: SyncReport) -> str:
@@ -309,11 +340,17 @@ def format_hits(hits: Sequence[SearchHit], *, query: str) -> str:
         # carrying message print as a plain line. The count is still in
         # `result.hits[].media` for anyone reading the envelope. A row written
         # before the extras were stored falls back to it rather than to nothing.
+        #
+        # `to_dict` merges the extras the sync stored onto the row, which is
+        # the shape `records.record_marks` reads -- the one place the live line
+        # and the exports derive their marks from -- so a message read back
+        # out of the archive says what it is the way reading it live does.
         row = hit.to_dict()
-        media = " [media]" if row.get("has_media", hit.media) else ""
+        row.setdefault("has_media", hit.media)
+        marks = record_marks(row)
         for neighbour in hit.context_before:
             lines.append(f"    {neighbour['message_id']}  {_stamp(neighbour.get('date')):<16}  {preview(neighbour.get('text') or '')}")
-        lines.append(f"{hit.message_id}  {_stamp(hit.date):<16}  {where}  {hit.sender or '?'}: {body}{media}{deleted}")
+        lines.append(f"{hit.message_id}  {_stamp(hit.date):<16}  {where}  {hit.sender or '?'}: {(marks + body).rstrip()}{deleted}")
         for neighbour in hit.context_after:
             lines.append(f"    {neighbour['message_id']}  {_stamp(neighbour.get('date')):<16}  {preview(neighbour.get('text') or '')}")
     lines.append(f"{len(hits)} hit(s)")

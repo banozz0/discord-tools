@@ -4045,6 +4045,22 @@ async def _run_message_delete(client, args, config, out) -> Outcome:
     if isinstance(selected, Error):
         return Outcome(status="refused", target=target, error=selected)
     ids, source = selected.ids, selected.source
+    if not ids:
+        # Only an archive search can select nothing (--ids takes at least one).
+        # There is no plan to preview, preflight or type DELETE for, and a
+        # dry-run that exits 0 would have the menu offer a for-real run of it.
+        return Outcome(
+            status="refused",
+            target=target,
+            error=Error(
+                code="TARGET_NOT_FOUND",
+                message=f"Nothing to delete: {source} matched no message in {target.display}.",
+                hint=(
+                    f"Check the query with `discord-tools archive search --query ... --scope {args.channel}`, "
+                    "or run `discord-tools archive sync` first if the messages are newer than the archive."
+                ),
+            ),
+        )
     if selected.hits:
         listed = [_hit_as_message(hit, args.channel) for hit in selected.hits]
     else:
@@ -4077,7 +4093,7 @@ async def _run_message_delete(client, args, config, out) -> Outcome:
         )
 
     write = await build()
-    if write.refusal is not None and ids:
+    if write.refusal is not None:
         stranger = await _first_not_the_bots(
             client, args.channel, ids, [] if selected.hits else listed, int(_rid.parse(identity.id).id)
         )

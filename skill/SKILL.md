@@ -393,6 +393,8 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
   the right even for those). One message by anybody else and the dry-run is
   `PERMISSION_DENIED` naming the right and that message: relay it, or narrow
   the selection to the bot's own. `clear-messages` always needs the right.
+  A `--from-search` that matches nothing is `TARGET_NOT_FOUND` ("Nothing to
+  delete") before any preview or prompt: check the query, or sync first.
 - **`PLATFORM_UNSUPPORTED` on a message verb is the answer, not a bug.**
   `message read`, `unread` and `draft` cannot be done by a Discord bot; the
   error says why (read state belongs to a user account; drafts live in the

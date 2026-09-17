@@ -274,7 +274,8 @@ count typed back after `DELETE`. It needs *Manage Messages* only when the
 selection holds someone else's message, the way Discord does: the bot's own
 messages go without it, one by one, because Discord's bulk delete wants the
 right even for those. One message by anybody else and the dry-run refuses,
-naming the right and that message.
+naming the right and that message. An archive search that matches nothing is
+refused as "Nothing to delete" before any preview or prompt.
 
 **`forward` is Discord's forward**, header and attachments included. **`copy`**
 re-posts the text with an attribution line — who, in which channel, when, and

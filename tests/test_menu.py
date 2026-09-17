@@ -698,6 +698,48 @@ def test_a_refused_event_dry_run_never_offers_the_delete_row():
     assert prompts[-1] == "Enter = menu, 0 = exit: "
 
 
+def test_an_archive_search_that_matches_nothing_never_offers_the_for_real_row(capsys):
+    # The real command behind the menu, over an archive that holds one row the
+    # query does not match: an empty selection has no plan to act on.
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    from discord_tools.cli import build_parser, run
+
+    client = make_client(
+        history={
+            10: [
+                SimpleNamespace(
+                    id=5, content="hello", created_at=datetime.now(UTC),
+                    author=SimpleNamespace(id=42, name="testbot", display_name="testbot", bot=True),
+                    attachments=[], embeds=[], reference=None, edited_at=None,
+                )
+            ]
+        }
+    )
+    session = make_session(client)
+    synced = asyncio.run(run(build_parser().parse_args(["archive", "sync", "--scope", "10"]), client=client, config=session.config))
+    assert synced == 0
+    calls = []
+
+    async def runner(args, *, client=None, config=None):
+        calls.append(args)
+        return await run(args, client=client, config=config)
+
+    prompts: list[str] = []
+    code, _calls, output = drive(
+        [MESSAGE_DELETE, "1", "2", "nothingmatchesthis", "0", "0", "0", "0", "0", "0"],
+        session=session, runner=runner, prompts=prompts,
+    )
+    assert code == 0
+    assert [(args.from_search, args.execute) for args in calls] == [("nothingmatchesthis", False)]
+    assert "Dry-run done" not in screens(output)
+    assert "for real" not in screens(output)
+    assert "Nothing to delete" in capsys.readouterr().err
+    assert prompts[-1] == "Enter = menu, 0 = exit: "
+
+
+
 def test_backing_out_of_a_flow_still_lands_on_its_group():
     code, _calls, output = drive([SEARCH, "0", "0", "0"])
     titles = [text.split("\n")[0] for text in output if "\n" in text]

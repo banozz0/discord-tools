@@ -376,6 +376,36 @@ def test_an_ids_selection_past_the_preview_counts_every_id_not_the_rows_fetched(
     assert "Delete 25 message(s) from health (701)" in printed
     assert "and 5 more" in printed
 
+
+@pytest.mark.skipif(not fts5_available(), reason="this SQLite has no FTS5; the archive cannot open")
+@pytest.mark.parametrize("execute", [False, True], ids=["dry-run", "execute"])
+def test_an_archive_search_that_matches_nothing_says_so_before_the_typed_word(home_is_a_tmp_dir, monkeypatch, execute):
+    # manage_messages held: the right is not what stops it, the empty selection is.
+    client, ids = with_messages([42], rights={701: {**NO_MANAGE[701], "manage_messages": True}})
+    client.history = {
+        701: [
+            SimpleNamespace(
+                id=ids[0], content="hello", created_at=datetime.now(UTC),
+                author=SimpleNamespace(id=42, name="testbot", display_name="testbot", bot=True),
+                attachments=[], embeds=[], reference=None, edited_at=None,
+            )
+        ]
+    }
+    code, out, client = go(["--json", "archive", "sync", "--scope", "701"], client)
+    assert (code, envelope(out)["status"]) == (0, "ok")
+    asked = []
+    monkeypatch.setattr("discord_tools.messages.confirm_delete_messages", lambda *_a, **_k: asked.append(1) or True)
+    argv = ["--json", "message", "delete", "--channel", "701", "--from-search", "nothingmatchesthis"]
+    code, out, client = go([*argv, "--execute"] if execute else argv, client)
+    body = envelope(out)
+    assert (code, body["status"]) == (2, "refused"), body
+    assert body["error"]["code"] == "TARGET_NOT_FOUND"
+    assert "Nothing to delete" in body["error"]["message"]
+    assert "nothingmatchesthis" in body["error"]["message"]
+    assert body["plan"] is None
+    assert asked == []
+    assert client.deleted_single == [] and client.deleted_bulk == []
+
 # -- forward and copy -----------------------------------------------------
 
 

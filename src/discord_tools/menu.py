@@ -261,6 +261,15 @@ class ChannelPick:
 _TYPE_AN_ID = "Type a channel or thread ID"
 
 
+def _type_mark(channel) -> str:
+    """`  (voice channel)` after a row that is not a text channel, else nothing.
+
+    A voice channel named General beside a text channel named general differs
+    only in case otherwise.
+    """
+    return "" if channel.type == "text" else f"  ({_DELETE_TYPE_LABELS.get(channel.type, channel.type)})"
+
+
 def _ask_id(label: str, *, read, write) -> Any:
     """A Discord ID typed by hand, or BACK.
 
@@ -360,7 +369,7 @@ async def _pick_channel(*, session, read, write, messageable_only: bool = True, 
         for channel in channels:
             if channel.is_category or (messageable_only and not channel.is_messageable):
                 continue
-            rows.append((channel, f"# {cell(channel.name, 30)}  {channel.id}"))
+            rows.append((channel, f"# {cell(channel.name, 30)}  {channel.id}{_type_mark(channel)}"))
             for thread in threads:
                 if thread.parent_id == channel.id:
                     rows.append((thread, f"  > {cell(thread.name, 28)}  {thread.id}"))
@@ -1019,9 +1028,12 @@ def _repost_flow(verb: str, *, title: str, go: str):
             destination = await _pick_channel(session=session, read=read, write=write, trail=crumb(trail, "To"))
             if destination is BACK:
                 continue
+            # From here on the banner names the destination, so every title
+            # names both ends rather than the source alone.
+            route = crumb(trail, f"{picked.title} → {destination.title}")
             mentions = None
             if verb == "copy":
-                answer = _ask_mentions(read=read, write=write, trail=trail)
+                answer = _ask_mentions(read=read, write=write, trail=route)
                 if answer is BACK:
                     continue
                 mentions = answer or None
@@ -1031,7 +1043,7 @@ def _repost_flow(verb: str, *, title: str, go: str):
             )
             result = await _act(
                 args, session=session, runner=runner, read=read, write=write,
-                trail=crumb(trail, picked.title), rows=((STAY, f"{go} again"),),
+                trail=route, rows=((STAY, f"{go} again"),),
             )
             if result is not STAY:
                 return result is not EXIT
@@ -1268,7 +1280,7 @@ async def _pick_deletable(*, session, read, write, trail: str) -> Any:
         rows: list[tuple[Any, str]] = []
 
         def add_channel(channel, indent: str) -> None:
-            rows.append((channel, f"{indent}# {cell(channel.name, 28)}  {channel.id}"))
+            rows.append((channel, f"{indent}# {cell(channel.name, 28)}  {channel.id}{_type_mark(channel)}"))
             for thread in threads:
                 if thread.parent_id == channel.id:
                     rows.append((thread, f"{indent}  > {cell(thread.name, 26)}  {thread.id}"))
@@ -2030,11 +2042,22 @@ async def _flow_audit_log(*, session, runner, read, write) -> bool:
             if typed is BACK:
                 continue
             user = typed
-        since = ask_text("Since when? A duration like 24h or 7d, an ISO 8601 time, or blank for everything", read=read, write=write)
-        if since is BACK:
+        # A blank cancels every text prompt, so "no time limit" is a row of its own.
+        when = choose(
+            ["No time limit (the newest 50 entries)", "Since a time (a duration like 24h or 7d, or an ISO 8601 time)"],
+            title=crumb(where, "Since when?"),
+            read=read,
+            write=write,
+        )
+        if when is BACK:
             continue
+        since = None
+        if when == 1:
+            since = ask_text("Since when? A duration like 24h or 7d, or an ISO 8601 time", read=read, write=write)
+            if since is BACK:
+                continue
         args = _namespace(
-            command="audit-log", audit_log_kind="list", server=server.id, action=action or None, user=user, since=since or None, limit=50
+            command="audit-log", audit_log_kind="list", server=server.id, action=action or None, user=user, since=since, limit=50
         )
         result = await _act(args, session=session, runner=runner, read=read, write=write, trail=where, rows=(RUN_AGAIN,))
         return result is not EXIT

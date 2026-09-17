@@ -821,13 +821,13 @@ def test_invite_revoke_flow_dry_runs_before_offering_execute():
 
 
 def test_audit_log_flow_filters_by_action_and_by_person():
-    code, calls, _output = drive([AUDIT_LOG, "1", "24h", "0"])
+    code, calls, _output = drive([AUDIT_LOG, "1", "2", "24h", "0"])
     assert [(args.command, args.audit_log_kind, args.action, args.user, args.since) for args in calls] == [
         ("audit-log", "list", None, None, "24h")
     ]
-    code, calls, _output = drive([AUDIT_LOG, "2", "ban", "7d", "0"])
+    code, calls, _output = drive([AUDIT_LOG, "2", "ban", "2", "7d", "0"])
     assert [(args.action, args.user) for args in calls] == [("ban", None)]
-    code, calls, _output = drive([AUDIT_LOG, "3", "7", "7d", "0"])
+    code, calls, _output = drive([AUDIT_LOG, "3", "7", "2", "7d", "0"])
     assert [(args.action, args.user) for args in calls] == [(None, 7)]
 
 
@@ -838,3 +838,50 @@ def test_permission_show_flow_lists_channels_that_are_not_messageable_too():
     assert code == 0
     assert [(args.command, args.permission_kind, args.target) for args in calls] == [("permission", "show", 12)]
     assert not any("Ops" in line and "  11" in line for line in output), "a category is not in the channel listing; type its ID"
+
+
+def test_forward_and_copy_titles_name_the_source_and_the_destination_the_banner_names():
+    # Live on 2026-09-17: the copy's ping screen was "Main › Write › Copy › Who
+    # may this ping?", and the Done title named the source while its banner
+    # named the destination. Row 1 is #general, row 2 its thread.
+    for verb_row, verb, keys in ((("3", "5"), "Forward", ["2"]), (("3", "6"), "Copy", ["2", "1"])):
+        code, calls, output = drive([verb_row, "1", "1", "5", *keys, "0"])
+        assert code == 0 and [(args.channel, args.ids, args.to) for args in calls] == [(10, [5], 101)]
+        heads = {screen.split("\n")[0]: screen.split("\n")[1] for screen in output if "\n" in screen}
+        route = f"Main › Write › {verb} › general → release"
+        assert f"{route} › Done" in heads, list(heads)
+        assert heads[f"{route} › Done"].endswith("Target: Ops › release (101)")
+        if verb == "Copy":
+            assert f"{route} › Who may this ping?" in heads, list(heads)
+
+
+def test_the_channel_pickers_mark_a_channel_that_is_not_text():
+    # Live on 2026-09-17: "# General", the voice channel, sat beside "# general"
+    # with nothing but the case to tell them apart.
+    both = [ChannelInfo(id=10, name="general", type="text"), ChannelInfo(id=11, name="General", type="voice")]
+    session = make_session(make_client(channels={1: both}, threads={1: []}))
+    code, calls, output = drive([SEARCH, "0", "0", "0"], session=session)
+    rows = [line for screen in output for line in screen.split("\n")]
+    assert "1. # general                         10" in rows
+    assert "2. # General                         11  (voice channel)" in rows
+
+    session = make_session(make_client(channels={1: both}, threads={1: []}))
+    code, calls, output = drive([DELETE, "0", "0", "0"], session=session)
+    rows = [line for screen in output for line in screen.split("\n")]
+    assert any(line.startswith("1. # general") and line.endswith("  10") for line in rows), rows
+    assert any(line.startswith("2. # General") and line.endswith("  11  (voice channel)") for line in rows), rows
+
+
+def test_audit_log_flow_can_drop_the_time_limit():
+    # Live on 2026-09-17: "... or blank for everything (blank cancels)" - and a
+    # blank cancelled, so the menu could never list the whole log.
+    prompts = []
+    code, calls, output = drive([AUDIT_LOG, "1", "1", "0"], prompts=prompts)
+    assert code == 0
+    assert [(args.audit_log_kind, args.action, args.user, args.since) for args in calls] == [("list", None, None, None)]
+    assert not any("blank for everything" in prompt for prompt in prompts)
+    assert any(screen.startswith("Main › Audit log › Ops › Since when?") for screen in output)
+
+    # A blank at the time prompt still steps back, and asks nothing to run.
+    code, calls, _output = drive([AUDIT_LOG, "1", "2", "", "0", "0", "0"])
+    assert calls == []

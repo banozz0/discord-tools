@@ -4241,7 +4241,9 @@ async def _reaction(client, args, config, out, *, add: bool) -> Outcome:
     write = await build()
     if write.refusal is not None:
         return Outcome(status="refused", target=target, plan=write.plan, error=write.refusal)
-    action = f"Add reaction {emoji} to" if add else f"Remove the bot's reaction {emoji} from"
+    # The preview appends " in <channel>", so the action names its object
+    # rather than ending on a bare "to"/"from".
+    action = f"Add reaction {emoji} to this message" if add else f"Remove the bot's reaction {emoji} from this message"
     preview = message_ops.format_message_preview(target, message, acting_as=identity.label, action=action)
     stopped = await _confirm_message_write(
         out, config, gate, write=write, target=target, channel_id=args.channel, preview=preview,
@@ -4479,7 +4481,7 @@ async def _run_message_bookmark(client, args, config, out) -> Outcome:
         return Outcome(status="refused", target=target, plan=write.plan, error=write.refusal)
     preview = message_ops.format_message_preview(
         target, message, acting_as=identity.label,
-        action="Drop the local bookmark on" if args.remove else "Bookmark (locally, on this machine)",
+        action="Drop the local bookmark on this message" if args.remove else "Bookmark (locally, on this machine)",
         detail=[f"Label: {args.label}"] if args.label and not args.remove else (),
     )
     stopped = await _confirm_message_write(

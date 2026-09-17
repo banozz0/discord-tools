@@ -275,6 +275,32 @@ def test_react_then_unreact_read_back_the_bots_reaction():
     assert client.reactions == [("add", 701, 5, "👍"), ("remove", 701, 5, "👍")]
 
 
+@pytest.mark.parametrize(
+    ("verb", "line"),
+    [
+        ("react", "Add reaction 👍 to this message in health (701)"),
+        ("unreact", "Remove the bot's reaction 👍 from this message in health (701)"),
+    ],
+)
+def test_the_reaction_preview_says_its_preposition_once(monkeypatch, verb, line):
+    # Live on 2026-09-17 these read "Add reaction 👍 to in Text channels › general":
+    # the action ended in its preposition and the preview appended " in ".
+    seen = []
+    say_yes(monkeypatch, seen)
+    code, _out, _client = go(["--json", "message", verb, "--channel", "701", "--id", "5", "--emoji", "👍"])
+    assert code == 0
+    assert seen[0].split("\n")[2] == line
+
+
+@pytest.mark.skipif(not fts5_available(), reason="this SQLite has no FTS5; the archive cannot open")
+def test_the_bookmark_removal_preview_says_its_preposition_once(monkeypatch, home_is_a_tmp_dir):
+    seen = []
+    say_yes(monkeypatch, seen)
+    code, _out, _client = go(["--json", "message", "bookmark", "--channel", "701", "--id", "5", "--remove"])
+    assert code == 0
+    assert seen[0].split("\n")[2] == "Drop the local bookmark on this message in health (701)"
+
+
 def test_react_needs_add_reactions():
     client = a_client(permissions={701: {"send_messages": True}}, default_permissions={})
     code, out, _client = go(["--json", "message", "react", "--channel", "701", "--id", "5", "--emoji", "👍", "--yes"], client)

@@ -65,8 +65,9 @@ def format_message_preview(
     """The resolved target and the message a verb acts on, before any y/N.
 
     `action` is the sentence the answer confirms — "Pin this message", "Add
-    reaction 👍" — and `detail` is what the verb adds below the message: the
-    new text of an edit, the destination of a forward.
+    reaction 👍 to this message" — and `detail` is what the verb adds below the
+    message: the new text of an edit, the destination of a forward. " in
+    <channel>" follows it, so it never ends on a bare preposition.
     """
     lines = [f"Acting as {acting_as}", RULE, f"{action} in {target.display} ({message.channel_id})", RULE]
     lines.append(f"Message {message.id} by {message.author_name or message.author_id or '?'}")

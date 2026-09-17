@@ -256,6 +256,6 @@ def verify(name: str, token: str, *, home: Path | None = None) -> Profile | None
         return profile
     raise IdentityMismatch(
         f"Profile {name!r} was set up as {profile.label} (bot ID {profile.bot_id}), but its stored "
-        f"token belongs to bot ID {actual}. Re-run `discord-tools auth --profile {name}` with the "
+        f"token belongs to bot ID {actual}. Re-run `discord-tools --profile {name} auth` with the "
         f"right token, or `discord-tools profiles remove --name {name}` to drop the profile."
     )

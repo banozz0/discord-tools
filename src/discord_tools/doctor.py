@@ -82,8 +82,9 @@ def check_profile_record(config, *, home: Path | None = None) -> DoctorCheck:
     if record is None:
         return DoctorCheck(
             "WARN",
-            f"Profile {config.profile!r} has no profile.json - re-run `discord-tools auth --profile "
-            f"{config.profile}` to record which bot it is, so a swapped token is caught",
+            f"Profile {config.profile!r} has no profile.json - re-run "
+            f"`discord-tools --profile {config.profile} auth` to record which bot it is, so a "
+            f"swapped token is caught",
         )
     return DoctorCheck(
         "OK",

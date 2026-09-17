@@ -141,5 +141,11 @@ async def run_auth(
     write("Invite the bot to a server (opens the picker for servers you manage):")
     write(f"  {invite_url(identity.application_id)}")
     write("")
-    write(f"Then run `discord-tools doctor` (add --profile {chosen_profile} if it is not the default) to verify everything.")
+    # The profile is named rather than left to "if it is not the default": the
+    # wizard cannot see this machine's DISCORD_TOOLS_PROFILE, and a hint the
+    # reader has to finish is the one that gets finished wrong. `--profile` is a
+    # global flag, so it goes before the verb - after it argparse prints a usage
+    # dump instead of running.
+    write("Then verify everything with the profile you just saved:")
+    write(f"  discord-tools --profile {chosen_profile} doctor")
     return 0

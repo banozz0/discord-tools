@@ -132,6 +132,20 @@ def test_discover_flow_builds_the_command():
     assert "Main › Servers & channels" in screens(output)
 
 
+def test_discover_titles_name_the_picked_server_and_every_server_keeps_the_plain_trail():
+    # One server: every screen after the pick says which, as Members does.
+    _code, _calls, output = drive([DISCOVER, "2", "1", "0"])
+    titles = [screen.split("\n")[0] for screen in output]
+    assert "Main › Servers & channels › Ops › Where should it go?" in titles
+    assert "Main › Servers & channels › Ops › Done" in titles
+
+    # Every server: there is no one server to name.
+    _code, _calls, output = drive([DISCOVER, "1", "1", "0"])
+    titles = [screen.split("\n")[0] for screen in output]
+    assert "Main › Servers & channels › Where should it go?" in titles
+    assert "Main › Servers & channels › Done" in titles
+
+
 def test_discover_to_a_json_file_says_where_it_landed(tmp_path, monkeypatch, capsys):
     # The menu has no shell to expand `~`, so the prompt's own example has to
     # work as typed, and the Done screen must not be the only thing said.

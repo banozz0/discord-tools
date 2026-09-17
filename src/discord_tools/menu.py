@@ -400,15 +400,22 @@ async def _flow_discover(*, session, runner, read, write) -> bool:
             return True
 
         server_id = None
+        # Every server has no one server to name; once one is picked, the
+        # screens after it say which, as every other server flow does.
+        where_trail = trail
         if scope == 1:
             server = await _pick_server(session=session, read=read, write=write, trail=trail)
             if server is BACK:
                 continue
             server_id = server.id
+            where_trail = crumb(trail, server.name)
 
         while True:
             where = choose(
-                ["Print it here", "Write a JSON file"], title=crumb(trail, "Where should it go?"), read=read, write=write
+                ["Print it here", "Write a JSON file"],
+                title=crumb(where_trail, "Where should it go?"),
+                read=read,
+                write=write,
             )
             if where is BACK:
                 break
@@ -426,7 +433,7 @@ async def _flow_discover(*, session, runner, read, write) -> bool:
             # No Tweak row: with two questions there is no form to go back to,
             # and Main menu then 1 is the same two keystrokes.
             result = await _act(
-                args, session=session, runner=runner, read=read, write=write, trail=trail, rows=(RUN_AGAIN,)
+                args, session=session, runner=runner, read=read, write=write, trail=where_trail, rows=(RUN_AGAIN,)
             )
             return result is not EXIT
 

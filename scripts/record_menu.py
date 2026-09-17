@@ -17,8 +17,10 @@ and importing it needs pytest on the path.
 
 `--write` records through `script` because colour only turns on when stdout is
 a terminal, cleans the pty's own control bytes out of the capture, and writes
-the escape-stripped copy and the NO_COLOR one beside it. Read the diff, then
-hand the three files to the site and re-check its screen indices.
+the escape-stripped copy and the NO_COLOR one beside it. The three names carry
+no version: the recording is of a menu shape, so a release re-records only when
+a row moved. Read the diff, then hand the three files to the site and re-check
+its screen indices.
 
 Colour only turns on when stdout is a terminal, so the `.ansi` file has to be
 recorded through `script`. Channel names carry emoji because that is what they
@@ -65,7 +67,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests"))
 
 from conftest import FakeClient  # noqa: E402
-from discord_tools import __version__  # noqa: E402
 from discord_tools.config import Config  # noqa: E402
 from discord_tools.menu import MenuSession, run_menu  # noqa: E402
 from discord_tools.models import BotIdentity, ChannelInfo, MemberInfo, ServerInfo, ThreadInfo  # noqa: E402
@@ -169,7 +170,7 @@ def sandbox() -> Path:
 
 
 HEADER = """\
-discord-tools {version} — the menu, recorded in a real terminal (pty, TERM=xterm-256color)
+discord-tools — the menu, recorded in a real terminal (pty, TERM=xterm-256color)
 {rule}
 Recorded by scripts/record_menu.py on {commit}. The menu code, the colour and the
 prompt rendering are the real ones; the Discord side is a canned session (no network, no
@@ -199,7 +200,10 @@ def write_transcripts() -> int:
     root = Path(__file__).resolve().parents[1]
     out = root / "docs" / "transcripts"
     out.mkdir(parents=True, exist_ok=True)
-    stem = f"discord-tools-{__version__}"
+    # Named for the menu, not for the release: a bump changes no row here,
+    # and a versioned name would force three re-recordings and a hand-off to
+    # the site for a screen nobody touched. The suite checks the rows.
+    stem = "discord-tools"
     ansi = out / f"{stem}-menu.ansi"
 
     environment = {**os.environ, "TERM": "xterm-256color"}
@@ -217,7 +221,7 @@ def write_transcripts() -> int:
     commit = subprocess.run(
         ["git", "-C", str(root), "rev-parse", "--short", "HEAD"], capture_output=True, text=True
     ).stdout.strip()
-    header = HEADER.format(version=__version__, rule="=" * 85, commit=commit or "an uncommitted tree")
+    header = HEADER.format(rule="=" * 78, commit=commit or "an uncommitted tree")
     (out / f"{stem}-menu.txt").write_text(header + _ESCAPE.sub("", session), encoding="utf-8")
 
     plain = subprocess.run(
@@ -229,7 +233,7 @@ def write_transcripts() -> int:
         stdin=subprocess.DEVNULL,
     ).stdout
     (out / f"{stem}-nocolor.txt").write_text(
-        f"discord-tools {__version__} with NO_COLOR=1 — same code, same terminal, plain text "
+        "discord-tools with NO_COLOR=1 — same code, same terminal, plain text "
         f"(root screen, then exit)\n{plain}",
         encoding="utf-8",
     )

@@ -376,6 +376,31 @@ def says_nothing_about_content(record: Mapping[str, Any]) -> bool:
     return bool(record.get("stickers")) and not record.get("has_media") and text.startswith(STICKER_MARKER)
 
 
+# What one sampled message says about the message-content intent.
+EVIDENCE_TEXT = "text"
+EVIDENCE_NONE = "inconclusive"
+EVIDENCE_EMPTY = "empty"
+
+
+def content_evidence(message: Any) -> str:
+    """`text`, `inconclusive` or `empty`: what a sampled message says about the intent.
+
+    The content probe `doctor` and `archive sync` share. Words a person wrote --
+    a message's own, or the ones a forward moved -- and a poll are stripped when
+    the intent is off, so they prove it on. Media has always been read as
+    proving nothing, and so are an event Discord wrote and a sticker, which
+    arrive the same either way. Only a message with none of these is empty.
+    """
+    if service_of(message) is not None:
+        return EVIDENCE_NONE
+    source = carrier(message)
+    if str(getattr(source, "content", "") or "").strip() or poll_of(message) is not None:
+        return EVIDENCE_TEXT
+    if getattr(source, "attachments", None) or getattr(source, "embeds", None) or getattr(source, "stickers", None):
+        return EVIDENCE_NONE
+    return EVIDENCE_EMPTY
+
+
 def message_to_record(message: Any, *, channel_id: int | None = None) -> dict[str, Any]:
     author = getattr(message, "author", None)
     reference = getattr(message, "reference", None)

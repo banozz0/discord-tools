@@ -39,7 +39,15 @@ from discord_tools._core.archive import ScopeListing
 from discord_tools._core.identity import Target
 from discord_tools._core.review import Candidate
 from discord_tools.models import ChannelInfo, ThreadInfo
-from discord_tools.records import carrier, message_body, message_date, parse_date_bound
+from discord_tools.records import (
+    EVIDENCE_NONE,
+    EVIDENCE_TEXT,
+    carrier,
+    content_evidence,
+    message_body,
+    message_date,
+    parse_date_bound,
+)
 
 PLATFORM = "discord"
 # Channels whose own history is a scope. Forum and media channels hold posts,
@@ -246,13 +254,14 @@ class DiscordArchiveSource:
         return all(held.get(right, False) for right in READ_RIGHTS)
 
     async def _content_missing(self, channel_id: int) -> bool:
-        """The doctor's five-message probe: all empty and not all media means the intent is off."""
+        """The doctor's five-message probe: all empty and not all inconclusive means the intent is off."""
         sampled = with_text = media_only = 0
         async for message in self._client.iter_history(channel_id, limit=PROBE_SAMPLE):
             sampled += 1
-            if (getattr(message, "content", "") or "").strip():
+            evidence = content_evidence(message)
+            if evidence == EVIDENCE_TEXT:
                 with_text += 1
-            elif getattr(message, "attachments", None) or getattr(message, "embeds", None):
+            elif evidence == EVIDENCE_NONE:
                 media_only += 1
         return content_looks_missing(sampled, with_text, media_only)
 

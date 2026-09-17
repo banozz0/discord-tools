@@ -386,3 +386,59 @@ def test_a_row_stays_inside_the_preview_width_plus_its_marks():
     printed = row(forwarded(text="x" * 500))
     body = marked(printed)
     assert len(body) == len(f"[fwd #{SOURCE_CHANNEL}] ") + PREVIEW_WIDTH
+
+
+# -- the content probe -------------------------------------------------------
+#
+# `archive sync` and `doctor --channel` sample five messages and call a channel
+# whose sample is all empty a missing intent. A forward, a poll and a pin have
+# empty `content` with the intent on, so a channel whose newest five were those
+# was skipped as `intent_missing` and never archived, and doctor failed it.
+
+
+def probe_client(history) -> FakeClient:
+    return FakeClient(
+        servers=[ServerInfo(id=1, name="Ops")],
+        channels={1: [ChannelInfo(id=10, name="general", type="text")]},
+        history={10: history},
+        permissions={10: {"read_messages": True, "read_message_history": True, "send_messages": True}},
+    )
+
+
+async def _listings(client):
+    from discord_tools.adapters.archive import DiscordArchiveSource
+
+    return [listing async for listing in DiscordArchiveSource(client).scopes()]
+
+
+def test_a_channel_of_forwards_and_polls_is_archived_not_skipped():
+    client = probe_client([forwarded(5), poll(4), forwarded(3), poll(2), forwarded(1)])
+    listing = asyncio.run(_listings(client))[0]
+    assert listing.visible and listing.skipped_reason is None
+
+
+def test_a_channel_of_events_and_stickers_proves_nothing_either_way():
+    client = probe_client([pin_event(5), sticker(4), pin_event(3), sticker(2), pin_event(1)])
+    listing = asyncio.run(_listings(client))[0]
+    assert listing.visible
+
+
+def test_an_empty_sample_with_an_event_in_it_is_still_a_missing_intent():
+    client = probe_client([build(5), pin_event(4), build(3), build(2), build(1)])
+    listing = asyncio.run(_listings(client))[0]
+    assert listing.skipped_reason == "intent_missing"
+
+
+def test_doctor_reads_a_forward_as_readable_text():
+    from discord_tools.doctor import channel_checks
+
+    checks = asyncio.run(channel_checks(probe_client([forwarded(3), poll(2), pin_event(1)]), 10))
+    probe = checks[-1]
+    assert probe.status == "OK" and "2/3" in probe.message
+
+
+def test_doctor_calls_a_sample_of_events_inconclusive_not_a_missing_intent():
+    from discord_tools.doctor import channel_checks
+
+    checks = asyncio.run(channel_checks(probe_client([pin_event(2), sticker(1)]), 10))
+    assert checks[-1].status == "WARN"

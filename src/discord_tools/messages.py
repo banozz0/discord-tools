@@ -212,10 +212,13 @@ def confirm_delete_messages(
 def confirm_write(
     preview: str, question: str, *, read: Callable[[str], str] = input, write: Callable[[str], None] = print
 ) -> bool:
-    """A y/N under a preview; blank is a cancel that says so."""
+    """A y/N under a preview; a blank or any answer but y is a cancel that says so."""
     write(preview)
     answer = read(f"{question} [y/N]: ").strip().lower()
     if not answer:
         write("No answer read - cancelled.")
         return False
-    return answer == "y"
+    if answer != "y":
+        write("Answered no - cancelled.")
+        return False
+    return True

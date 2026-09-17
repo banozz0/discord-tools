@@ -78,7 +78,10 @@ def confirm_bot_edits(diff: str, *, read: Callable[[str], str] = input, write: C
     if not answer:
         write("No answer read - cancelled.")
         return False
-    return answer == "y"
+    if answer != "y":
+        write("Answered no - cancelled.")
+        return False
+    return True
 
 
 async def apply_bot_edits(client, plan: list[BotChange], *, before_write=None) -> list[str]:

@@ -351,7 +351,10 @@ def confirm_role(preview: str, question: str, *, read: Callable[[str], str] | No
     if not answer:
         write("No answer read - cancelled.")
         return False
-    return answer == "y"
+    if answer != "y":
+        write("Answered no - cancelled.")
+        return False
+    return True
 
 
 def confirm_typed(preview: str, name: str, *, what: str, read: Callable[[str], str] | None = None, write: Callable[[str], None] = print) -> bool:

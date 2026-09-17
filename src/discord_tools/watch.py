@@ -669,7 +669,10 @@ def confirm(question: str, *, read: Callable[[str], str] | None = None, write: C
     if not answer:
         write("No answer read - cancelled.")
         return False
-    return answer == "y"
+    if answer != "y":
+        write("Answered no - cancelled.")
+        return False
+    return True
 
 
 def confirm_name(preview: str, name: str, *, read: Callable[[str], str] | None = None, write: Callable[[str], None] = print) -> str:

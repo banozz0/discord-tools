@@ -72,7 +72,10 @@ def confirm_send(preview: str, *, read: Callable[[str], str] = input, write: Cal
         # and a silent cancel looks like a bug.
         write("No answer read - cancelled.")
         return False
-    return answer == "y"
+    if answer != "y":
+        write("Answered no - cancelled.")
+        return False
+    return True
 
 
 def require_send_allowed(allowlist: Sequence[int], channel_id: int) -> None:

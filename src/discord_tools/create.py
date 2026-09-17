@@ -27,7 +27,10 @@ def confirm_create(preview: str, *, read: Callable[[str], str] = input, write: C
     if not answer:
         write("No answer read - cancelled.")
         return False
-    return answer == "y"
+    if answer != "y":
+        write("Answered no - cancelled.")
+        return False
+    return True
 
 
 async def _gate(confirm, before_write, cancelled: CreateResult) -> CreateResult | None:

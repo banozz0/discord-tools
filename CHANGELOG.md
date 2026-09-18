@@ -1,5 +1,67 @@
 # Changelog
 
+## Unreleased
+
+The final wave of this cycle: the shared core at v0.14 and the small faults the
+live menu campaign left on the board.
+
+### One behaviour change: a typed time with no offset is UTC, everywhere
+Every time you type is now read the same way. A time with no offset is UTC in
+`search`, `archive`, `audit-log`, `member timeout`, `schedule post`, `send --at`
+and `event` alike, and every help line and menu prompt says so. Before this,
+`schedule post --at`, `send --at` and `event --start/--end` read a bare time as
+this machine's clock while `search --since` read it as UTC. The preview still
+shows the resolved time before the y/N; an offset you write is read as written.
+
+### `clear-messages` names its target and refuses what it has not shown you
+The gate prints the target and the live count directly above the typed
+`DELETE`, and the run is refused with `PLAN_DRIFT` if a message arrived after
+that count was shown, so nothing posted between the dry-run and the real run is
+cleared unseen. A server clear says where its permissions are actually checked,
+and both scopes end on one sentence saying how much was cleared and what was
+read back.
+
+### A forwarded message reads the same everywhere
+`message copy` posts the words and files a forward moved, a watch keyword rule
+fires on a forward and on a poll, a forwarded file or link reaches the review
+queue, and the mark names the channel it came from (`[fwd #releases]`) wherever
+the name is already known.
+
+### Review and watch
+`review reject` shows what it would delete and asks y/N like approve and accept,
+and refuses with `APPROVAL_REQUIRED` where there is no terminal. `review list`
+no longer tells a fetched candidate that nothing has been fetched. `watch
+status` reports its last tick and the event it was, counts a dropped event as a
+tick, and gains a `Drops` line naming how many events were dropped and why. The
+readback after a schedule write counts every schedule stored, and a keyword
+filter written from the menu is comma-separated, so `campaign 7 ping` is one
+keyword instead of three.
+
+### Archive
+`archive search --query campaign-alert-721` finds its message: a query FTS5
+cannot parse is searched as the words it is, and only a query holding no word
+at all is refused. Every archive readback goes through the shared core rather
+than SQL of this tool's own, and `structure export` no longer decides the mode
+of the exports directory: one you keep at 0755 stays 0755, while the files in
+it are still written 0600.
+
+### Manage
+Clearing a nickname says it was cleared instead of claiming a rename. The role
+list is ordered the way every hierarchy check measures roles (position, then
+id), and a refused kick or ban prints what the bot holds. `audit-log list
+--json` gives an id, a name, a number or null for every change value instead of
+a Python repr. The write screens name a removal as a removal, print a whole
+pasteable emoji mention, name the channel a webhook is on, and give a small
+file a size in bytes.
+
+### Identity and the menu
+The bot wizard offers the profile you are actually acting as, so Enter plus a
+pasted token re-keys that bot instead of making a new `default` one. `doctor`'s
+privacy line names only the files it checked. The `My bot` screen prints the
+`Acting as` line like every other screen, the ban row says the gate asks for
+the username or the user ID if the member has left, and every screen's trail
+names the group it was reached through (`Main › Manage › Roles: list`).
+
 ## 0.20.0 — 2026-09-18
 
 A live run through the whole menu on 2026-09-17 found what the suite could

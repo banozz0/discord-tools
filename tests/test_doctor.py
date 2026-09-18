@@ -191,6 +191,35 @@ def test_the_mode_check_runs_over_the_real_directory(home_is_a_tmp_dir):
     assert len(modes) == 1 and modes[0].status == "FAIL"
 
 
+def test_the_mode_check_names_no_records_when_there_are_none(home_is_a_tmp_dir):
+    """The OK line says what was checked: with no profiles/ directory it must
+    not claim the profile records are private, two lines above a WARN saying
+    the active profile has none."""
+    from discord_tools.config import save_token
+    from discord_tools.doctor import collect_checks
+
+    save_token("default", "NDI.fake.sig")
+    checks = run(collect_checks(env=TOKEN_ENV, open_client=fake_open_client(FakeClient())))
+    modes = [check for check in checks if "private (0" in check.message]
+    assert len(modes) == 1 and modes[0].status == "OK"
+    assert "no profile records yet" in modes[0].message
+    assert "profile records are private" not in modes[0].message
+
+
+def test_the_mode_check_counts_the_records_it_checked(home_is_a_tmp_dir):
+    from discord_tools import profiles
+    from discord_tools.config import save_token
+    from discord_tools.doctor import collect_checks
+
+    save_token("default", "NDI.fake.sig")
+    profiles.remember("default", label="defaultbot", bot_id=42)
+    checks = run(collect_checks(env=TOKEN_ENV, open_client=fake_open_client(FakeClient())))
+    modes = [check for check in checks if "private (0" in check.message]
+    assert len(modes) == 1 and modes[0].status == "OK"
+    assert "1 profile record" in modes[0].message
+    assert "no profile records yet" not in modes[0].message
+
+
 def test_no_proxy_is_reported_as_none():
     from discord_tools.config import Config
     from discord_tools.doctor import check_proxy

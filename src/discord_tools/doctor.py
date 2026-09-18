@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence
 
 from discord_tools import profiles
 from discord_tools.adapters.identity import identity_of
@@ -14,6 +14,7 @@ from discord_tools.config import (
     config_dir,
     load_config,
     loose_entries,
+    private_entries,
 )
 from discord_tools.records import EVIDENCE_NONE, EVIDENCE_TEXT, content_evidence
 
@@ -93,14 +94,38 @@ def check_profile_record(config, *, home: Path | None = None) -> DoctorCheck:
     )
 
 
-def check_file_modes(loose: list[tuple[Path, int]], directory: Path) -> DoctorCheck:
+def _private_line(directory: Path, checked: Sequence[Path]) -> str:
+    """The OK wording for the mode check, off the paths it stat'd."""
+    if not checked:
+        return f"Nothing stored yet: {directory} does not exist"
+    records = [path for path in checked if path.name == profiles.RECORD]
+    parts = [str(directory)]
+    if directory / ".env" in set(checked):
+        parts.append("its .env")
+    if records:
+        parts.append(f"its {len(records)} profile record{'s' if len(records) > 1 else ''}")
+    named = parts[0] if len(parts) == 1 else f"{', '.join(parts[:-1])} and {parts[-1]}"
+    verb = "is" if len(parts) == 1 else "are"
+    modes = "0700" if len(parts) == 1 else "0700/0600"
+    tail = "" if records else "; no profile records yet"
+    return f"{named} {verb} private ({modes}){tail}"
+
+
+def check_file_modes(
+    loose: list[tuple[Path, int]], directory: Path, *, checked: Sequence[Path] = ()
+) -> DoctorCheck:
     """Whether anything beside the token can be read by anyone else.
 
     A FAIL here is not advisory: every write refuses until it is fixed, because
     the file next to the complaint holds the bot token.
+
+    The OK line names `checked` - what was actually looked at - rather than the
+    whole store: claiming the profile records are private while `profiles/`
+    does not exist reads as a pass two lines above the WARN that says the
+    active profile has no record.
     """
     if not loose:
-        return DoctorCheck("OK", f"{directory}, its .env and its profile records are private (0700/0600)")
+        return DoctorCheck("OK", _private_line(directory, checked))
     listed = ", ".join(f"{path.name} {mode:04o}" for path, mode in loose[:3])
     more = f", and {len(loose) - 3} more" if len(loose) > 3 else ""
     return DoctorCheck(
@@ -403,7 +428,10 @@ async def collect_checks(
         config_error = exc
     checks.append(check_config(config, config_error))
 
-    checks.append(check_file_modes(loose_entries(home=home), config_dir(home)))
+    store = private_entries(home=home)
+    checks.append(
+        check_file_modes(loose_entries(home=home), config_dir(home), checked=[path for path, _mode in store])
+    )
     checks.append(check_fts5())
     checks.append(check_archive(home=home))
     checks.append(check_scanner())

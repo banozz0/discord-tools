@@ -116,15 +116,19 @@ def parse_send_allowlist(raw: str | None) -> tuple[int, ...]:
     return tuple(entries)
 
 
-def loose_entries(*, home: Path | None = None) -> list[tuple[Path, int]]:
-    """The tool's own private files that are readable by group or others.
+def private_entries(*, home: Path | None = None) -> list[tuple[Path, int]]:
+    """Every file of the tool's own store that exists, with its mode.
 
     The token file, the directory it sits in, and the profile records beside
     it. Deliberately not `exports/`: those are the user's own chat exports,
     theirs to share, and refusing every write because an export is 0644 would
     be a gate about the wrong file.
+
+    What was looked at, rather than what came back wrong, so a caller can say
+    which of these it actually checked instead of naming a file that is not
+    there.
     """
-    from discord_tools._core.paths import LOOSE_BITS, ToolPaths
+    from discord_tools._core.paths import ToolPaths
 
     paths = ToolPaths.for_tool("discord-tools", home=home)
     candidates = [paths.root, paths.env]
@@ -132,14 +136,19 @@ def loose_entries(*, home: Path | None = None) -> list[tuple[Path, int]]:
         candidates.append(paths.profiles)
         candidates.extend(sorted(paths.profiles.rglob("*")))
 
-    loose = []
+    entries = []
     for path in candidates:
         if path.is_symlink() or not path.exists():
             continue
-        mode = path.stat().st_mode & 0o777
-        if mode & LOOSE_BITS:
-            loose.append((path, mode))
-    return loose
+        entries.append((path, path.stat().st_mode & 0o777))
+    return entries
+
+
+def loose_entries(*, home: Path | None = None) -> list[tuple[Path, int]]:
+    """The tool's own private files that are readable by group or others."""
+    from discord_tools._core.paths import LOOSE_BITS
+
+    return [(path, mode) for path, mode in private_entries(home=home) if mode & LOOSE_BITS]
 
 
 def require_private_store(*, home: Path | None = None) -> None:

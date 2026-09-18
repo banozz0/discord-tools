@@ -413,7 +413,11 @@ def format_status(report: Mapping[str, Any], *, rules: Sequence[Rule] = (), rule
         lines.append("  stopped  no runner holds the lock (`discord-tools watch run` starts one)")
     log = list(report.get("log") or [])
     last_tick = next(
-        (entry.get("at") for entry in reversed(log) if entry.get("event") in ("started", "delivered", "schedule_fired", "replayed")),
+        (
+            entry.get("at")
+            for entry in reversed(log)
+            if entry.get("event") in ("started", "delivered", "schedule_fired", "replayed", "dropped")
+        ),
         None,
     )
     lines.append(f"  last log {last_tick or 'nothing logged yet'}")
@@ -440,6 +444,11 @@ def format_status(report: Mapping[str, Any], *, rules: Sequence[Rule] = (), rule
     lines.append(f"Schedules  {len(schedules)} runner-held")
     for row in schedules[:10]:
         lines.append(f"           {row.get('id')}  {row.get('rid')}  next {row.get('next')}  {row.get('guarantee')}")
+
+    drops = report.get("drops") or {}
+    if drops:
+        named = ", ".join(f"{reason} {count}" for reason, count in sorted(drops.items()))
+        lines.append(f"Drops      {sum(drops.values())} event(s): {named}")
 
     waits = report.get("waits") or []
     if waits:

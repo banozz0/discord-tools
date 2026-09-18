@@ -669,7 +669,7 @@ discord-tools watch rules add --name deploys --on message \
 discord-tools watch rules list                            # every rule, and the intents the set needs
 discord-tools watch rules test --event recorded.json      # what would fire; nothing does
 discord-tools watch run                                   # until Ctrl-C, or `watch stop` elsewhere
-discord-tools watch status                                # lock, rules, intents, cursors, schedules, last 20 log lines
+discord-tools watch status                                # lock, rules, intents, cursors, schedules, drops, last 20 log lines
 discord-tools watch reload                                # re-read the rules without stopping
 ```
 

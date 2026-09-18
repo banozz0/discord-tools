@@ -3464,26 +3464,40 @@ def _ask_actions(*, read, write, trail: str) -> Any:
 
 
 # One filter each: the key the command takes, how its row reads, what the row
-# says when nobody filled it in, and the question behind it.
+# says when nobody filled it in, the question behind it, and the separator its
+# answer is cut on. A keyword is the one value that may hold a space -- the
+# command takes one phrase per --keyword -- so its prompt takes commas, the
+# spelling the automod keyword form already uses. The rest are tokens that
+# cannot contain a space.
 _FILTER_ROWS = (
-    ("scope", "Only these scopes", "every scope", "Scopes (RIDs, space-separated: dc:channel:123)"),
-    ("sender", "Only these senders", "anyone", "Senders (RIDs, space-separated: dc:user:123)"),
-    ("domain", "Only links on these domains", "any domain", "Domains (space-separated)"),
-    ("keyword", "Only text containing one of these", "any text", "Words (space-separated)"),
-    ("media_type", "Only attachments of these types", "any attachment", "MIME types (space-separated)"),
+    ("scope", "Only these scopes", "every scope", "Scopes (RIDs, space-separated: dc:channel:123)", None),
+    ("sender", "Only these senders", "anyone", "Senders (RIDs, space-separated: dc:user:123)", None),
+    ("domain", "Only links on these domains", "any domain", "Domains (space-separated)", None),
+    ("keyword", "Only text containing one of these", "any text", "Words or phrases, comma-separated", ","),
+    ("media_type", "Only attachments of these types", "any attachment", "MIME types (space-separated)", None),
 )
+_FILTER_SEPARATORS = {key: separator for key, _label, _empty, _question, separator in _FILTER_ROWS}
+
+
+def _filter_values(text: str, separator: str | None) -> list[str]:
+    return [part.strip() for part in (text.split(separator) if separator else text.split()) if part.strip()]
+
+
+def _filter_shown(values, separator: str | None) -> str:
+    return (", " if separator else " ").join(values or ())
 
 
 def _filter_row(values: dict, key: str, label: str, empty: str) -> str:
-    return f"{label:<33} [{' '.join(values.get(key) or ()) or empty}]"
+    return f"{label:<33} [{_filter_shown(values.get(key), _FILTER_SEPARATORS[key]) or empty}]"
 
 
 def _ask_one_filter(values: dict, key: str, label: str, question: str, *, read, write, trail: str) -> Any:
-    """One filter, asked through keep/change/clear. Returns the words, [] to
+    """One filter, asked through keep/change/clear. Returns the values, [] to
     empty it, or BACK to leave it as it was -- never the whole form."""
+    separator = _FILTER_SEPARATORS[key]
     answer = edit_field(
         crumb(trail, label),
-        " ".join(values.get(key) or ()),
+        _filter_shown(values.get(key), separator),
         read=read,
         write=write,
         ask=lambda: ask_text(question, read=read, write=write),
@@ -3494,7 +3508,7 @@ def _ask_one_filter(values: dict, key: str, label: str, question: str, *, read, 
         return BACK
     if answer is CLEAR:
         return []
-    return [part for part in str(answer).split() if part]
+    return _filter_values(str(answer), separator)
 
 
 async def _ask_filters(*, read, write, trail: str) -> Any:
@@ -3530,7 +3544,7 @@ async def _ask_filters(*, read, write, trail: str) -> Any:
                         v, key, label, question, read=read, write=write, trail=where
                     ),
                 )
-                for key, label, empty, question in _FILTER_ROWS
+                for key, label, empty, question, _separator in _FILTER_ROWS
             ],
             go="Done - narrow it by these",
             values={},

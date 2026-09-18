@@ -48,7 +48,7 @@ scripts pass a subcommand.
 | `members` | Lists a server's members (ID, username, display name, bot flag); `--output <name>` exports JSON/CSV. Needs the privileged **Server Members** intent enabled in the portal. `member list` is the same command under the group name and takes the same flags |
 | `search` | Searches a channel/thread's history locally (Discord gives bots no search API): `--keyword`, `--from-user`, `--since`, `--until`, `--limit`; `--output <name>` exports JSON, CSV, JSONL, Markdown or HTML (`--format`). `--archive` searches the local archive instead of fetching. The printed table previews long bodies at 70 characters — exports carry them whole — and its times are UTC and say so |
 | `archive` | The local archive: `sync` fetches new history from everything the bot can read and resumes where it stopped; `status` shows scopes, rows and coverage; `search --query` is ranked full-text search with `--regex`, `--from`, `--since`, `--until`, `--context`; `export --format json/csv/jsonl/markdown/html --output` writes the same result; `retention --scope --keep 90d` and `forget --scope` prune it, dry-run by default and behind the scope's exact name. See [The archive](#the-archive) |
-| `review` | The review queue: attachments and links the archive saw, waiting. `list` shows them without contacting a host; `approve` asks y/N and fetches into quarantine (no `--yes`); `status` shows redirects, refreshes, sha256 and the verdict; `accept` shows the verdict and asks before moving a file into `media/`; `reject` deletes the bytes; `retry` resumes a failed fetch. See [The review queue](#the-review-queue) |
+| `review` | The review queue: attachments and links the archive saw, waiting. `list` shows them without contacting a host; `approve` asks y/N and fetches into quarantine (no `--yes`); `status` shows redirects, refreshes, sha256 and the verdict; `accept` shows the verdict and asks before moving a file into `media/`; `reject` shows the candidate and asks before deleting the bytes; `retry` resumes a failed fetch. See [The review queue](#the-review-queue) |
 | `send` | Posts as the bot after a full-message preview + y/N; `--yes` skips the prompt only for channels in `DISCORD_SEND_ALLOWLIST`. `--reply-to <message id>` answers a message; `--mention users/roles/everyone` lets it ping (nobody by default, and `everyone` always asks); `--at <time>` makes the same runner-held schedule `schedule post --at` does |
 | `message` | What you do to a message once it exists: `reply`, `edit` (the bot's own only), `delete` (dry-run, then `--execute` + typed `DELETE`, bounded by `--limit`), `forward`, `copy`, `react`/`unreact`, `pin`/`unpin`, `pins` (list what a channel holds pinned), `poll`, `typing`, `bookmark` (local). Each shows the channel and the message first. `read`, `unread` and `draft` say a bot cannot. See [Message operations](#message-operations) |
 | `create` | `channel` (`--type text/news/voice/stage_voice/forum/media`) / `category` / `thread` (`--private`), each behind a confirmation. Every type `delete` can remove, `create` can make again |
@@ -334,7 +334,7 @@ discord-tools review approve                     # pick from the list, y/N, fetc
 discord-tools review approve --ids 3f9a1c2e7b4d6a08
 discord-tools review status --ids 3f9a1c2e7b4d6a08
 discord-tools review accept --ids 3f9a1c2e7b4d6a08 # shows the verdict, asks, moves it into media/
-discord-tools review reject --ids 3f9a1c2e7b4d6a08 # deletes the quarantined bytes
+discord-tools review reject --ids 3f9a1c2e7b4d6a08 # asks, then deletes the quarantined bytes
 discord-tools review retry --ids 3f9a1c2e7b4d6a08  # a failed fetch, from the bytes on disk
 ```
 
@@ -369,7 +369,8 @@ magic bytes, a supplied checksum, and a duplicate already in `media/`.
 PATH: `CLEAN`, `INFECTED` with the signature, or `UNSCANNED` with the reason.
 No scanner means `UNSCANNED`, never a silent pass, and `doctor` says which
 binaries it looked for. `accept` prints the verdict before it asks; `BLOCKED`
-and `INFECTED` cannot be accepted (`UNSAFE_BLOCKED`) and `reject` clears them.
+and `INFECTED` cannot be accepted (`UNSAFE_BLOCKED`) and `reject` clears them
+after its own `y/N`.
 No file is ever uploaded to a reputation or sandbox service.
 
 Accepted files live in `~/.discord-tools/media/<sha2>/<sha256>`, quarantined

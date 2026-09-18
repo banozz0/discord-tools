@@ -253,7 +253,7 @@ The terms this codebase uses, and the boundaries they imply.
 - **Quarantine** — `~/.discord-tools/quarantine/<download-id>/payload` beside
   `manifest.json`, 0700, where fetched bytes wait for a verdict and a human.
   `accept` renames the payload into `media/<sha2>/<sha256>`; `reject` deletes
-  the directory. Budgeted by `quarantine_max_bytes`.
+  the directory, behind its own `y/N`. Budgeted by `quarantine_max_bytes`.
 - **Verdict** — `BLOCKED` (a built-in check failed, the check named), `CLEAN`
   or `INFECTED` (the scanner said so), `UNSCANNED` (no scanner gave a word).
   `BLOCKED` and `INFECTED` are `UNSAFE_BLOCKED` on accept; `UNSCANNED` is

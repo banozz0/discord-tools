@@ -352,7 +352,9 @@ def build_parser() -> argparse.ArgumentParser:
         "accept", help="Move checked files out of quarantine into the media store, after showing each verdict (asks y/N)"
     )
     manifest_ids(review_accept, required=True, help="Manifest IDs of quarantined candidates")
-    review_reject = review_kinds.add_parser("reject", help="Reject candidates in any state and delete their quarantined bytes")
+    review_reject = review_kinds.add_parser(
+        "reject", help="Reject candidates in any state and delete their quarantined bytes (preview + y/N)"
+    )
     manifest_ids(review_reject, required=True, help="Manifest IDs to reject")
     review_retry = review_kinds.add_parser("retry", help="Run a failed fetch again, resuming from the bytes already on disk")
     manifest_ids(review_retry, required=True, help="Manifest IDs of failed candidates")
@@ -1592,14 +1594,30 @@ async def _run_review_accept(args, out) -> Outcome:
 
 
 async def _run_review_reject(args, out) -> Outcome:
+    """`-> rejected` from any state, the quarantined bytes deleted. It asks, because
+    deleting bytes is a write and a rejected candidate stays rejected: a later sync
+    finds the row again rather than offering the same file a second time."""
     if not archive_store.archive_exists():
         return _no_archive("reject from")
     with archive_store.open_archive() as archive:
         queue = review_store.open_queue(archive)
         rows = _review_rows(queue, args.ids, verb="reject")
+        out.say(review_store.format_rejection(rows))
+        refusal = out.approval_unavailable(
+            "Run `discord-tools review reject --ids ...` in a terminal: it shows what it would delete and asks y/N, "
+            "and there is no --yes."
+        )
+        if refusal is not None:
+            return Outcome(status="refused", error=refusal)
+        if not review_store.confirm(f"Reject {len(rows)} candidate(s) and delete their quarantined bytes", write=out.say):
+            return Outcome(status="cancelled", result={"cancelled": True, "ids": [row.manifest_id for row in rows]})
         results = queue.reject([row.manifest_id for row in rows])
     out.say(review_store.format_rejected(results))
-    return Outcome(status="ok", result={"rejected": results}, evidence=Evidence.verified(f"{len(results)} candidate(s) rejected"))
+    return Outcome(
+        status="ok",
+        result={"rejected": results, "cancelled": False},
+        evidence=Evidence.verified(f"{len(results)} candidate(s) rejected"),
+    )
 
 
 async def _fetch_all(queue, client, download_ids, out) -> Outcome:
@@ -5127,8 +5145,9 @@ async def _run_schedule_post(client, args, config, out) -> Outcome:
         except RunnerError as exc:
             raise ValueError(str(exc)) from exc
         stored = schedules.get(schedule.id)
+        held = len(schedules.list())
     row = listing(stored)
-    out.say(watch_rim.format_schedules([row]))
+    out.say(watch_rim.format_schedules([row], stored=held))
     out.say("It fires only while `discord-tools watch run` is up on this machine.")
     return Outcome(
         status="ok",

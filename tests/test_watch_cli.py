@@ -254,6 +254,21 @@ def test_status_reads_with_no_runner_no_archive_and_no_login(home_is_a_tmp_dir):
     assert "no runner holds the lock" in stderr
 
 
+def test_the_status_header_does_not_claim_a_time_the_log_block_contradicts(home_is_a_tmp_dir):
+    """Live on 2026-09-17: the header said "last log 17:31:19Z" while the log block under
+    it ended 17:34:57Z. The header reports the runner's last tick, and says so."""
+    from discord_tools import watch as watch_rim
+
+    log = [
+        {"at": "2026-09-17T17:31:19Z", "event": "schedule_fired", "schedule": "dc779b236c86"},
+        {"at": "2026-09-17T17:34:57Z", "event": "stopped", "pid": 85247},
+    ]
+    printed = watch_rim.format_status({"running": False, "lock": None, "log": log})
+    header = next(line for line in printed.splitlines() if "17:31:19Z" in line)
+    assert "last log" not in header, header
+    assert "last tick" in header and "schedule_fired" in header
+
+
 def test_stop_and_reload_with_nothing_running_say_so(home_is_a_tmp_dir):
     for verb in ("stop", "reload"):
         code, body, _stderr = go(["--json", "watch", verb])
@@ -302,6 +317,18 @@ def test_a_yes_stores_the_row_and_the_listing_prints_its_guarantee(home_is_a_tmp
     assert [row["id"] for row in listed["result"]["schedules"]] == [schedule_id]
     assert all(row["guarantee"].startswith("runner-held") for row in listed["result"]["schedules"])
     assert "every 1d" in stderr
+
+
+def test_the_readback_after_a_write_counts_every_stored_schedule(home_is_a_tmp_dir, monkeypatch):
+    """Live on 2026-09-17: the Done screen after the second write said "1 schedule(s)"
+    while two were stored. It reads back the row it wrote and counts what is there."""
+    answer(monkeypatch, "y")
+    for text in ("standup", "retro"):
+        code, _body, stderr = go(
+            ["--json", "schedule", "post", "--channel", "101", "--text", text, "--every", "1d"], agency()
+        )
+        assert code == 0, stderr
+    assert "2 schedule(s)" in stderr, stderr
 
 
 def test_a_destination_off_the_allowlist_is_refused_when_the_row_is_written(home_is_a_tmp_dir):

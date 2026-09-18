@@ -412,11 +412,15 @@ def format_status(report: Mapping[str, Any], *, rules: Sequence[Rule] = (), rule
     else:
         lines.append("  stopped  no runner holds the lock (`discord-tools watch run` starts one)")
     log = list(report.get("log") or [])
-    last_tick = next(
-        (entry.get("at") for entry in reversed(log) if entry.get("event") in ("started", "delivered", "schedule_fired", "replayed")),
+    tick = next(
+        (entry for entry in reversed(log) if entry.get("event") in ("started", "delivered", "schedule_fired", "replayed")),
         None,
     )
-    lines.append(f"  last log {last_tick or 'nothing logged yet'}")
+    # Not "last log": the picker skips the events that are not activity, so the
+    # header's time is older than the log block below whenever the runner's last
+    # line was a stop or a reload, and a header that disagrees with the lines
+    # under it reads as a bug in one of them.
+    lines.append(f"  last tick {tick['at']} ({tick['event']})" if tick else "  last tick nothing logged yet")
 
     if rules_error:
         lines.append(f"Rules      could not be loaded: {rules_error}")
@@ -512,8 +516,13 @@ def format_schedule_preview(
     )
 
 
-def format_schedules(rows: Sequence[Mapping[str, Any]]) -> str:
-    """Every runner-held schedule, each printing its guarantee (spec section 10.6)."""
+def format_schedules(rows: Sequence[Mapping[str, Any]], *, stored: int | None = None) -> str:
+    """Every runner-held schedule, each printing its guarantee (spec section 10.6).
+
+    `stored` is how many rows the store holds, for the readback after a write: that
+    prints the one row it wrote, and counting the rows on screen said "1 schedule(s)"
+    with two of them stored.
+    """
     if not rows:
         return "No runner-held schedules. `discord-tools schedule post --channel <id> --text ... --at <time>` adds one."
     lines = []
@@ -527,7 +536,10 @@ def format_schedules(rows: Sequence[Mapping[str, Any]]) -> str:
         lines.append(f"          {row.get('guarantee')}")
         lines.append(f"          {_preview(str(row.get('text') or ''))}")
     lines.append(RULE)
-    lines.append(f"{len(rows)} schedule(s), all {RUNNER_HELD}")
+    if stored is None:
+        lines.append(f"{len(rows)} schedule(s), all {RUNNER_HELD}")
+    else:
+        lines.append(f"{stored} schedule(s) now stored, all {RUNNER_HELD}")
     return "\n".join(lines)
 
 

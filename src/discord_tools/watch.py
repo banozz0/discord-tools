@@ -580,6 +580,15 @@ def event_target(server, event_id: int, name: str | None = None):
     )
 
 
+SCHEDULE_TZ = UTC
+"""The zone every schedule is read in: the store, and the runner that fires it.
+
+Named in one place because two processes write and read one row - `schedule
+post` here and the `watch run` that fires it later - and a zone either of them
+defaulted would be a schedule firing at an hour nobody typed.
+"""
+
+
 def parse_when(text: str) -> datetime:
     """A typed time as a moment; `records.BARE_TIME_IS_UTC` is the reading.
 
@@ -750,6 +759,7 @@ def build_runner(
         sync=sync,
         queue=queue,
         own_identities=tuple(own_identities) or (identity.id,),
+        tz=SCHEDULE_TZ,
     )
 
 

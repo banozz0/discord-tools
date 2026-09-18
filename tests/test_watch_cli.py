@@ -11,6 +11,8 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -46,6 +48,21 @@ def go(argv, client=None, *, isatty=True):
     out = Run(command_name(args), echoed_args(args), json=True, stdout=io.StringIO(), stderr=io.StringIO(), isatty=isatty, presents=True)
     code = asyncio.run(run(args, client=client, config=CONFIG, out=out))
     return code, json.loads(out.stdout.getvalue()), out.stderr.getvalue()
+
+
+@pytest.fixture
+def machine_is_two_hours_ahead(monkeypatch):
+    """This process's local zone forced to UTC+2, so the host's own is never the test.
+
+    Every typed time in this tool reads as UTC (`records.BARE_TIME_IS_UTC`),
+    and the only way to prove that is to run where local time is something
+    else.
+    """
+    monkeypatch.setenv("TZ", "Europe/Malta")  # UTC+2 in summer, UTC+1 in winter
+    time.tzset()
+    yield
+    monkeypatch.undo()
+    time.tzset()
 
 
 def answer(monkeypatch, text):
@@ -352,6 +369,61 @@ def test_a_time_in_the_past_is_refused_before_the_preview(home_is_a_tmp_dir):
         go(["--json", "schedule", "post", "--channel", "101", "--text", "hi", "--at", "2020-01-01T09:00"], agency())
 
 
+def test_a_bare_schedule_time_is_stored_as_the_moment_the_preview_showed(
+    home_is_a_tmp_dir, monkeypatch, machine_is_two_hours_ahead
+):
+    """Live on 2026-09-18, W4: `schedule post --at 2026-09-18T11:02` previewed
+    `once at 11:02:00+00:00`, took the y, then refused `is in the past`. The
+    preview read the bare time as UTC and the store read it as this machine's
+    clock, two hours ahead, so anything less than the offset away was refused
+    and anything further was stored two hours off what was promised."""
+    soon = datetime.now(timezone.utc) + timedelta(minutes=30)
+    typed = soon.strftime("%Y-%m-%dT%H:%M:%S")
+
+    answer(monkeypatch, "y")
+    code, body, stderr = go(
+        ["--json", "schedule", "post", "--channel", "101", "--text", "standup", "--at", typed], agency()
+    )
+    assert (code, body["status"]) == (0, "ok"), stderr
+    assert body["result"]["schedule"]["at"] == f"{typed}+00:00"
+
+    _code, listed, _stderr = go(["--json", "schedule", "list"])
+    row = listed["result"]["schedules"][0]
+    assert row["at"] == f"{typed}+00:00"
+    assert abs(row["next_wall"] - soon.timestamp()) < 1
+
+
+def test_the_cli_and_the_runner_read_a_schedule_the_same_way(home_is_a_tmp_dir):
+    """Two processes write and fire one row: `schedule post` here and the
+    `watch run` that fires it later. A zone either of them defaulted would be
+    a schedule that fires at an hour nobody typed."""
+    from discord_tools import watch
+    from discord_tools._core.identity import Identity
+    from discord_tools.cli import _runner_state
+
+    paths = archive_store.tool_paths()
+    identity = Identity(platform="discord", mode="bot", label="harry", id="dc:user:42", profile="harry")
+    with archive_store.open_archive() as archive:
+        assert _runner_state(archive, identity).tz is timezone.utc
+        runner = watch.build_runner(
+            archive=archive, identity=identity, rules=watch.RuleSet(paths.rules), paths=paths, sender=None
+        )
+        assert runner.schedules.tz is timezone.utc
+
+
+def test_a_schedule_the_store_refuses_is_a_coded_refusal_not_a_usage_dump(home_is_a_tmp_dir, monkeypatch):
+    """Live on 2026-09-18, W4: the refusal printed argparse's whole usage block
+    above `error: ... is in the past`. A store that named the reason reads as a
+    refusal with a code, the way every other one here does."""
+    answer(monkeypatch, "y")
+    monkeypatch.setattr("discord_tools.watch.check_schedule_time", lambda **_kwargs: None)
+    code, body, _stderr = go(
+        ["--json", "schedule", "post", "--channel", "101", "--text", "hi", "--at", "2020-01-01T09:00"], agency()
+    )
+    assert (code, body["status"], body["error"]["code"]) == (2, "refused", "CONFIG_INVALID")
+    assert "in the past" in body["error"]["message"]
+
+
 def test_schedule_cancel_asks_first_and_a_no_keeps_the_row(home_is_a_tmp_dir, monkeypatch):
     answer(monkeypatch, "y")
     _code, body, _stderr = go(
@@ -380,6 +452,23 @@ def an_event(client, **overrides):
     }
     fields.update(overrides)
     return asyncio.run(client.create_scheduled_event(10, fields))
+
+
+def test_an_events_bare_start_and_end_are_utc_whatever_this_machine_reads(
+    home_is_a_tmp_dir, monkeypatch, machine_is_two_hours_ahead
+):
+    """`event` writes its times to Discord, so a zone read from the host would
+    put the event two hours out for everyone who sees it."""
+    client = agency()
+    answer(monkeypatch, "y")
+    code, body, stderr = go(
+        ["--json", "event", "create", "--server", "10", "--name", "Standup", "--start", "2099-01-01T09:00",
+         "--end", "2099-01-01T10:00", "--place", "stage_instance", "--channel", "102"],
+        client,
+    )
+    assert code == 0, stderr
+    assert body["result"]["event"]["start"] == "2099-01-01T09:00:00+00:00"
+    assert body["result"]["event"]["end"] == "2099-01-01T10:00:00+00:00"
 
 
 def test_event_create_previews_and_a_no_writes_nothing(home_is_a_tmp_dir, monkeypatch):

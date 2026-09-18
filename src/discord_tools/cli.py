@@ -837,7 +837,7 @@ def build_parser() -> argparse.ArgumentParser:
     schedule_post.add_argument("--channel", type=snowflake, required=True, help="Channel or thread ID to post in")
     schedule_post.add_argument("--text", required=True, help="The message; `-` reads it from stdin")
     schedule_post.add_argument("--at", metavar="TIME", help=f"ISO 8601 time to post once; {BARE_TIME_IS_UTC}")
-    schedule_post.add_argument("--every", metavar="REPEAT", help="An interval (15m, 2h, 1d) or a five-field cron expression")
+    schedule_post.add_argument("--every", metavar="REPEAT", help=f"An interval (15m, 2h, 1d) or a five-field cron expression, whose hours read in UTC ({BARE_TIME_IS_UTC})")
     schedule_post.add_argument("--yes", action="store_true", help="Skip the preview's y/N (the channel must be in DISCORD_SEND_ALLOWLIST either way)")
     schedule_kinds.add_parser("list", help="Every runner-held schedule with its guarantee (no login)")
     schedule_cancel = schedule_kinds.add_parser("cancel", help="Cancel a runner-held schedule (no login)")
@@ -4852,9 +4852,19 @@ def _rule_paths():
 
 
 def _runner_state(archive, identity):
+    """The schedule store, reading a typed time the way the preview already does.
+
+    `records.BARE_TIME_IS_UTC` is this tool's reading everywhere, and
+    `watch.parse_when` gives the preview that. The store defaults to this
+    machine's clock, so the same string meant two different moments: live on
+    2026-09-18 a bare time half an hour ahead in UTC previewed as UTC and was
+    then refused as past, and one further out would have fired at an hour
+    nobody typed. Both sides name the zone instead, and the runner that fires
+    the row names the same one.
+    """
     from discord_tools._core.runner import Clock, RunnerState, Schedules
 
-    return Schedules(RunnerState(archive, identity), Clock())
+    return Schedules(RunnerState(archive, identity), Clock(), watch_rim.SCHEDULE_TZ)
 
 
 async def _run_watch_offline(args, out) -> Outcome:
@@ -5158,9 +5168,20 @@ async def _run_schedule_post(client, args, config, out) -> Outcome:
     with archive_store.open_archive() as archive:
         schedules = _runner_state(archive, identity)
         try:
-            schedule = schedules.add(watch_rim.schedule_rid(args.channel), text, at=args.at, every=args.every)
+            # The resolved moment, not the string: what is stored is then the
+            # one the preview printed, whichever process reads the row back.
+            schedule = schedules.add(
+                watch_rim.schedule_rid(args.channel),
+                text,
+                at=None if args.at is None else watch_rim.parse_when(args.at).isoformat(),
+                every=args.every,
+            )
         except RunnerError as exc:
-            raise ValueError(str(exc)) from exc
+            raise CodedError(
+                "CONFIG_INVALID",
+                str(exc),
+                hint="`discord-tools schedule post --help` names what --at and --every take.",
+            ) from exc
         stored = schedules.get(schedule.id)
         held = len(schedules.list())
     row = listing(stored)

@@ -7,6 +7,7 @@ that use them are exercised end to end in test_member_cli.py.
 
 from __future__ import annotations
 
+import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -134,6 +135,19 @@ def test_until_takes_a_duration_or_an_iso_time():
     assert moderation.parse_until("2h", now=NOW) - NOW.astimezone() == timedelta(hours=2)
     assert moderation.parse_until("45m", now=NOW) - NOW.astimezone() == timedelta(minutes=45)
     assert moderation.parse_until("2026-09-10T12:00:00+00:00", now=NOW) == datetime(2026, 9, 10, 12, 0, tzinfo=timezone.utc)
+
+
+def test_until_reads_a_bare_time_as_utc_on_a_machine_that_is_not(monkeypatch):
+    """A timeout ends at a moment Discord holds, so a bare `--until` read from
+    this machine's clock would end it two hours out from what was typed and
+    printed. The zone is named, never the host's."""
+    monkeypatch.setenv("TZ", "Europe/Malta")  # UTC+2 in summer, UTC+1 in winter
+    time.tzset()
+    try:
+        assert moderation.parse_until("2026-09-10T12:00", now=NOW) == datetime(2026, 9, 10, 12, 0, tzinfo=timezone.utc)
+    finally:
+        monkeypatch.undo()
+        time.tzset()
 
 
 @pytest.mark.parametrize(

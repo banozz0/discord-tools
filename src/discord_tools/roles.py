@@ -284,10 +284,12 @@ def role_row(role: Mapping[str, Any], *, mine: bool = False) -> dict[str, Any]:
 
 
 def format_roles(roles: Sequence[Mapping[str, Any]], bot_role_ids: Iterable[int], *, server: str) -> str:
-    """Highest first, the way the server's own role screen orders them; `*` marks
-    a role the bot holds, because that is the one it will never touch."""
+    """Highest first by `rank`, the way the server's own role screen orders them and
+    the way every hierarchy check measures them — a position tie broken by id, the
+    lower id sitting higher — so the list can be read as evidence for a refusal.
+    `*` marks a role the bot holds, because that is the one it will never touch."""
     mine = {int(entry) for entry in bot_role_ids}
-    ordered = sorted(roles, key=lambda role: (-int(role.get("position", 0)), str(role["name"])))
+    ordered = sorted(roles, key=rank, reverse=True)
     lines = [f"Roles in {server}, highest first (* = held by the bot)", RULE]
     for role in ordered:
         names = permission_names(role.get("permissions", "0"))

@@ -2967,6 +2967,10 @@ async def _run_member_removal(client, args, out, *, identity, server, resolver, 
     # four reads it takes to ask are worth skipping when the answer is settled.
     refusal = write.refusal or (None if absent else await _member_hierarchy(client, server_id, member, verb=verb))
     if refusal is not None:
+        # The refusal that follows is usually the hierarchy, not the permission, and
+        # the preflight line is the evidence of which — a dry-run prints it and this
+        # returned before reaching that.
+        out.say(plans.format_preflight(write.plan))
         return Outcome(status="refused", target=target, plan=write.plan, error=refusal)
 
     reason = moderation.moderation_reason(write.reason, args.reason)

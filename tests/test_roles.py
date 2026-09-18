@@ -202,6 +202,15 @@ def test_the_role_list_is_highest_first_and_marks_the_bots_own():
     assert lines[-1] == "5 role(s); the bot's top role is Harrybot"
 
 
+def test_the_role_list_breaks_a_position_tie_the_way_the_hierarchy_check_does():
+    """Every role Discord creates arrives at position 1, so the tie is the ordinary
+    case; the list is read as evidence for a hierarchy refusal and has to agree with it."""
+    tied = [role(10, "@everyone", 0), role(77, "Harrybot", 1), role(14, "campaign-role", 1)]
+    lines = roles.format_roles(tied, [77], server="Agency").splitlines()
+    assert [line.lstrip("*").split()[1] for line in lines[2:5]] == ["campaign-role", "Harrybot", "@everyone"], lines
+    assert roles.top_role(tied, [77])["name"] == "Harrybot", "the list has to agree with the check that refuses"
+
+
 def test_the_role_target_names_the_server_and_the_role():
     from discord_tools._core.identity import Target
 

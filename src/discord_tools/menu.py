@@ -36,7 +36,7 @@ from discord_tools.prompts import (
 from discord_tools import integrations
 from discord_tools import moderation
 from discord_tools import settings
-from discord_tools.ui import crumb
+from discord_tools.ui import SEP, crumb
 
 # What the menu turns into a printed line instead of an exit. Anything not
 # named here is a bug and should still be loud.
@@ -4006,6 +4006,35 @@ async def _flow_event_delete(*, session, runner, read, write) -> bool:
             return result is not EXIT
 
 
+def _under_group(write, parts: tuple[str, ...]):
+    """`write`, with this group's own crumb put into any trail still rooted at Main.
+
+    Every flow builds its trail from the root, so a flow reached through a group
+    drew `Main › Roles: list` and never said which group it was in. Putting the
+    group in here, once, is the whole rule: the group knows where it sits and
+    the flows below it do not have to. A trail that already names the group is
+    left alone, so a group inside a group inserts nothing twice, and a part the
+    flow's own label already spells — `Roles: list` under Roles — is not said
+    twice either.
+    """
+    root = f"{MAIN}{SEP}"
+    here = crumb(MAIN, *parts)
+    group = f"{here}{SEP}"
+
+    def regrouped(text: str) -> None:
+        text = str(text)
+        head, newline, rest = text.partition("\n")
+        if head.startswith(root) and head != here and not head.startswith(group):
+            own = head[len(root) :]
+            said = parts[-1]
+            # "Roles: list" under Roles already says Roles.
+            under = parts[:-1] if own == said or own.startswith(f"{said}:") else parts
+            head = crumb(MAIN, *under, own)
+        write(f"{head}{newline}{rest}")
+
+    return regrouped
+
+
 def _group(trail, rows):
     """A root row that is a list of flows rather than one flow.
 
@@ -4017,6 +4046,7 @@ def _group(trail, rows):
     parts = (trail,) if isinstance(trail, str) else tuple(trail)
 
     async def flow(*, session, runner, read, write) -> bool:
+        write = _under_group(write, parts)
         while True:
             # Back on the group screen, whatever a flow was acting on is behind
             # the user: the banner names the bot and stops.

@@ -172,7 +172,7 @@ def test_members_flow_prints_here_by_default():
     assert args.server == 1
     assert args.output is None
     assert args.format == "json"
-    assert "Main › Members › Ops" in screens(output)
+    assert "Main › Read › Members › Ops" in screens(output)
 
 
 def test_members_flow_exports_to_a_named_csv():
@@ -244,7 +244,7 @@ def test_a_confirmed_send_lands_one_sentence_above_the_done_screen(monkeypatch, 
     assert code == 0
     assert [sent["channel_id"] for sent in client.sent] == [10]
     lines = capsys.readouterr().out.splitlines()
-    done = next(index for index, line in enumerate(lines) if line.startswith("Main › Send › general › Done"))
+    done = next(index for index, line in enumerate(lines) if line.startswith("Main › Write › Send › general › Done"))
     assert lines[done - 1] == f"Sent message {client.sent[0]['id']} to #general (10)."
     assert not any(line.lstrip().startswith(("{", "}", '"message_id"')) for line in lines)
 
@@ -685,6 +685,28 @@ def test_enter_on_an_offline_flows_after_run_screen_reaches_the_root_too():
     assert titles[-1] == "discord-tools"
 
 
+# Section 14's groups: a flow inside one builds its trail from the root, so
+# live on 2026-09-17 picking Manage > Roles > List drew "Main › Roles: list ›
+# Pick a server" and the screen no longer said where it was. One flow per
+# group, with the trail its first screen must carry.
+GROUP_TRAILS = {
+    "read": (SEARCH, "Main › Read › Search"),
+    "write": (SEND, "Main › Write › Send"),
+    "build": (CREATE, "Main › Build › Create"),
+    "manage": (ROLE_LIST, "Main › Manage › Roles: list"),
+    "manage subgroup": (MEMBER_KICK, "Main › Manage › Members: kick"),
+    "watch": (("7", "1"), "Main › Watch › Review queue › List"),
+    "identity": (BOT, "Main › Identity › My bot"),
+}
+
+
+@pytest.mark.parametrize("answers,trail", list(GROUP_TRAILS.values()), ids=list(GROUP_TRAILS))
+def test_a_flows_trail_names_the_group_it_came_from(answers, trail):
+    _code, _calls, output = drive([answers] + ["0"] * 12)
+    titles = [text.split("\n")[0] for text in output if "\n" in text]
+    assert any(title.startswith(trail) for title in titles), titles
+
+
 def test_the_ban_row_names_both_things_its_gate_can_ask_for():
     """The ban gate asks for the exact username, or the user ID when the target
     has already left the server, so the row one screen above must not promise
@@ -887,7 +909,7 @@ def test_member_list_flow_builds_the_command():
     code, calls, output = drive([MEMBER_LIST, "0"])
     assert code == 0
     assert [(args.command, args.member_kind, args.server) for args in calls] == [("member", "list", 1)]
-    assert "Main › Members: list › Ops" in screens(output)
+    assert "Main › Manage › Members: list › Ops" in screens(output)
 
 
 @pytest.mark.parametrize("row,verb", [(MEMBER_KICK, "kick"), (MEMBER_BAN, "ban")])
@@ -1020,7 +1042,7 @@ def test_audit_log_flow_can_drop_the_time_limit():
     assert code == 0
     assert [(args.audit_log_kind, args.action, args.user, args.since) for args in calls] == [("list", None, None, None)]
     assert not any("blank for everything" in prompt for prompt in prompts)
-    assert any(screen.startswith("Main › Audit log › Ops › Since when?") for screen in output)
+    assert any(screen.startswith("Main › Manage › Audit log › Ops › Since when?") for screen in output)
 
     # A blank at the time prompt still steps back, and asks nothing to run.
     code, calls, _output = drive([AUDIT_LOG, "1", "2", "", "0", "0", "0"])
@@ -1067,7 +1089,7 @@ def test_a_filter_left_out_does_not_throw_the_typed_rule_away():
     assert len([prompt for prompt in prompts if prompt.startswith("Rule name")]) == 1
     # No prompt asks a question whose blank answer would mean two things.
     assert not any("Only these senders" in prompt for prompt in prompts)
-    assert "Main › Rules: write a new rule › campaign-7 › Narrow it down" in screens(output)
+    assert "Main › Watch › Rules: write a new rule › campaign-7 › Narrow it down" in screens(output)
 
 
 def test_an_event_with_no_description_is_created_instead_of_restarting_the_form():
@@ -1137,7 +1159,7 @@ def test_leaving_a_filled_filter_form_asks_before_it_drops_it():
         prompts=prompts,
     )
     assert code == 0
-    assert "Main › Rules: write a new rule › campaign-7 › Narrow it down › Unsent form" in [
+    assert "Main › Watch › Rules: write a new rule › campaign-7 › Narrow it down › Unsent form" in [
         screen.split("\n")[0] for screen in output
     ]
     assert len(calls) == 1

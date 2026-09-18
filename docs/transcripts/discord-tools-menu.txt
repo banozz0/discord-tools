@@ -1,6 +1,6 @@
 discord-tools — the menu, recorded in a real terminal (pty, TERM=xterm-256color)
 ==============================================================================
-Recorded by scripts/record_menu.py on 6bafc99. The menu code, the colour and the
+Recorded by scripts/record_menu.py on 63fc6c0. The menu code, the colour and the
 prompt rendering are the real ones; the Discord side is a canned session (no network, no
 token), so the server, channels, threads and messages below are invented. Keystrokes
 appear after each prompt. The .ansi sibling of this file is the same run with the colour
@@ -30,7 +30,7 @@ Acting as: harrybot (profile harry) · bot
 6. Archive: prune (retention, forget)
 0. Back
 Choose: 1
-Main › Search › Pick a channel in Agency
+Main › Read › Search › Pick a channel in Agency
 Acting as: harrybot (profile harry) · bot · Target: Agency (1394820000000)
 --------------------------------------------
 1. # 🚨alerts                        1394827364512
@@ -40,7 +40,7 @@ Acting as: harrybot (profile harry) · bot · Target: Agency (1394820000000)
 5. Type a channel or thread ID
 0. Back
 Choose: 1
-Main › Search › 🚨alerts
+Main › Read › Search › 🚨alerts
 Acting as: harrybot (profile harry) · bot · Target: Agency › 🚨alerts (1394827364512)
 --------------------------------------------
 1. Contains       [(anything)]
@@ -53,7 +53,7 @@ Acting as: harrybot (profile harry) · bot · Target: Agency › 🚨alerts (139
 0. Back (discards)
 Choose: 1
 Contains (blank cancels): deploy
-Main › Search › 🚨alerts
+Main › Read › Search › 🚨alerts
 Acting as: harrybot (profile harry) · bot · Target: Agency › 🚨alerts (1394827364512)
 --------------------------------------------
 1. Contains       [deploy]
@@ -68,7 +68,7 @@ Choose: 6
 1394829911100  2026-09-05 21:40 UTC  Harry: Deploy 4.2 is out: 6 checks green, 0 rollbacks, 41s.
 1394829911042  2026-09-05 15:00 UTC  Harry: Deploy queue: 3 waiting, oldest 11 minutes.
 2 message(s)
-Main › Search › 🚨alerts › Done
+Main › Read › Search › 🚨alerts › Done
 Acting as: harrybot (profile harry) · bot · Target: Agency › 🚨alerts (1394827364512)
 --------------------------------------------
 1. Run it again
@@ -133,7 +133,7 @@ Acting as: harrybot (profile harry) · bot
 7. Leave a server
 0. Back
 Choose: 1
-Main › Create
+Main › Build › Create
 Acting as: harrybot (profile harry) · bot
 --------------------------------------------
 1. Channel
@@ -141,7 +141,7 @@ Acting as: harrybot (profile harry) · bot
 3. Thread in a text channel
 0. Back
 Choose: 1
-Main › Create › Channel › Channel type
+Main › Build › Create › Channel › Channel type
 Acting as: harrybot (profile harry) · bot
 --------------------------------------------
 1. Text channel
@@ -153,7 +153,7 @@ Acting as: harrybot (profile harry) · bot
 0. Back
 Choose: 1
 Text channel name (blank cancels): releases
-Main › Create › Text channel › Put it under a category?
+Main › Build › Create › Text channel › Put it under a category?
 Acting as: harrybot (profile harry) · bot · Target: Agency (1394820000000)
 --------------------------------------------
 1. Ops stuff                       1394827364077
@@ -180,7 +180,7 @@ Read back: channel channel-901 (901) exists as a text
   "created": true,
   "cancelled": false
 }
-Main › Create › Text channel › Done
+Main › Build › Create › Text channel › Done
 Acting as: harrybot (profile harry) · bot · Target: Agency (1394820000000)
 --------------------------------------------
 1. Create another

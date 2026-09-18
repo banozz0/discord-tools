@@ -112,15 +112,17 @@ ACTING_WALKS = {
 # The two screens that deliberately carry none, by title. Both are reached when
 # there may be no working bot at all — the Identity row holds `Set up a bot`,
 # and Check setup is what you run when the login itself is the problem — so
-# neither logs in to draw its own first screen.
-NO_BANNER = ("Main › Identity", "Main › Check setup")
+# neither logs in to draw its own first screen. The Identity group screen alone,
+# not what is under it: a flow inside a group now names the group in its trail,
+# and `Main › Identity › My bot` does log in.
+def carries_no_banner(screen: str) -> bool:
+    title = screen.split("\n")[0]
+    return title == "Main › Identity" or title.startswith("Main › Check setup")
 
 
 @pytest.mark.parametrize("answers", list(ACTING_WALKS.values()), ids=list(ACTING_WALKS))
 def test_every_screen_below_the_root_names_the_bot(answers):
-    drawn = [
-        screen for screen in screens(walk(answers)) if not screen.startswith(NO_BANNER)
-    ]
+    drawn = [screen for screen in screens(walk(answers)) if not carries_no_banner(screen)]
     assert drawn, "the walk drew no screen below the root"
     for screen in drawn:
         assert screen.split("\n")[1].startswith("Acting as: testbot#0 (profile harry) · bot"), screen
@@ -149,7 +151,7 @@ def test_the_root_itself_carries_no_banner():
     assert root and root[0].split("\n")[1] == RULE
 
 
-@pytest.mark.parametrize("answers,title", [([("8",)], "Main › Identity"), ([("9",)], "Main › Check setup")], ids=NO_BANNER)
+@pytest.mark.parametrize("answers,title", [([("8",)], "Main › Identity"), ([("9",)], "Main › Check setup")], ids=("Main › Identity", "Main › Check setup"))
 def test_the_two_screens_reachable_without_a_bot_name_none(answers, title):
     """Naming a bot here would mean logging in first, and both of these are
     where someone goes when there is no working login to name."""

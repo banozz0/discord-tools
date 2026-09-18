@@ -3142,7 +3142,10 @@ async def _run_member_nick(client, args, out, *, identity, server, resolver, mem
         raise plans.PlanDriftError(drifted)
 
     await client.set_member_nick(server_id, int(member["id"]), nick, reason=reason)
-    out.say(f"Renamed {member['username']} ({member['id']}) to {nick or member['username']}.")
+    if nick is None:
+        out.say(f"Cleared {member['username']}'s nickname ({member['id']}); they show as {member['username']} again.")
+    else:
+        out.say(f"Renamed {member['username']} ({member['id']}) to {nick}.")
 
     async def readback():
         now = await client.get_member(server_id, int(member["id"]))

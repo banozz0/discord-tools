@@ -429,6 +429,17 @@ def test_nick_sets_a_nickname_and_an_empty_one_clears_it():
     assert client.nicks == [(10, 50, None)] and "is now shown as ana" in body["evidence"]["readback"]
 
 
+def test_clearing_a_nickname_says_cleared_on_the_done_line_too():
+    client = agency()
+    _code, _body, stderr = go(["--json", "member", "nick", "--server", "10", "--member", "50", "--nick", "", "--yes"], client)
+    assert "Cleared ana's nickname (50)" in stderr, stderr
+    assert "Renamed" not in stderr, "the done line claimed a rename for a clear"
+
+    client = agency()
+    _code, _body, stderr = go(["--json", "member", "nick", "--server", "10", "--member", "50", "--nick", "Ana", "--yes"], client)
+    assert "Renamed ana (50) to Ana." in stderr, stderr
+
+
 # -- member unban --------------------------------------------------------------------
 
 

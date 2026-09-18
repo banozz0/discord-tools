@@ -108,8 +108,14 @@ class FakeClient:
         webhooks: dict[int, list[dict]] | None = None,
         emojis: dict[int, list[dict]] | None = None,
         stickers: dict[int, list[dict]] | None = None,
+        channel_names: dict[int, dict[int, str]] | None = None,
     ) -> None:
         self.identity = identity
+        # What the server's channel listing answers for the channel being read,
+        # the way a REST-only run learns a forward's origin. `channel_name_calls`
+        # counts the listings, which the policy is allowed exactly one of.
+        self.channel_names_of = channel_names or {}
+        self.channel_name_calls: list[int] = []
         self.servers = servers or []
         self.channels = channels or {}
         self.threads = threads or {}
@@ -240,6 +246,11 @@ class FakeClient:
         if info is None:
             info = ChannelInfo(id=channel_id, name=f"channel-{channel_id}", type="text")
         return info
+
+    async def channel_names(self, channel_id):
+        """The server's channel listing, the one call `client.name_forwards` may make."""
+        self.channel_name_calls.append(channel_id)
+        return self.channel_names_of.get(channel_id, {})
 
     async def iter_history(self, channel_id, *, limit=None, oldest_first=False, before=None, after=None):
         self.history_reads.append(channel_id)

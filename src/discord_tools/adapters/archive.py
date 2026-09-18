@@ -38,6 +38,7 @@ from discord_tools._core import rid as _rid
 from discord_tools._core.archive import ScopeListing
 from discord_tools._core.identity import Target
 from discord_tools._core.review import Candidate
+from discord_tools.client import name_forwards
 from discord_tools.models import ChannelInfo, ThreadInfo
 from discord_tools.records import (
     EVIDENCE_NONE,
@@ -362,7 +363,7 @@ class DiscordArchiveSource:
             if newest is None:
                 newest = message_id
             oldest = message_id
-            yield self._row(message, scope, channel_id=channel_id, cursor=make_cursor(newest, oldest))
+            yield await self._named(self._row(message, scope, channel_id=channel_id, cursor=make_cursor(newest, oldest)), channel_id)
 
         # Newer than what was held before this run, oldest first, so an
         # interruption here leaves the newest committed id contiguous with
@@ -371,7 +372,23 @@ class DiscordArchiveSource:
             async for message in self._client.iter_history(channel_id, after=newest, oldest_first=True):
                 message_id = int(getattr(message, "id"))
                 newest = max(newest or message_id, message_id)
-                yield self._row(message, scope, channel_id=channel_id, cursor=make_cursor(newest, oldest or message_id))
+                yield await self._named(
+                    self._row(message, scope, channel_id=channel_id, cursor=make_cursor(newest, oldest or message_id)),
+                    channel_id,
+                )
+
+    async def _named(self, record: dict[str, Any], channel_id: int) -> dict[str, Any]:
+        """A stored forward says the channel it came from, not that channel's id.
+
+        Through the seam, which fetches the server's listing once for the whole
+        sync and only when a row carries a forward with no name yet. A row
+        written before this stays as it was: the archive resumes from a cursor
+        and never revisits what it holds.
+        """
+        forward = record["platform_json"].get("forwarded_from")
+        if forward:
+            await name_forwards(self._client, [forward], channel_id=channel_id)
+        return record
 
     def _row(self, message: Any, scope: Target, *, channel_id: int, cursor: str) -> dict[str, Any]:
         record = message_record(message, channel_id=channel_id, cursor=cursor)

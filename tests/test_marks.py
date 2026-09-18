@@ -38,7 +38,7 @@ from discord_tools.messages import copy_text
 from discord_tools.models import ChannelInfo, ServerInfo
 from discord_tools import records
 from discord_tools.records import message_matches_filters, message_to_record
-from discord_tools.search import PREVIEW_WIDTH, all_content_empty, format_message_records
+from discord_tools.search import PREVIEW_WIDTH, all_content_empty, format_message_records, search_messages
 
 STATE = ConnectionState(dispatch=lambda *a: None, handlers={}, hooks={}, http=MagicMock(), intents=discord.Intents.none())
 CHANNEL = MagicMock(guild=None)
@@ -547,3 +547,109 @@ def test_a_forward_out_of_a_server_this_bot_cannot_see_keeps_the_id():
 
     assert "channel_name" not in message_to_record(elsewhere, channel_id=10)["forwarded_from"]
     assert row(elsewhere).endswith(f"sven: [fwd #{SOURCE_CHANNEL}] ship it")
+
+
+# -- a REST-only run learns the names (card agent-bo-95422380) ---------------
+#
+# The two tests above hand discord.py a channel whose server cache already
+# holds the origin -- which a gateway connection fills and this CLI never does.
+# The fakes below are the real shape of a run: the cache is empty and the
+# server's channel listing is one call away.
+
+
+def rest_only(history, names=None, **extra):
+    """A seam whose server cache names nothing and whose listing is fetchable."""
+    return FakeClient(
+        servers=[ServerInfo(id=1, name="Ops")],
+        channels={1: [ChannelInfo(id=55, name="campaign-b", type="text")]},
+        history={55: history},
+        channel_names={55: names} if names is not None else None,
+        **extra,
+    )
+
+
+def test_a_cross_channel_forward_is_named_from_the_server_listing():
+    """Live 2026-09-18: a forward from campaign-a into campaign-b printed its id."""
+    client = rest_only([forwarded()], {SOURCE_CHANNEL: "campaign-a"})
+
+    records = asyncio.run(search_messages(client, 55))
+
+    assert records[0]["forwarded_from"]["channel_name"] == "campaign-a"
+    assert "[fwd #campaign-a]" in format_message_records(records)
+    assert client.channel_name_calls == [55]
+
+
+def test_one_listing_answers_every_forward_on_the_page():
+    client = rest_only([forwarded(104), forwarded(103), forwarded(102)], {SOURCE_CHANNEL: "campaign-a"})
+
+    records = asyncio.run(search_messages(client, 55))
+
+    assert [record["forwarded_from"]["label"] for record in records] == ["#campaign-a"] * 3
+    assert client.channel_name_calls == [55]
+
+
+def test_a_forward_from_another_server_keeps_its_id_and_costs_no_retry():
+    """The listing has no row for it, which is an answer, not a reason to ask again."""
+    client = rest_only([forwarded(103), forwarded(102)], {})
+
+    records = asyncio.run(search_messages(client, 55))
+
+    assert ["channel_name" not in record["forwarded_from"] for record in records] == [True, True]
+    assert f"[fwd #{SOURCE_CHANNEL}]" in format_message_records(records)
+    assert client.channel_name_calls == [55]
+
+
+def test_a_page_with_no_forward_never_asks_for_the_listing():
+    client = rest_only([copied(), image(), poll()], {SOURCE_CHANNEL: "campaign-a"})
+
+    asyncio.run(search_messages(client, 55))
+
+    assert client.channel_name_calls == []
+
+
+def test_archive_sync_stores_the_name_a_live_row_prints():
+    from discord_tools._core.identity import Target
+    from discord_tools.adapters.archive import DiscordArchiveSource
+
+    client = rest_only([forwarded()], {SOURCE_CHANNEL: "campaign-a"})
+    target = Target(rid="dc:channel:55", kind="channel", title="campaign-b", path=("campaign-b",))
+
+    async def collect():
+        return [row async for row in DiscordArchiveSource(client).messages(target, None)]
+
+    (stored,) = asyncio.run(collect())
+
+    assert stored["platform_json"]["forwarded_from"]["label"] == "#campaign-a"
+    assert record_marks_of(stored) == "[fwd #campaign-a] "
+    assert client.channel_name_calls == [55]
+
+
+def record_marks_of(stored):
+    return records.record_marks({**stored["platform_json"], "text": stored["text"]})
+
+
+def test_pins_name_a_forward_through_the_real_seam(monkeypatch):
+    """The whole path, without FakeClient: an empty cache, a fetchable listing."""
+    from discord_tools.client import DiscordClient
+
+    fetched = []
+
+    async def fetch_channels():
+        fetched.append(1)
+        return [SimpleNamespace(id=SOURCE_CHANNEL, name="campaign-a")]
+
+    async def pins(limit=None):
+        yield forwarded()
+
+    channel = SimpleNamespace(id=55, guild=SimpleNamespace(id=1, fetch_channels=fetch_channels), pins=pins)
+    client = DiscordClient(SimpleNamespace())
+
+    async def fetch_channel(_channel_id):
+        return channel
+
+    monkeypatch.setattr(client, "_fetch_channel", fetch_channel)
+
+    (pin,) = asyncio.run(client.list_pins(55))
+
+    assert pin["forwarded_from"]["label"] == "#campaign-a"
+    assert fetched == [1]

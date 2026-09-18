@@ -4,7 +4,7 @@ import io
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, AsyncIterator, Iterable, Mapping, Sequence
+from typing import Any, AsyncIterator, Iterable, Mapping, MutableMapping, Sequence
 
 import discord
 
@@ -21,7 +21,7 @@ from discord_tools.models import (
     ThreadInfo,
     id_and_ref,
 )
-from discord_tools.records import carrier, message_body, message_to_record
+from discord_tools.records import carrier, forward_needs_name, message_body, message_to_record, name_forward
 
 
 class ClientError(RuntimeError):
@@ -495,6 +495,23 @@ def _intent_status(flags: Any) -> str:
     return "off"
 
 
+async def name_forwards(client, forwards: Iterable[MutableMapping[str, Any]], *, channel_id: int) -> None:
+    """Give every forward among `forwards` the name of the channel it came from.
+
+    The one place the policy lives, so the rows a search prints, the ones an
+    export writes and the ones `archive sync` stores all read the same. The
+    server's channel listing is asked for only when some forward actually
+    lacks a name -- never per row, and never at all on a run that forwards
+    nothing -- and the seam keeps it for the rest of the run.
+    """
+    wanted = [forward for forward in forwards if forward_needs_name(forward) is not None]
+    if not wanted:
+        return
+    names = await client.channel_names(channel_id)
+    for forward in wanted:
+        name_forward(forward, names)
+
+
 class DiscordClient:
     """The one seam between the CLI and Discord's REST API.
 
@@ -505,6 +522,12 @@ class DiscordClient:
 
     def __init__(self, client: discord.Client) -> None:
         self._client = client
+        # What a server's channels are called, learned at most once per server
+        # per run and kept for the rest of it; see `channel_names`. The second
+        # map is the same listing under each channel that led to it, so a walk
+        # of one channel never re-fetches the channel to find its server.
+        self._server_channel_names: dict[int, dict[int, str]] = {}
+        self._channel_names: dict[int, dict[int, str]] = {}
 
     async def aclose(self) -> None:
         await self._client.close()
@@ -753,7 +776,36 @@ class DiscordClient:
                 f"Discord refused the pins of channel {channel_id}: reading them needs View Channel "
                 "and Read Message History."
             ) from exc
-        return [_pin_dict(message, channel_id) for message in messages]
+        pins = [_pin_dict(message, channel_id) for message in messages]
+        await name_forwards(self, [pin["forwarded_from"] for pin in pins if pin.get("forwarded_from")], channel_id=channel_id)
+        return pins
+
+    async def channel_names(self, channel_id: int) -> dict[int, str]:
+        """id -> name for every channel of the server `channel_id` sits in.
+
+        discord.py names a forward's origin out of the cache a gateway
+        connection fills, and this client is login-only, so that cache is empty
+        and a forward from a sibling channel had no name to print at all. One
+        listing answers every row of a run: it is fetched the first time a row
+        needs it and kept, a second channel of the same server reuses it, and a
+        channel that is not in it -- another server's, or a thread, which
+        Discord's channel listing does not carry -- keeps its id with no second
+        call. A DM has no server and so has no listing.
+        """
+        known = self._channel_names.get(channel_id)
+        if known is not None:
+            return known
+        guild = getattr(await self._fetch_channel(channel_id), "guild", None)
+        names: dict[int, str] = {}
+        if guild is not None:
+            server_id = int(guild.id)
+            cached = self._server_channel_names.get(server_id)
+            if cached is None:
+                cached = {int(channel.id): str(channel.name) for channel in await guild.fetch_channels()}
+                self._server_channel_names[server_id] = cached
+            names = cached
+        self._channel_names[channel_id] = names
+        return names
 
     async def send_poll(
         self,

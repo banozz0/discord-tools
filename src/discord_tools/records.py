@@ -4,7 +4,7 @@ import mimetypes
 import re
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time
-from typing import Any, Mapping
+from typing import Any, Mapping, MutableMapping
 
 # Discord's snowflake epoch: 2015-01-01T00:00:00Z, in milliseconds.
 DISCORD_EPOCH_MS = 1_420_070_400_000
@@ -223,10 +223,11 @@ def channel_name_of(message: Any, channel_id: int | None) -> str | None:
     """The name of `channel_id` from what is already in hand, or None. Never a call.
 
     The message's own channel when the forward came from there, else the
-    server cache discord.py keeps, which a gateway connection fills. A name
-    is worth a row that reads; it is not worth a fetch per row, and a channel
-    in another server has no name this bot can learn at all, so None is a fact
-    and the id stands.
+    server cache discord.py keeps, which a gateway connection fills and a
+    login-only client never does. A name is worth a row that reads; it is not
+    worth a fetch per row, so None here is a fact and not a failure -- the
+    caller that has a whole page in hand asks the seam for one listing of the
+    server and fills what is left through `name_forward`.
     """
     if not channel_id:
         return None
@@ -251,6 +252,35 @@ def forward_label(forward: Mapping[str, Any]) -> str:
     """
     channel = forward.get("channel_name") or forward.get("channel_id")
     return f"#{channel}" if channel else "elsewhere"
+
+
+def forward_needs_name(forward: Mapping[str, Any]) -> int | None:
+    """The origin channel id of a forward still reading as an id, or None.
+
+    A forward that already has a name needs nothing, and one with no channel
+    at all can never get one; anything else is what a listing of the server's
+    channels would answer.
+    """
+    if forward.get("channel_name"):
+        return None
+    return _int_or_none(forward.get("channel_id"))
+
+
+def name_forward(forward: MutableMapping[str, Any], names: Mapping[int, str]) -> bool:
+    """Give a forward the name of the channel it came from, from names already in hand.
+
+    `names` is one server's channel listing, read once for a whole run and
+    passed in, because this module makes no calls. A channel that is not in it
+    -- another server's, or a thread, which the listing does not carry -- keeps
+    its id, which is still a true answer, and costs no second call to find out.
+    """
+    channel_id = forward_needs_name(forward)
+    name = names.get(channel_id) if channel_id is not None else None
+    if not name:
+        return False
+    forward["channel_name"] = name
+    forward["label"] = forward_label(forward)
+    return True
 
 
 def _int_or_none(value: Any) -> int | None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from discord_tools.client import name_forwards
 from discord_tools.records import (
     TIME_WIDTH,
     message_date,
@@ -43,6 +44,13 @@ async def search_messages(
             records.append(message_to_record(message, channel_id=channel_id))
             if limit is not None and len(records) >= limit:
                 break
+    # After the walk, not during it: one listing of the server names every
+    # forward the page carries, and a page with no forward asks for none.
+    await name_forwards(
+        client,
+        [record["forwarded_from"] for record in records if record.get("forwarded_from")],
+        channel_id=channel_id,
+    )
     return records
 
 

@@ -851,3 +851,41 @@ def test_an_audit_changes_value_is_an_id_or_a_number_never_a_discord_py_repr(mon
     assert changes["type"] == [None, "text"]
     assert changes["created_at"] == [None, "2026-09-09T10:00:00+00:00"]
     assert "<" not in json.dumps(changes)
+
+
+def _listing_client(monkeypatch, listing, *, in_a_server=True):
+    """The seam as a REST-only run has it: no channel cache, one listing away."""
+    fetched = []
+
+    async def fetch_channels():
+        fetched.append(1)
+        return listing
+
+    guild = SimpleNamespace(id=1, fetch_channels=fetch_channels) if in_a_server else None
+
+    async def fetch_channel(channel_id):
+        return SimpleNamespace(id=channel_id, guild=guild)
+
+    client = DiscordClient(SimpleNamespace())
+    monkeypatch.setattr(client, "_fetch_channel", fetch_channel)
+    return client, fetched
+
+
+def test_channel_names_reads_the_server_listing_once_for_the_whole_run(monkeypatch):
+    """discord.py names a channel out of its gateway cache, and this client opens none,
+    so a forward from a sibling channel had no name at all. The listing is the answer,
+    and asking for it a second time -- or for a second channel of the same server --
+    must cost nothing."""
+    client, fetched = _listing_client(monkeypatch, [SimpleNamespace(id=20, name="campaign-a")])
+
+    assert asyncio.run(client.channel_names(55)) == {20: "campaign-a"}
+    assert asyncio.run(client.channel_names(55)) == {20: "campaign-a"}
+    assert asyncio.run(client.channel_names(56)) == {20: "campaign-a"}
+    assert fetched == [1]
+
+
+def test_channel_names_of_a_place_with_no_server_is_empty_and_fetches_nothing(monkeypatch):
+    client, fetched = _listing_client(monkeypatch, [], in_a_server=False)
+
+    assert asyncio.run(client.channel_names(55)) == {}
+    assert fetched == []

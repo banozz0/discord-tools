@@ -126,6 +126,16 @@ def test_every_screen_below_the_root_names_the_bot(answers):
         assert screen.split("\n")[1].startswith("Acting as: testbot#0 (profile harry) · bot"), screen
 
 
+def test_the_my_bot_block_is_drawn_under_a_banner_of_its_own():
+    """The bot block prints before the flow's first screen, so without a line
+    of its own it is the one thing on the way in that never says which bot it
+    is about - live on 2026-09-17 it sat above `Main › My bot` bare."""
+    printed = walk([("8", "2")])
+    block = printed.index("<bot>")
+    before = printed[:block]
+    assert any(line.startswith("Acting as: testbot#0 (profile harry) · bot") for line in before), before
+
+
 def test_a_screen_with_a_chosen_target_names_it_with_its_id():
     drawn = screens(walk([("2", "1"), "1", "0", "0", "0", "0"]))
     banners = [screen.split("\n")[1] for screen in drawn]

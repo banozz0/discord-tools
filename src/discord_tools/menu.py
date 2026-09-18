@@ -3159,6 +3159,12 @@ async def _flow_bot(*, session, runner, read, write) -> bool:
     # This flow logs in whatever happens, so the screens under it can carry the
     # banner even though the Identity group above them is reachable without one.
     await session.identity()
+    # The block is printed before this flow's first screen, so the banner every
+    # other screen carries under its trail is drawn here by hand: without it the
+    # bot block is the one thing on the way in that never says which bot it is.
+    banner = session.banner()
+    if banner:
+        write(banner)
     # Printed first because everything on this screen is about the bot it names.
     if await _call(_bot_namespace(), session=session, runner=runner, write=write) is None:
         return after_action(read=read, write=write)

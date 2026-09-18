@@ -4147,7 +4147,10 @@ async def run_menu(*, read=None, write=None, session=None, runner=None, profile:
                             (
                                 ("List a server's members", _flow_member_list),
                                 ("Kick a member (dry-run, then typed username)", _flow_member_kick),
-                                ("Ban a member (dry-run, then typed username)", _flow_member_ban),
+                                # Both, because the gate is both: it asks for the
+                                # exact username, or for the user ID when the
+                                # target has already left and Discord names nobody.
+                                ("Ban a member (dry-run, then typed username, or user ID if they have left)", _flow_member_ban),
                                 ("Lift a ban", _flow_member_unban),
                                 ("Time a member out until a moment you name", _flow_member_timeout),
                                 ("Lift a timeout before it runs out", _flow_member_untimeout),

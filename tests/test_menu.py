@@ -685,6 +685,17 @@ def test_enter_on_an_offline_flows_after_run_screen_reaches_the_root_too():
     assert titles[-1] == "discord-tools"
 
 
+def test_the_ban_row_names_both_things_its_gate_can_ask_for():
+    """The ban gate asks for the exact username, or the user ID when the target
+    has already left the server, so the row one screen above must not promise
+    only the username - live on 2026-09-18 it did."""
+    _code, _calls, output = drive([("6", "3"), "0", "0", "0"])
+    text = screens(output)
+    assert "Ban a member (dry-run, then typed username, or user ID if they have left)" in text
+    # A kick has no absent case: its target must be in the server to be kicked.
+    assert "Kick a member (dry-run, then typed username)" in text
+
+
 # A dry-run the command itself refused -- a missing permission, a declined
 # confirm -- comes back as a non-zero exit code, and the for-real row must not
 # be offered off a plan that was never produced. Live on 2026-09-17, Write 3.4

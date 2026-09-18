@@ -100,8 +100,8 @@ options:
                         Case-insensitive text filter
   --from-user FROM_USER
                         Author username or ID
-  --since SINCE         Inclusive ISO date or datetime lower bound
-  --until UNTIL         Inclusive ISO date or datetime upper bound
+  --since SINCE         Inclusive ISO date or datetime lower bound; a time with no offset is UTC
+  --until UNTIL         Inclusive ISO date or datetime upper bound; a time with no offset is UTC
   --limit LIMIT         Maximum exported messages
   --format {json,csv,jsonl,markdown,html}
                         Export format
@@ -137,7 +137,7 @@ options:
   --reply-to MESSAGE_ID
                         Post as a reply to this message in the same channel
   --at TIME             Post it later instead of now: the same runner-held schedule `schedule post
-                        --at` makes
+                        --at` makes (a time with no offset is UTC)
   --mention {users,roles,everyone}
                         Let the post ping this group; repeatable. Nobody is pinged without it, and
                         everyone always asks, even with --yes
@@ -332,8 +332,8 @@ options:
   -h, --help         show this help message and exit
   --server SERVER    Only this server ID
   --scope RID_OR_ID  Only this channel or thread (a rid or a numeric ID); repeatable
-  --since SINCE      Stop walking back at this ISO date; later runs still resume from the
-                     checkpoint
+  --since SINCE      Stop walking back at this ISO date (a time with no offset is UTC); later runs
+                     still resume from the checkpoint
   --full             Ignore the checkpoints and walk every scope from the newest message again
 
 ========================================================================
@@ -359,8 +359,8 @@ options:
   --scope RID_OR_ID    Only this channel or thread (a rid or a numeric ID); repeatable
   --identity IDENTITY  Only rows archived by this bot identity (a dc:bot rid)
   --from AUTHOR        Only messages from this author: a numeric ID, a username, or a rid
-  --since SINCE        Inclusive ISO date or datetime lower bound
-  --until UNTIL        Inclusive ISO date or datetime upper bound
+  --since SINCE        Inclusive ISO date or datetime lower bound; a time with no offset is UTC
+  --until UNTIL        Inclusive ISO date or datetime upper bound; a time with no offset is UTC
   --context N          Also show N neighbouring messages on each side of a hit
   --limit LIMIT        Maximum hits (default: 50)
   --include-deleted    Also show messages marked deleted on a later sync
@@ -381,8 +381,8 @@ options:
   --scope RID_OR_ID     Only this channel or thread (a rid or a numeric ID); repeatable
   --identity IDENTITY   Only rows archived by this bot identity (a dc:bot rid)
   --from AUTHOR         Only messages from this author: a numeric ID, a username, or a rid
-  --since SINCE         Inclusive ISO date or datetime lower bound
-  --until UNTIL         Inclusive ISO date or datetime upper bound
+  --since SINCE         Inclusive ISO date or datetime lower bound; a time with no offset is UTC
+  --until UNTIL         Inclusive ISO date or datetime upper bound; a time with no offset is UTC
   --context N           Also show N neighbouring messages on each side of a hit
   --limit LIMIT         Maximum hits (default: 50)
   --include-deleted     Also show messages marked deleted on a later sync
@@ -922,8 +922,8 @@ options:
   -h, --help       show this help message and exit
   --server SERVER  Server ID
   --member MEMBER  User ID of the member
-  --until TIME     When it ends: an ISO 8601 time, or a duration like 30m, 2h, 7d. Required, and
-                   never more than 28 days (Discord's own limit)
+  --until TIME     When it ends: an ISO 8601 time (a time with no offset is UTC), or a duration
+                   like 30m, 2h, 7d. Required, and never more than 28 days (Discord's own limit)
   --reason REASON  Why; Discord stores it in the server's own audit log
   --yes            Skip the y/N prompt
 
@@ -1013,7 +1013,8 @@ options:
   --action ACTION  Only this action, in Discord's own snake_case names (kick, ban, member_update,
                    invite_create, ...)
   --user USER      Only entries by this user ID
-  --since TIME     Only entries after this ISO 8601 time, or a duration back like 24h
+  --since TIME     Only entries after this ISO 8601 time (a time with no offset is UTC), or a
+                   duration back like 24h
   --limit LIMIT    How many entries at most (default: 50)
 
 ========================================================================

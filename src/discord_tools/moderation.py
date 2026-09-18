@@ -43,7 +43,7 @@ door.
 from __future__ import annotations
 
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from discord_tools._core import rid as _rid
@@ -254,7 +254,11 @@ def _moment(text: str, *, from_: datetime, ahead: bool) -> datetime:
         span = timedelta(**{UNITS[duration.group(2).lower()]: int(duration.group(1))})
         return from_ + span if ahead else from_ - span
     try:
-        return parse_at(raw)
+        # `records.BARE_TIME_IS_UTC`: the core's own parser reads a bare time as
+        # this machine's clock, which would make `--since 2026-09-06T14:30` a
+        # different moment here than in a search. The zone is named rather than
+        # left to the runner's default.
+        return parse_at(raw, UTC)
     except RunnerError as exc:
         raise ValueError(f"{text!r} is not a time. Use an ISO 8601 time, or a duration like 30m, 2h or 7d ({exc}).") from exc
 
@@ -265,7 +269,7 @@ def parse_until(text: str, *, now: datetime | None = None) -> datetime:
     A time already past would lift the timeout the moment it was set, and
     Discord itself refuses anything beyond 28 days.
     """
-    moment = (now or datetime.now(timezone.utc)).astimezone()
+    moment = now or datetime.now(UTC)
     when = _moment(text, from_=moment, ahead=True)
     if when <= moment:
         raise ValueError(f"{text!r} is {'now' if when == moment else 'in the past'}, so the timeout would be over before it began.")
@@ -276,7 +280,7 @@ def parse_until(text: str, *, now: datetime | None = None) -> datetime:
 
 def parse_since(text: str, *, now: datetime | None = None) -> datetime:
     """`--since` as a moment: an ISO 8601 time, or a duration counted back from now."""
-    return _moment(text, from_=(now or datetime.now(timezone.utc)).astimezone(), ahead=False)
+    return _moment(text, from_=now or datetime.now(UTC), ahead=False)
 
 
 def moderation_reason(base: str, reason: str | None) -> str:

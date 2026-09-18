@@ -44,6 +44,7 @@ from discord_tools import messages as message_ops
 from discord_tools.models import MessageInfo
 from discord_tools.envelope import TOOL, CountingClient, Outcome, Run, command_name, echoed_args
 from discord_tools.portal import invite_url, run_auth
+from discord_tools.records import BARE_TIME_IS_UTC
 from discord_tools import profiles as profile_store
 from discord_tools.profiles import confirm_removal
 from discord_tools.config import (
@@ -157,8 +158,8 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument("--channel", required=True, type=snowflake, help="Channel or thread ID")
     search.add_argument("--keyword", "--contains", dest="keyword", help="Case-insensitive text filter")
     search.add_argument("--from-user", help="Author username or ID")
-    search.add_argument("--since", help="Inclusive ISO date or datetime lower bound")
-    search.add_argument("--until", help="Inclusive ISO date or datetime upper bound")
+    search.add_argument("--since", help=f"Inclusive ISO date or datetime lower bound; {BARE_TIME_IS_UTC}")
+    search.add_argument("--until", help=f"Inclusive ISO date or datetime upper bound; {BARE_TIME_IS_UTC}")
     search.add_argument("--limit", type=positive_int, help="Maximum exported messages")
     search.add_argument("--format", choices=EXPORT_FORMATS, default="json", help="Export format")
     search.add_argument(
@@ -187,7 +188,7 @@ def build_parser() -> argparse.ArgumentParser:
     send_parser.add_argument(
         "--at",
         metavar="TIME",
-        help="Post it later instead of now: the same runner-held schedule `schedule post --at` makes",
+        help=f"Post it later instead of now: the same runner-held schedule `schedule post --at` makes ({BARE_TIME_IS_UTC})",
     )
     _mention_flag(send_parser)
     send_parser.add_argument(
@@ -287,7 +288,7 @@ def build_parser() -> argparse.ArgumentParser:
     archive_sync.add_argument(
         "--scope", action="append", metavar="RID_OR_ID", help="Only this channel or thread (a rid or a numeric ID); repeatable"
     )
-    archive_sync.add_argument("--since", help="Stop walking back at this ISO date; later runs still resume from the checkpoint")
+    archive_sync.add_argument("--since", help=f"Stop walking back at this ISO date ({BARE_TIME_IS_UTC}); later runs still resume from the checkpoint")
     archive_sync.add_argument("--full", action="store_true", help="Ignore the checkpoints and walk every scope from the newest message again")
 
     archive_kinds.add_parser("status", help="Scopes, rows, dates, coverage, size against the budget")
@@ -298,8 +299,8 @@ def build_parser() -> argparse.ArgumentParser:
         parser.add_argument("--scope", action="append", metavar="RID_OR_ID", help="Only this channel or thread (a rid or a numeric ID); repeatable")
         parser.add_argument("--identity", help="Only rows archived by this bot identity (a dc:bot rid)")
         parser.add_argument("--from", dest="author", help="Only messages from this author: a numeric ID, a username, or a rid")
-        parser.add_argument("--since", help="Inclusive ISO date or datetime lower bound")
-        parser.add_argument("--until", help="Inclusive ISO date or datetime upper bound")
+        parser.add_argument("--since", help=f"Inclusive ISO date or datetime lower bound; {BARE_TIME_IS_UTC}")
+        parser.add_argument("--until", help=f"Inclusive ISO date or datetime upper bound; {BARE_TIME_IS_UTC}")
         parser.add_argument("--context", type=int, default=0, metavar="N", help="Also show N neighbouring messages on each side of a hit")
         parser.add_argument("--limit", type=positive_int, default=50, help="Maximum hits (default: 50)")
         parser.add_argument("--include-deleted", action="store_true", help="Also show messages marked deleted on a later sync")
@@ -484,7 +485,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--until",
         required=True,
         metavar="TIME",
-        help="When it ends: an ISO 8601 time, or a duration like 30m, 2h, 7d. Required, and never more than 28 days (Discord's own limit)",
+        help=f"When it ends: an ISO 8601 time ({BARE_TIME_IS_UTC}), or a duration like 30m, 2h, 7d. Required, and never more than 28 days (Discord's own limit)",
     )
     member_timeout.add_argument("--reason", help="Why; Discord stores it in the server's own audit log")
     member_timeout.add_argument("--yes", action="store_true", help="Skip the y/N prompt")
@@ -529,7 +530,7 @@ def build_parser() -> argparse.ArgumentParser:
     audit_log_list.add_argument("--server", required=True, type=snowflake, help="Server ID")
     audit_log_list.add_argument("--action", help=f"Only this action, in {moderation.AUDIT_ACTIONS_ARE}")
     audit_log_list.add_argument("--user", type=snowflake, help="Only entries by this user ID")
-    audit_log_list.add_argument("--since", metavar="TIME", help="Only entries after this ISO 8601 time, or a duration back like 24h")
+    audit_log_list.add_argument("--since", metavar="TIME", help=f"Only entries after this ISO 8601 time ({BARE_TIME_IS_UTC}), or a duration back like 24h")
     audit_log_list.add_argument("--limit", type=int, default=50, help="How many entries at most (default: 50)")
 
     webhook_parser = subparsers.add_parser(
@@ -833,7 +834,7 @@ def build_parser() -> argparse.ArgumentParser:
     schedule_post = schedule_kinds.add_parser("post", help="Schedule a message; it fires through the runner (preview + y/N)")
     schedule_post.add_argument("--channel", type=snowflake, required=True, help="Channel or thread ID to post in")
     schedule_post.add_argument("--text", required=True, help="The message; `-` reads it from stdin")
-    schedule_post.add_argument("--at", metavar="TIME", help="ISO 8601 time to post once; a time with no offset is local")
+    schedule_post.add_argument("--at", metavar="TIME", help=f"ISO 8601 time to post once; {BARE_TIME_IS_UTC}")
     schedule_post.add_argument("--every", metavar="REPEAT", help="An interval (15m, 2h, 1d) or a five-field cron expression")
     schedule_post.add_argument("--yes", action="store_true", help="Skip the preview's y/N (the channel must be in DISCORD_SEND_ALLOWLIST either way)")
     schedule_kinds.add_parser("list", help="Every runner-held schedule with its guarantee (no login)")
@@ -855,8 +856,8 @@ def build_parser() -> argparse.ArgumentParser:
         if not creating:
             parser.add_argument("--id", dest="event_id", type=snowflake, required=True, help="The event's ID")
         parser.add_argument("--name", help="What the event is called")
-        parser.add_argument("--start", metavar="TIME", help="ISO 8601 start; a time with no offset is local")
-        parser.add_argument("--end", metavar="TIME", help="ISO 8601 end (Discord requires one for an external event)")
+        parser.add_argument("--start", metavar="TIME", help=f"ISO 8601 start; {BARE_TIME_IS_UTC}")
+        parser.add_argument("--end", metavar="TIME", help=f"ISO 8601 end ({BARE_TIME_IS_UTC}); Discord requires one for an external event")
         parser.add_argument("--place", choices=watch_rim.EVENT_PLACES, help="Where it happens: a voice or stage channel, or somewhere external")
         parser.add_argument("--channel", type=snowflake, help="Voice or stage channel ID, for a voice or stage_instance event")
         parser.add_argument("--location", help="Where an external event happens, in words")

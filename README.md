@@ -756,7 +756,9 @@ bot. It carries no file and no `--reply-to`: the runner would post them later,
 and by then the file may have moved and the message being answered may be
 gone, so both are refused rather than quietly dropped.
 
-`--at` takes an ISO 8601 time (no offset means this machine's); `--every` takes
+`--at` takes an ISO 8601 time (no offset means UTC, the one reading every
+typed time in this tool has, and the zone every printed one is marked with);
+`--every` takes
 an interval (`15m`, `2h`, `1d`) or a five-field cron expression. Schedules are
 planned from a monotonic baseline recorded with the wall time: a wall clock
 that jumps backwards re-plans, one that jumps forwards fires each missed

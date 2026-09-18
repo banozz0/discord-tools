@@ -376,8 +376,10 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
   user decide.
 - **A time on a printed row or preview is UTC and says so**
   (`2026-09-17 07:07 UTC`); convert it before telling the user a local time.
-  `--format json` carries the ISO string. `search` and `archive` read a bare
-  `--since`/`--until` time as UTC too. A `copy`'s attribution carries a
+  `--format json` carries the ISO string. Every time a person types is read
+  the same way: a bare `--since`, `--until`, `--at`, `--start` or `--end` with
+  no offset is UTC, in `search` and `archive` as much as on a `schedule post`
+  or an `event`, and each help line and prompt says so. A `copy`'s attribution carries a
   Discord time tag (`<t:…:f>`), which Discord draws in each reader's own zone.
 - **Empty text on every message = the message-content intent is off.** That is
   a portal setting, not a bug here. `doctor` names it; the fix is in the

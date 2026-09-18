@@ -42,6 +42,8 @@ ALLOWED_CHANGES: dict[tuple[str, str], str] = {
     ("discover", "--json"): "the path became optional; with none, the envelope goes to stdout",
     ("bot", "--json"): "the path became optional; with none, the envelope goes to stdout",
     ("search", "--format"): "gained jsonl, markdown and html; json and csv are written exactly as before",
+    ("search", "--since"): "says the zone it reads; the bound itself is the UTC one it always was",
+    ("search", "--until"): "says the zone it reads; the bound itself is the UTC one it always was",
 }
 
 FIELDS = ("option_strings", "help", "required", "choices", "nargs")

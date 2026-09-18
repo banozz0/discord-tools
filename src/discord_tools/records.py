@@ -15,7 +15,15 @@ def snowflake_time(snowflake: int) -> datetime:
     return datetime.fromtimestamp(((snowflake >> 22) + DISCORD_EPOCH_MS) / 1000, tz=UTC)
 
 
-DATE_SHAPE = "a date is written year first: 2026-09-06, or 2026-09-06T14:30"
+# One reading for every time a person types, said wherever one is asked for.
+# Bounds, deadlines and scheduled moments used to split: a bare `--since` was
+# UTC while a bare `--at` was this machine's clock, and no prompt said either,
+# so the same eleven characters meant two moments. UTC is the one reading,
+# because it is the zone every time this tool prints is marked with -- a time
+# copied off a row means the same moment typed back in.
+BARE_TIME_IS_UTC = "a time with no offset is UTC"
+
+DATE_SHAPE = f"a date is written year first: 2026-09-06, or 2026-09-06T14:30, and {BARE_TIME_IS_UTC}"
 
 
 def parse_date_bound(value: str | None, *, end_of_day: bool) -> datetime | None:

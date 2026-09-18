@@ -220,3 +220,73 @@ def test_every_time_a_screen_prints_says_its_zone(tmp_path):
     shown = {name for name, text in screens.items() if MOMENT.search(text)}
     # Every surface above really printed a time; the copy body carries a tag instead.
     assert shown == set(screens) - {"copy body"}
+
+
+# -- the input side: one stated zone --------------------------------------
+#
+# The screens above say UTC on every time they print. These say the same about
+# every time a person types: one reading for a bare time, and every help line
+# and prompt that takes one says which.
+
+BARE_TYPED = "2026-09-06T14:30"
+TYPED_MEANS = datetime(2026, 9, 6, 14, 30, tzinfo=UTC)
+TIME_FLAGS = {"--since", "--until", "--at", "--start", "--end"}
+
+
+def test_every_parser_reads_a_bare_typed_time_as_the_same_utc_moment():
+    """Four parsers, one reading. `--since` in a search and `--at` on a
+    schedule used to mean different moments on the same clock."""
+    from discord_tools import moderation, watch
+    from discord_tools.records import parse_date_bound
+
+    assert parse_date_bound(BARE_TYPED, end_of_day=False) == TYPED_MEANS
+    assert watch.parse_moment(BARE_TYPED, "--start") == TYPED_MEANS
+    assert moderation.parse_since(BARE_TYPED) == TYPED_MEANS
+    assert moderation.parse_until(BARE_TYPED, now=datetime(2026, 9, 6, 10, 0, tzinfo=UTC)) == TYPED_MEANS
+
+
+def test_a_typed_time_that_carries_an_offset_is_read_as_written():
+    from discord_tools import watch
+    from discord_tools.records import parse_date_bound
+
+    assert parse_date_bound("2026-09-06T16:30+02:00", end_of_day=False) == TYPED_MEANS
+    assert watch.parse_moment("2026-09-06T16:30+02:00", "--start") == TYPED_MEANS
+
+
+def test_every_flag_that_takes_a_time_says_which_zone_it_reads():
+    from capture_help import COMMANDS, parser_for
+    from discord_tools.records import BARE_TIME_IS_UTC
+
+    silent = []
+    for path in COMMANDS:
+        for action in parser_for(path)._actions:
+            if TIME_FLAGS.intersection(action.option_strings) and BARE_TIME_IS_UTC not in (action.help or ""):
+                silent.append((" ".join(path) or "root", action.option_strings[0]))
+    assert silent == []
+
+
+def test_every_menu_prompt_that_asks_for_a_time_says_which_zone_it_reads():
+    from pathlib import Path
+
+    from discord_tools import menu
+    from discord_tools.records import BARE_TIME_IS_UTC
+
+    source = Path(menu.__file__).read_text(encoding="utf-8").splitlines()
+    # The prompts are f-strings over the constant, so the line carries its name.
+    assert BARE_TIME_IS_UTC
+    silent = [line.strip() for line in source if "ISO 8601" in line and "BARE_TIME_IS_UTC" not in line]
+    assert silent == []
+
+
+def test_the_menu_date_prompt_carries_the_zone_in_its_label():
+    from discord_tools import menu
+    from discord_tools.records import BARE_TIME_IS_UTC
+
+    asked = []
+
+    def read(prompt):
+        asked.append(prompt)
+        return BARE_TYPED
+
+    assert menu._ask_date("Since", read=read, write=lambda _text: None) == BARE_TYPED
+    assert BARE_TIME_IS_UTC in asked[0]

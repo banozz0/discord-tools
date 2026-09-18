@@ -1,10 +1,6 @@
 # Changelog
 
-## Unreleased
-
-<!-- For the release commit that renames this heading: the fixers of the
-     2026-09-17 wave suggest skill/SKILL.md's own version goes to 1.16.0.
-     Nothing in this wave bumped a version; one commit does all of them. -->
+## 0.20.0 — 2026-09-18
 
 A live run through the whole menu on 2026-09-17 found what the suite could
 not: rows that did not say what a message was, times with no zone, writes that
@@ -112,6 +108,14 @@ since 2026-09-12.
 
 ### What a write checks before it acts
 
+- **Fixed: the audit log reads on a server that has ever had an invite made or
+  removed.** An invite entry's target id is its code, a string, and two places
+  forced every target id to an integer, so one invite entry killed the whole
+  command with `invalid literal for int()` and the newest fifty entries became
+  nothing at all. The screen now names an invite by its code, the envelope keeps
+  `target_id` as the snowflake or null and adds `target_ref`, the id Discord gave
+  whichever kind it is, and the fake audit log answers in the seam's own shape so
+  a sample row can no longer lie about what Discord sends.
 - **Every write re-checks its rights after the gate, not only `message
   delete`.** The plan is re-derived once the `y/N` or the typed name is
   answered, and until now only a change in the *target* refused: a right taken

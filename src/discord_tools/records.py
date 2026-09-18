@@ -197,19 +197,51 @@ def forward_of(message: Any) -> dict[str, Any] | None:
         return None
     snapshot = _snapshot(message)
     when = getattr(snapshot, "created_at", None)
+    channel_id = _int_or_none(getattr(reference, "channel_id", None))
     record = {
-        "channel_id": _int_or_none(getattr(reference, "channel_id", None)),
+        "channel_id": channel_id,
         "guild_id": _int_or_none(getattr(reference, "guild_id", None)),
         "message_id": _int_or_none(getattr(reference, "message_id", None)),
         "date": when.astimezone(UTC).isoformat() if isinstance(when, datetime) and when.tzinfo else None,
     }
+    name = channel_name_of(message, channel_id)
+    if name:
+        record["channel_name"] = name
     record["label"] = forward_label(record)
     return record
 
 
+def channel_name_of(message: Any, channel_id: int | None) -> str | None:
+    """The name of `channel_id` from what is already in hand, or None. Never a call.
+
+    The message's own channel when the forward came from there, else the
+    server cache discord.py keeps, which a gateway connection fills. A name
+    is worth a row that reads; it is not worth a fetch per row, and a channel
+    in another server has no name this bot can learn at all, so None is a fact
+    and the id stands.
+    """
+    if not channel_id:
+        return None
+    guild = getattr(message, "guild", None)
+    cached = getattr(guild, "get_channel_or_thread", None)
+    for place in (getattr(message, "channel", None), cached(channel_id) if callable(cached) else None):
+        if place is None or _int_or_none(getattr(place, "id", None)) != channel_id:
+            continue
+        name = getattr(place, "name", None)
+        if isinstance(name, str) and name:
+            return name
+    return None
+
+
 def forward_label(forward: Mapping[str, Any]) -> str:
-    """How a forward reads at a glance: `#<channel id>`, the one origin Discord sends."""
-    channel = forward.get("channel_id")
+    """How a forward reads at a glance: `#releases` where the origin has a name here, else `#<channel id>`.
+
+    Discord sends a forward's origin as a channel id and nothing else, and an
+    id is not something a person reads. The name is the one this tool already
+    had when the row was made; a row written before there was one, or one
+    forwarded out of a server this bot is not in, keeps the id.
+    """
+    channel = forward.get("channel_name") or forward.get("channel_id")
     return f"#{channel}" if channel else "elsewhere"
 
 

@@ -132,10 +132,16 @@ def candidates_of(message: Any, *, rid: str, author_rid: str | None) -> list[tup
     carrying the URL exactly as written, so the full link pipeline (redirects
     walked after approval, the private-network pin) runs on it: an embed is
     Discord's preview of a URL somebody else chose, not platform media.
+
+    A forward carries none of that itself: the file it moved and the text its
+    links are written in ride in the snapshot, so the carrier is what is read
+    here, the same way the row's text is. Read raw, a forwarded file or link
+    never reached the review queue at all.
     """
     message_id = str(int(getattr(message, "id")))
+    source = carrier(message)
     out: list[tuple[Candidate, str | None]] = []
-    for attachment in getattr(message, "attachments", None) or ():
+    for attachment in getattr(source, "attachments", None) or ():
         url = getattr(attachment, "url", None)
         attachment_id = getattr(attachment, "id", None) or attachment_id_of(url)
         if attachment_id is None:
@@ -157,8 +163,8 @@ def candidates_of(message: Any, *, rid: str, author_rid: str | None) -> list[tup
                 str(url) if url else None,
             )
         )
-    links = links_in(getattr(message, "content", "") or "")
-    for embed in getattr(message, "embeds", None) or ():
+    links = links_in(getattr(source, "content", "") or "")
+    for embed in getattr(source, "embeds", None) or ():
         url = getattr(embed, "url", None)
         if url and str(url) not in links and LINK.fullmatch(str(url)):
             links.append(str(url))

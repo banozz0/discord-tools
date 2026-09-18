@@ -21,7 +21,7 @@ from discord_tools.models import (
     ThreadInfo,
     id_and_ref,
 )
-from discord_tools.records import message_to_record
+from discord_tools.records import carrier, message_body, message_to_record
 
 
 class ClientError(RuntimeError):
@@ -101,19 +101,28 @@ def permission_names(bits: str | int) -> tuple[str, ...]:
 
 
 def _message_info(message: Any, channel_id: int) -> MessageInfo:
+    """One fetched message as the message verbs read it: the words a person sees.
+
+    `content` is empty on a forward and on a poll, and the files of a forward
+    are in its snapshot, so reading either raw made `message copy` post an
+    attribution with nothing above it and every preview say `(no text)`.
+    `message_body` is the one derivation the rows, the archive and the exports
+    already share, and `carrier` the one place a forward's files are.
+    """
     author = getattr(message, "author", None)
     created = getattr(message, "created_at", None)
+    source = carrier(message)
     return MessageInfo(
         id=int(message.id),
         channel_id=channel_id,
         author_id=getattr(author, "id", None),
         author_name=str(getattr(author, "name", "") or ""),
-        text=getattr(message, "content", "") or "",
+        text=message_body(message).text,
         date=created.isoformat() if created is not None else None,
         pinned=bool(getattr(message, "pinned", False)),
         attachments=tuple(
             AttachmentInfo(filename=a.filename, url=a.url, size=int(getattr(a, "size", 0) or 0))
-            for a in getattr(message, "attachments", None) or ()
+            for a in getattr(source, "attachments", None) or ()
         ),
         reactions=tuple(
             ReactionInfo(emoji=str(r.emoji), count=int(r.count), me=bool(getattr(r, "me", False)))

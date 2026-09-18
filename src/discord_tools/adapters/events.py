@@ -39,7 +39,7 @@ from typing import Any, Iterator, Mapping, Sequence
 from discord_tools._core import rid as _rid
 from discord_tools.adapters.archive import author_of, links_in
 from discord_tools.config import ConfigError
-from discord_tools.records import message_date
+from discord_tools.records import carrier, message_body, message_date
 
 PLATFORM = "discord"
 
@@ -160,16 +160,23 @@ def message_events(message: Any, *, kind: str = "message", cursor: str | None = 
     `kind` is `message` for a new one and `edit` for an edit; an edit keeps its
     own kind and does not repeat the link and media events, because the file
     and the URL were already seen when the message arrived.
+
+    A rule matches the text of the event, and `content` is empty on a forward
+    and on a poll: read raw, a keyword rule could never fire on either, and a
+    forwarded file was not a `media` event at all. The text is the one
+    `message_body` derives for every row, and the files and links are read off
+    the carrier, so a rule sees what a person sees.
     """
     channel = getattr(message, "channel", None)
     rid = scope_rid(channel) if channel is not None else str(_rid.make("dc", "channel", int(getattr(message, "channel_id", 0))))
     author = author_of(message)
-    text = getattr(message, "content", "") or ""
+    source = carrier(message)
+    text = message_body(message).text
     when = message_date(message)
     edited = getattr(message, "edited_at", None)
-    attachments = attachments_of(message)
+    attachments = attachments_of(source)
     links = links_in(text)
-    for embed in getattr(message, "embeds", None) or ():
+    for embed in getattr(source, "embeds", None) or ():
         url = getattr(embed, "url", None)
         if url and str(url) not in links:
             links.append(str(url))
@@ -190,7 +197,7 @@ def message_events(message: Any, *, kind: str = "message", cursor: str | None = 
             "channel_id": int(getattr(channel, "id", 0) or getattr(message, "channel_id", 0) or 0),
             "author": author,
             "attachment_names": [item["display_name"] for item in attachments],
-            "embeds": len(getattr(message, "embeds", None) or ()),
+            "embeds": len(getattr(source, "embeds", None) or ()),
             "reply_to": _reply_to(message),
         },
         "occurred_at": (edited or when).isoformat() if (edited or when) else None,

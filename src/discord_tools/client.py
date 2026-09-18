@@ -346,6 +346,36 @@ def _invite_dict(invite: Any) -> dict[str, Any]:
     }
 
 
+def _printable(value: Any) -> Any:
+    """One side of one audit change, as something a script can read.
+
+    discord.py types a change value per field, so a diff carries whole objects: an
+    `Object` for a channel an entry only names by id, an `InviteFlags`, an enum, a
+    datetime, a list of any of those. `str()` of one of those is a repr
+    (`<Object id=... >`), which names nothing a caller can use, so an object is
+    read for what identifies it — its id, a flags value, an enum's name — and only
+    a value with none of those falls back to its text.
+    """
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [_printable(item) for item in value]
+    if isinstance(value, datetime):
+        return value.isoformat()
+    identifier = getattr(value, "id", None)
+    if isinstance(identifier, int):
+        return identifier
+    if isinstance(identifier, str) and identifier:
+        return identifier
+    name = getattr(value, "name", None)
+    if isinstance(name, str) and name:
+        return name
+    bits = getattr(value, "value", None)
+    if isinstance(bits, int):
+        return bits
+    return str(value)
+
+
 def _audit_changes(entry: Any) -> dict[str, Any]:
     """What one entry changed, as `{field: [before, after]}` of printable values."""
     before, after = getattr(entry, "before", None), getattr(entry, "after", None)
@@ -353,7 +383,7 @@ def _audit_changes(entry: Any) -> dict[str, Any]:
     changes: dict[str, Any] = {}
     for key in sorted(keys):
         old, new = getattr(before, key, None), getattr(after, key, None)
-        changes[key] = [None if old is None else str(old), None if new is None else str(new)]
+        changes[key] = [_printable(old), _printable(new)]
     return changes
 
 

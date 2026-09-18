@@ -1,4 +1,5 @@
 import asyncio
+import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -782,3 +783,37 @@ def test_an_audit_log_reads_every_entry_including_a_target_whose_id_is_not_a_num
         (None, None, None),
         (101, "101", "deploys"),
     ]
+
+
+class _Diff:
+    """What discord.py hands back as `entry.before` / `entry.after`: an attribute bag
+    that iterates as (field, value) pairs."""
+
+    def __init__(self, **fields):
+        self.__dict__.update(fields)
+
+    def __iter__(self):
+        return iter(self.__dict__.items())
+
+
+def test_an_audit_changes_value_is_an_id_or_a_number_never_a_discord_py_repr(monkeypatch):
+    """A script reading `audit-log list --json` needs the id, not `<Object id=... >`."""
+    entry = _audit_entry(8, "invite_create", SimpleNamespace(id="Ag3VBXe", code="Ag3VBXe"))
+    entry.before = _Diff(channel=None, flags=None, max_uses=None, type=None, created_at=None)
+    entry.after = _Diff(
+        channel=SimpleNamespace(id=1550190030977503256),  # an `Object`, whose repr is what leaked
+        flags=SimpleNamespace(value=0),  # `InviteFlags`
+        max_uses=0,
+        type=SimpleNamespace(name="text", value=0),  # an enum
+        created_at=datetime(2026, 9, 9, 10, 0, tzinfo=timezone.utc),
+    )
+    client, _guild = _structure_client(monkeypatch, _audit_guild([entry]))
+
+    changes = asyncio.run(client.audit_log(10))[0]["changes"]
+
+    assert changes["channel"] == [None, 1550190030977503256], changes
+    assert changes["flags"] == [None, 0]
+    assert changes["max_uses"] == [None, 0]
+    assert changes["type"] == [None, "text"]
+    assert changes["created_at"] == [None, "2026-09-09T10:00:00+00:00"]
+    assert "<" not in json.dumps(changes)

@@ -15,7 +15,6 @@ first segment, neither of which costs a call.
 
 from __future__ import annotations
 
-import json
 import os
 import re
 from pathlib import Path
@@ -140,33 +139,27 @@ def local_identity(config: Config, *, home: Path | None = None) -> Identity:
 
 
 def list_scopes(archive: Archive, identity: str | None = None) -> list[dict[str, Any]]:
-    """Every scope the archive holds: rid, kind, title, path, and its coverage."""
-    where, params = ("WHERE s.identity_id = ?", [identity]) if identity else ("", [])
-    rows = archive.connection.execute(
-        "SELECT s.rid, s.kind, s.title, s.path, s.identity_id, c.visible, c.skipped_reason,"
-        " c.synced_from, c.synced_to,"
-        " (SELECT COUNT(*) FROM messages m WHERE m.rid = s.rid) AS messages"
-        f" FROM scopes s LEFT JOIN coverage c ON c.rid = s.rid AND c.identity_id = s.identity_id {where}"
-        " ORDER BY s.path, s.rid",
-        params,
-    ).fetchall()
-    listed = []
-    for row in rows:
-        listed.append(
-            {
-                "rid": row["rid"],
-                "kind": row["kind"],
-                "title": row["title"],
-                "path": tuple(json.loads(row["path"] or "[]")),
-                "identity_id": row["identity_id"],
-                "visible": None if row["visible"] is None else bool(row["visible"]),
-                "skipped_reason": row["skipped_reason"],
-                "synced_from": row["synced_from"],
-                "synced_to": row["synced_to"],
-                "messages": row["messages"],
-            }
-        )
-    return listed
+    """Every scope the archive holds: rid, kind, title, path, and its coverage.
+
+    The archive answers the join; this picks the keys the status envelope and
+    the menu's picker print, so a row the core grows later is not printed here
+    by accident.
+    """
+    return [
+        {
+            "rid": row["rid"],
+            "kind": row["kind"],
+            "title": row["title"],
+            "path": row["path"],
+            "identity_id": row["identity_id"],
+            "visible": row["visible"],
+            "skipped_reason": row["skipped_reason"],
+            "synced_from": row["synced_from"],
+            "synced_to": row["synced_to"],
+            "messages": row["messages"],
+        }
+        for row in archive.scope_summaries(identity)
+    ]
 
 
 def scope_rid(archive: Archive, reference: str) -> str:
@@ -199,21 +192,16 @@ def author_rid(archive: Archive, reference: str) -> str | None:
     if not text:
         return None
     if text.isdecimal():
-        row = archive.connection.execute(
-            "SELECT rid FROM authors WHERE rid IN (?, ?)",
-            (str(_rid.make("dc", "user", int(text))), str(_rid.make("dc", "bot", int(text)))),
-        ).fetchone()
-        return row["rid"] if row else str(_rid.make("dc", "user", int(text)))
+        as_user = str(_rid.make("dc", "user", int(text)))
+        known = archive.known_author_rids((as_user, str(_rid.make("dc", "bot", int(text)))))
+        return known[0] if known else as_user
     try:
         _rid.parse(text)
         return text
     except _rid.RidError:
         pass
-    row = archive.connection.execute(
-        "SELECT rid FROM authors WHERE LOWER(username) = LOWER(?) OR LOWER(label) = LOWER(?) LIMIT 1",
-        (text, text),
-    ).fetchone()
-    if row is None:
+    found = archive.author_rid(text)
+    if found is None:
         from discord_tools._core.contract import CodedError
 
         raise CodedError(
@@ -221,7 +209,7 @@ def author_rid(archive: Archive, reference: str) -> str | None:
             f"No archived message is from {reference!r}.",
             hint="Use the author's numeric Discord id, or a username exactly as it appears in the archive.",
         )
-    return row["rid"]
+    return found
 
 
 def date_bound(value: str | None, *, end_of_day: bool) -> str | None:
@@ -418,13 +406,11 @@ KEEP_SHAPE = re.compile(r"\d+\s*(d|days?)?", re.IGNORECASE)
 
 
 def messages_in(archive: Archive, rid: str) -> int:
-    return archive.connection.execute("SELECT COUNT(*) FROM messages WHERE rid = ?", (rid,)).fetchone()[0]
+    return archive.message_count(rid=rid)
 
 
 def messages_of(archive: Archive, identity_id: str) -> int:
-    return archive.connection.execute(
-        "SELECT COUNT(*) FROM messages WHERE identity_id = ?", (identity_id,)
-    ).fetchone()[0]
+    return archive.message_count(identity_id=identity_id)
 
 
 # -- bookmarks ------------------------------------------------------------
@@ -437,42 +423,22 @@ BOOKMARK_SOURCE = "manual"
 
 
 def add_bookmark(archive: Archive, *, rid: str, message_id: int, identity_id: str, label: str = "") -> dict[str, Any]:
-    from discord_tools._core.contract import utc_now
-
-    archive.connection.execute(
-        "INSERT INTO bookmarks (rid, message_id, identity_id, label, created, source) VALUES (?, ?, ?, ?, ?, ?)"
-        " ON CONFLICT(rid, message_id) DO UPDATE SET label = excluded.label, identity_id = excluded.identity_id",
-        (rid, str(message_id), identity_id, label, utc_now(), BOOKMARK_SOURCE),
+    return archive.add_bookmark(
+        rid=rid, message_id=message_id, identity_id=identity_id, label=label, source=BOOKMARK_SOURCE
     )
-    return read_bookmark(archive, rid=rid, message_id=message_id) or {}
 
 
 def remove_bookmark(archive: Archive, *, rid: str, message_id: int) -> bool:
-    cursor = archive.connection.execute(
-        "DELETE FROM bookmarks WHERE rid = ? AND message_id = ?", (rid, str(message_id))
-    )
-    return cursor.rowcount > 0
+    return archive.remove_bookmark(rid, message_id)
 
 
 def read_bookmark(archive: Archive, *, rid: str, message_id: int) -> dict[str, Any] | None:
-    row = archive.connection.execute(
-        "SELECT rid, message_id, identity_id, label, created, source FROM bookmarks WHERE rid = ? AND message_id = ?",
-        (rid, str(message_id)),
-    ).fetchone()
-    return dict(row) if row else None
+    return archive.bookmark(rid, message_id)
 
 
 def list_bookmarks(archive: Archive, identity_id: str | None = None) -> list[dict[str, Any]]:
     """Every bookmark, newest first, with the archived text beside it when the archive holds the message."""
-    where, params = ("WHERE b.identity_id = ?", [identity_id]) if identity_id else ("", [])
-    rows = archive.connection.execute(
-        "SELECT b.rid, b.message_id, b.identity_id, b.label, b.created, b.source, s.title AS scope_title,"
-        " (SELECT m.text FROM messages m WHERE m.rid = b.rid AND m.message_id = b.message_id) AS text"
-        f" FROM bookmarks b LEFT JOIN scopes s ON s.rid = b.rid {where}"
-        " ORDER BY b.created DESC, b.message_id DESC",
-        params,
-    ).fetchall()
-    return [dict(row) for row in rows]
+    return list(archive.bookmarks(identity_id))
 
 
 def format_bookmarks(rows: Sequence[dict[str, Any]]) -> str:

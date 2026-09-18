@@ -21,7 +21,10 @@ What is solved here once, with fixtures that simulate it:
   (`cursor:<rid>`), written after the event it names has been evaluated.
   On start the runner replays every scope from its cursor through the
   engine with dedup on, so an event evaluated before the crash is a
-  duplicate and an event the crash swallowed fires once.
+  duplicate and an event the crash swallowed fires once. A cursor whose
+  rid the source disowns (the optional `carries(rid)`) is retired with a
+  `cursor_retired` line instead of replayed: it names a scope no event
+  can reach, so it could never advance and every start walked it whole.
 - **Clock jumps.** Schedules are planned from a monotonic baseline recorded
   with the wall time at start. Each tick compares the wall clock with what
   the monotonic clock says it should be: a backward jump over
@@ -32,6 +35,14 @@ What is solved here once, with fixtures that simulate it:
 - **Rate limits.** A delivery that raises `RateLimited` is waited for
   through the `wait` callback and retried once; every wait is reported in
   `status()`.
+- **Drops are named.** An event the engine discards before any rule runs
+  is a `dropped` line carrying `rules.drop_reason`'s own word. The first
+  of a reason is written at once with the event that caused it; its
+  repeats are counted and written as one folded line each
+  `DROP_SUMMARY_S`, because on a busy scope most traffic is this
+  identity's own. The window is per reason, so a rare reason is never
+  hidden behind a common one, and `status()` carries the per-reason
+  totals.
 - **Delivery.** `PlatformDelivery` sends through the tool's own
   `MessageSender` under `yes_allowlist` and refuses a rid on another
   platform (that is what a command destination is for);
@@ -92,6 +103,9 @@ RUNNER_HELD = "runner-held: fires only while watch run is up on this machine"
 # far past its wall time is `late`.
 BACKWARD_JUMP_S = 60
 LATE_TOLERANCE_S = 60
+# Section 10.3: a drop is the common case, so the log names a reason the first
+# time it is seen and folds its repeats into one counted line per window.
+DROP_SUMMARY_S = 60
 STATUS_LOG_LINES = 20
 STOP_WAIT_S = 10
 COMMAND_TIMEOUT_S = 30
@@ -791,6 +805,19 @@ def _event_cursor(data: Any, event: Event) -> str | None:
     return event.subject_id if event.has_message else None
 
 
+@dataclass
+class _DropFold:
+    """One reason's open drop window: what it has held since the line that opened it."""
+
+    reason: str
+    until: float
+    opened: float
+    held: int = 0
+    rid: str = ""
+    event_key: str = ""
+    sender: str | None = None
+
+
 class Runner:
     """One tool's `watch run`: lock, replay, evaluate, deliver, tick (section 10.5).
 
@@ -848,7 +875,10 @@ class Runner:
         self.reload_requested = False
         self.deliveries: deque[dict[str, Any]] = deque(maxlen=100)
         self.waits: deque[dict[str, Any]] = deque(maxlen=100)
-        self.counts: dict[str, int] = {"events": 0, "refused": 0, "dropped": 0, "fired": 0, "replayed": 0, "syncs": 0, "unfulfilled_syncs": 0}
+        self.counts: dict[str, int] = {"events": 0, "refused": 0, "dropped": 0, "fired": 0, "replayed": 0, "syncs": 0, "unfulfilled_syncs": 0, "retired": 0}
+        self.retired: list[str] = []
+        self.drops: dict[str, int] = {}
+        self._drop_folds: dict[str, _DropFold] = {}
         self.jumps: deque[dict[str, Any]] = deque(maxlen=20)
         self._signals: dict[int, Any] = {}
 
@@ -868,6 +898,7 @@ class Runner:
         return info
 
     def stop(self) -> None:
+        self.flush_drops(force=True)
         if self.lock.held:
             self.log.write("stopped", pid=self.lock.pid)
         self.lock.release()
@@ -930,9 +961,16 @@ class Runner:
     # -- events --------------------------------------------------------------
 
     def replay(self, source: Any) -> dict[str, int]:
-        """Section 10.5: every scope with a cursor, from that cursor to now, through the engine with dedup on."""
+        """Section 10.5: every scope with a cursor, from that cursor to now, through the engine with dedup on.
+
+        A cursor the source disowns is retired first: it names a scope no
+        event can reach any more, so it could never advance and every start
+        replayed the whole of it again.
+        """
         replayed: dict[str, int] = {}
         for rid, cursor in self.state.cursors().items():
+            if self._retire(source, rid, cursor):
+                continue
             count = 0
             for data in source.replay(rid, cursor):
                 self.handle(data)
@@ -941,6 +979,34 @@ class Runner:
             self.counts["replayed"] += count
         self.log.write("replayed", scopes=replayed)
         return replayed
+
+    def _retire(self, source: Any, rid: str, cursor: str) -> bool:
+        """Delete a cursor the source positively disowns, and say so in the log. Default is keep.
+
+        The runner cannot know which rids a platform can still deliver - that
+        is the source's knowledge, and naming it here would be a platform
+        branch - so the source may offer `carries(rid)`. Only an explicit
+        `False` retires: a source without the method, one that raises, and any
+        other answer all keep the cursor, because a cursor wrongly dropped
+        loses the events that arrived while the runner was down. A retired
+        cursor costs nothing else: a scope with no cursor is simply not
+        replayed, and the next event on it writes a fresh one.
+        """
+        carries = getattr(source, "carries", None)
+        if not callable(carries):
+            return False
+        try:
+            answer = carries(rid)
+        except Exception as exc:  # a failure is not a disavowal
+            self.log.write("cursor_kept", rid=rid, reason="the source could not answer", error=type(exc).__name__)
+            return False
+        if answer is not False:
+            return False
+        self.state.delete(CURSOR_KEY + rid)
+        self.counts["retired"] += 1
+        self.retired.append(rid)
+        self.log.write("cursor_retired", rid=rid, cursor=cursor, reason="the source does not carry this scope")
+        return True
 
     def handle(self, data: Mapping[str, Any] | Event) -> Evaluation | None:
         """One event: refuse another platform's, evaluate, deliver, fulfil, then move the cursor."""
@@ -953,7 +1019,7 @@ class Runner:
             return None
         evaluation = self.engine.evaluate(event)
         if evaluation.dropped is not None:
-            self.counts["dropped"] += 1
+            self._record_drop(event, evaluation.dropped)
         self.counts["fired"] += len(evaluation.fired)
         for intent in evaluation.alerts:
             self.deliver(intent)
@@ -963,6 +1029,68 @@ class Runner:
         if cursor is not None:
             self.state.save_cursor(event.rid, cursor)
         return evaluation
+
+    # -- drops ---------------------------------------------------------------
+
+    def _record_drop(self, event: Event, reason: str) -> None:
+        """Section 10.3: an event the engine threw away, named in the log with its reason.
+
+        A drop is the common case - every message this identity sent is one,
+        and on a busy scope that is most of the traffic - so a line per event
+        would bury the log a person reads when the runner looks idle. The
+        first drop of a reason is written at once, naming the event; its
+        repeats are counted and written as one line when the window ends. The
+        window is per reason, so a second, rarer reason among thousands of
+        common ones still speaks the moment it first appears.
+        """
+        self.counts["dropped"] += 1
+        self.drops[reason] = self.drops.get(reason, 0) + 1
+        now = self.clock.wall()
+        fold = self._drop_folds.get(reason)
+        if fold is not None and fold.until <= now:
+            self._close_drop(fold, now, reopen=True)
+            fold = self._drop_folds.get(reason)
+        if fold is not None:
+            fold.held += 1
+            fold.rid, fold.event_key, fold.sender = event.rid, event.event_key, event.sender_rid
+            return
+        self._drop_folds[reason] = _DropFold(reason, now + DROP_SUMMARY_S, now)
+        self.log.write("dropped", reason=reason, rid=event.rid, event_key=event.event_key, sender=event.sender_rid, count=1)
+
+    def _close_drop(self, fold: _DropFold, now: float, *, reopen: bool) -> None:
+        """A window's end: one counted line for what it held, and a fresh window while they keep coming.
+
+        The write is what publishes the count, so the fold is only replaced
+        once the line is out: a log write that raises leaves the window
+        holding its count for the next flush rather than losing it.
+        """
+        if fold.held == 0:
+            del self._drop_folds[fold.reason]
+            return
+        self.log.write(
+            "dropped",
+            reason=fold.reason,
+            rid=fold.rid,
+            event_key=fold.event_key,
+            sender=fold.sender,
+            count=fold.held,
+            folded=True,
+            since=_iso(fold.opened),
+        )
+        if reopen:
+            self._drop_folds[fold.reason] = _DropFold(fold.reason, now + DROP_SUMMARY_S, now)
+        else:
+            del self._drop_folds[fold.reason]
+
+    def flush_drops(self, *, force: bool = False) -> int:
+        """Close every drop window that is due - every one at stop - and answer how many drops that named."""
+        now = self.clock.wall()
+        held = 0
+        for fold in list(self._drop_folds.values()):
+            if force or fold.until <= now:
+                held += fold.held
+                self._close_drop(fold, now, reopen=not force)
+        return held
 
     def deliver(self, intent: AlertIntent) -> dict[str, Any]:
         """One intent through the delivery, honouring one rate-limit wait; every outcome is recorded for status."""
@@ -1023,6 +1151,12 @@ class Runner:
         if drift < -BACKWARD_JUMP_S:
             jump = {"direction": "backward", "seconds": round(-drift, 3), "at": _iso(wall)}
             self._rebaseline("backward jump")
+            # A window's `until` is a wall stamp, so a clock set back would hold
+            # its count until the wall caught up: write the open ones out now.
+            # `force` closes without re-opening, and the next drop of that reason
+            # opens a fresh window from the new clock.
+            self.flush_drops(force=True)
+        self.flush_drops()
         summaries = self.engine.flush()
         for intent in summaries:
             self.deliver(intent)
@@ -1083,6 +1217,8 @@ class Runner:
                 "running": self.lock.held,
                 "started_at": self.started_at,
                 "counts": dict(self.counts),
+                "drops": dict(self.drops),
+                "retired": list(self.retired),
                 "engine": self.engine.status(),
                 "waits": list(self.waits),
                 "deliveries": list(self.deliveries),

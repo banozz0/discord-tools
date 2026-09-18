@@ -136,9 +136,26 @@ def test_a_scope_id_the_archive_never_synced_is_target_not_found(home_is_a_tmp_d
     assert json.loads(out.stdout.getvalue())["error"]["code"] == "TARGET_NOT_FOUND"
 
 
-def test_a_bad_query_is_refused_rather_than_a_traceback(home_is_a_tmp_dir):
+def test_a_hyphenated_word_finds_its_row_rather_than_a_parse_error(home_is_a_tmp_dir):
+    client = a_client()
+    client.history[10].insert(0, message(4, "campaign-alert-721 fired"))
+    go(["--json", "archive", "sync"], client=client, json=True)
+    code, out = go(["--json", "archive", "search", "--query", "campaign-alert-721"], client=client, json=True)
+    assert code == 0
+    hits = json.loads(out.stdout.getvalue())["result"]["hits"]
+    assert [hit["message_id"] for hit in hits] == ["4"]
+
+
+def test_a_query_fts5_cannot_parse_is_searched_rather_than_refused(home_is_a_tmp_dir):
     synced(home_is_a_tmp_dir)
     code, out = go(["--json", "archive", "search", "--query", "deploy AND"], json=True)
+    assert code == 0
+    assert json.loads(out.stdout.getvalue())["result"]["hits"] == []
+
+
+def test_an_empty_query_is_refused_rather_than_a_traceback(home_is_a_tmp_dir):
+    synced(home_is_a_tmp_dir)
+    code, out = go(["--json", "archive", "search", "--query", "   "], json=True)
     assert code == 2
     assert json.loads(out.stdout.getvalue())["error"]["code"] == "CONFIG_INVALID"
 

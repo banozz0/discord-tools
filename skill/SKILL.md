@@ -320,7 +320,7 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
 | "alert me when someone posts a github link there" | hand them `discord-tools watch rules add --name links --on message --domain github.com --alert-channel <id>` — rule 17, they answer its y/N, then run `watch run` themselves |
 | "what is it watching for?" | `discord-tools watch rules list` — the rules and the gateway intents they need; no login |
 | "would that rule have caught this?" | `discord-tools watch rules test --event /path/event.json` — evaluates and fires nothing |
-| "is the watcher running?" | `discord-tools watch status` — the lock, rules, cursors, schedules and last log lines; no login |
+| "is the watcher running?" | `discord-tools watch status` — the lock, rules, cursors, schedules, why events were dropped and the last log lines; no login |
 | a long or multi-line message | pipe it: `... \| discord-tools send --channel <id> --text - --yes` |
 | "send them that file" (allowlisted) | `discord-tools send --channel <id> --file /path --text "caption" --yes` |
 | "make a channel/thread" (they asked) | `discord-tools create channel --server <id> --name "..." --yes` |
@@ -340,7 +340,10 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
 - **`archive search` is the cheap way to answer a history question.** It reads
   `~/.discord-tools/archive.sqlite`, makes no Discord call, ranks by relevance,
   and spans every archived channel unless `--scope <id>` narrows it. `--query`
-  takes FTS5 syntax (words, quoted phrases, AND, OR, NOT); `--context N` adds
+  takes FTS5 syntax (words, quoted phrases, AND, OR, NOT); a query FTS5 cannot
+  parse — a hyphenated word, a stray quote — is searched as literal words
+  rather than refused, so only a query holding no word at all is refused;
+  `--context N` adds
   the neighbours around a hit; `--from` takes an ID or a username. If it
   answers `ARCHIVE_UNAVAILABLE` there is no archive yet: run `archive sync`
   (a read; it may take a while on a big server) or fall back to live `search`.

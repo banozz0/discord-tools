@@ -569,3 +569,39 @@ def test_send_with_no_at_still_sends_now(home_is_a_tmp_dir):
     code, _body, _stderr = go(["--json", "send", "--channel", "101", "--text", "now", "--yes"], client)
     assert code == 0
     assert [row["text"] for row in client.sent] == ["now"]
+
+
+# -- what `watch status` says about a runner that dropped events --------------
+
+
+def test_status_counts_a_dropped_event_as_the_last_tick(home_is_a_tmp_dir):
+    """A runner whose every event was dropped is still ticking: `dropped` is a
+    log line the engine writes, and a status that ignored it said nothing had
+    happened since the start."""
+    from discord_tools import watch
+
+    text = watch.format_status(
+        {
+            "running": True,
+            "lock": {"pid": 4242, "started_at": "2026-09-18T09:00:00Z"},
+            "log": [
+                {"at": "2026-09-18T09:00:00Z", "event": "started"},
+                {"at": "2026-09-18T09:05:00Z", "event": "dropped", "reason": "no_rule"},
+            ],
+        }
+    )
+    assert "last tick 2026-09-18T09:05:00Z (dropped)" in text
+
+
+def test_status_names_why_events_were_dropped(home_is_a_tmp_dir):
+    from discord_tools import watch
+
+    text = watch.format_status({"running": True, "lock": None, "log": [], "drops": {"no_rule": 7, "unsupported": 2}})
+    assert "Drops      9 event(s): no_rule 7, unsupported 2" in text
+
+
+def test_status_says_nothing_about_drops_when_there_are_none(home_is_a_tmp_dir):
+    from discord_tools import watch
+
+    assert "Drops" not in watch.format_status({"running": False, "lock": None, "log": [], "drops": {}})
+    assert "Drops" not in watch.format_status({"running": False, "lock": None, "log": []})

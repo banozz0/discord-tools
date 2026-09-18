@@ -6,6 +6,14 @@ the runner's lock and log, and the audit log. Directories are created 0700
 and files 0600 here; `loose_modes()` is what `doctor` reports from before it
 refuses writes until the modes are fixed. Names that become path segments
 (profiles, rules, download ids) are checked so they cannot leave the tree.
+
+One directory is not tightened: `exports/`. What is private is the store --
+the archive and its logs, the profiles, the secrets -- and an export is a
+file the user asked this tool to write for them to open somewhere else. So
+the directory is created at the process's umask and a mode already on it is
+left alone, in both directions; `loose_modes()` does not report it or the
+directories under it, so `doctor` does not refuse over a choice the user
+made. The exported bytes are still written 0600 like every other file here.
 """
 
 from __future__ import annotations
@@ -37,6 +45,17 @@ def make_private_dir(path: Path) -> Path:
     """`path` as a 0700 directory, created or tightened."""
     path.mkdir(mode=DIR_MODE, parents=True, exist_ok=True)
     os.chmod(path, DIR_MODE)
+    return path
+
+
+def make_dir(path: Path) -> Path:
+    """`path` as a directory at the umask's mode, with an existing mode left as it is.
+
+    For the one part of the tree that holds nothing private. Nothing is
+    chmod'd: a directory the user opened stays open, and one they closed stays
+    closed.
+    """
+    path.mkdir(parents=True, exist_ok=True)
     return path
 
 
@@ -130,10 +149,17 @@ class ToolPaths:
         return (self.root, self.profiles, self.media, self.quarantine, self.exports, self.rules)
 
     def ensure(self) -> tuple[Path, ...]:
-        """Every directory of the layout, created 0700 or tightened to it."""
+        """Every directory of the layout: 0700, bar `exports/`, which keeps the umask's mode."""
         for directory in self.directories:
-            make_private_dir(directory)
+            if directory == self.exports:
+                make_dir(directory)
+            else:
+                make_private_dir(directory)
         return self.directories
+
+    def is_public_dir(self, path: Path) -> bool:
+        """Whether `path` is the exports directory or one under it: the tree's one public part."""
+        return path == self.exports or self.exports in path.parents
 
     def loose_modes(self) -> list[tuple[Path, int]]:
         """Every directory or file under the root readable by group or others, with its mode."""
@@ -144,6 +170,8 @@ class ToolPaths:
             here = Path(current)
             for entry in [here, *(here / name for name in files)]:
                 if entry.is_symlink():
+                    continue
+                if entry.is_dir() and self.is_public_dir(entry):
                     continue
                 mode = entry.stat().st_mode & 0o777
                 if mode & LOOSE_BITS:

@@ -1,5 +1,7 @@
 import csv
 import json
+import os
+import stat
 
 import pytest
 
@@ -71,3 +73,48 @@ def test_both_formats_are_written_as_utf8_whatever_the_locale(tmp_path):
         path = write_records(EMOJI_ROWS, tmp_path / name, fmt)
         # Decodes as UTF-8 on any machine, which is the property being pinned.
         assert "\U0001fa7ahealth" in path.read_bytes().decode("utf-8")
+
+
+# -- the mode of the exports directory ------------------------------------
+#
+# `exports/` is the one public part of the store: the user's own chat data,
+# theirs to share. Nothing here decides its mode -- a directory they opened
+# stays open, one they closed stays closed, and a new one is made at the
+# umask like any other directory a program creates.
+
+
+def _umask(value):
+    previous = os.umask(value)
+    return previous
+
+
+def test_an_export_leaves_a_0755_exports_directory_at_0755(tmp_path):
+    exports = tmp_path / ".discord-tools" / "exports"
+    exports.mkdir(parents=True)
+    exports.chmod(0o755)
+    path = write_records(RECORDS, "out.json", "json", home=tmp_path)
+    assert path.parent == exports
+    assert stat.S_IMODE(exports.stat().st_mode) == 0o755
+
+
+def test_a_blueprint_export_leaves_a_0755_exports_directory_at_0755(home_is_a_tmp_dir):
+    from discord_tools import structure
+
+    exports = home_is_a_tmp_dir / ".discord-tools" / "exports"
+    exports.mkdir(parents=True)
+    exports.chmod(0o755)
+    written = structure.write_blueprint({"schema": "dc/1"}, "server.json")
+    assert written.parent == exports
+    assert stat.S_IMODE(exports.stat().st_mode) == 0o755
+    assert stat.S_IMODE(written.stat().st_mode) == 0o600
+
+
+def test_a_blueprint_export_makes_a_missing_exports_directory_at_the_umask(home_is_a_tmp_dir):
+    from discord_tools import structure
+
+    previous = _umask(0o022)
+    try:
+        structure.write_blueprint({"schema": "dc/1"}, "server.json")
+    finally:
+        _umask(previous)
+    assert stat.S_IMODE((home_is_a_tmp_dir / ".discord-tools" / "exports").stat().st_mode) == 0o755

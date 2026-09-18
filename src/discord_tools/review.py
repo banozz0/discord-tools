@@ -18,7 +18,6 @@ test every other gate in the tool uses, never from a flag.
 
 from __future__ import annotations
 
-import json
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from discord_tools._core import rid as _rid
@@ -56,21 +55,7 @@ def set_extra(archive: Archive, manifest_id: str, values: Mapping[str, Any]) -> 
     """Merge `values` into the manifest row's `platform_json`: the CDN URL a sync saw, the
     refreshes a fetch made. Keys section 8.2 does not list live there, as the core keeps
     the platform's file key."""
-    present = {key: value for key, value in values.items() if value is not None}
-    if not present:
-        return
-    row = archive.connection.execute(
-        "SELECT platform_json FROM manifests WHERE manifest_id = ?", (manifest_id,)
-    ).fetchone()
-    if row is None:
-        return
-    stored = json.loads(row["platform_json"]) if row["platform_json"] else {}
-    stored.update(present)
-    archive.connection.execute(
-        "UPDATE manifests SET platform_json = ? WHERE manifest_id = ?",
-        (json.dumps(stored, sort_keys=True), manifest_id),
-    )
-    archive.connection.commit()
+    archive.set_manifest_extras(manifest_id, values)
 
 
 def sink_into(queue: ReviewQueue, identity_id: str) -> Callable[[Candidate, str | None], None]:

@@ -29,7 +29,7 @@ from discord_tools._core.blueprint import (
 )
 from discord_tools._core.export import ExportError, resolve_output
 from discord_tools._core.identity import Target
-from discord_tools._core.paths import make_private_dir, write_private
+from discord_tools._core.paths import make_dir, make_private_dir, write_private
 from discord_tools._core.plan import Approval, Mutation
 from discord_tools.adapters.blueprint import ALLOWLIST, banner_lines
 from discord_tools.archive import tool_paths
@@ -50,10 +50,15 @@ def output_path(output: str) -> Path:
 
 
 def write_blueprint(blueprint: Mapping[str, Any], output: str) -> Path:
-    """The blueprint as a 0600 file, its directory private like the rest of the store."""
+    """The blueprint as a 0600 file, in a directory whose mode is the user's own.
+
+    The store's root is private, but a blueprint lands in `exports/`, the one
+    part of the tree meant to be shared: `make_dir` creates it at the umask and
+    chmods nothing, so a directory the user opened stays open.
+    """
     make_private_dir(tool_paths().root)
     path = output_path(output)
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    make_dir(path.parent)
     return write_private(path, dumps(blueprint))
 
 

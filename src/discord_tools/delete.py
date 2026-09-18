@@ -4,8 +4,10 @@ import asyncio
 from collections.abc import Callable, Iterable
 from datetime import UTC, datetime, timedelta
 
+from discord_tools._core.contract import Error
 from discord_tools.client import API_ERRORS, ClientError
 from discord_tools.models import CONTAINER_KIND_TYPES, ContainerDeleteResult, DeleteResult
+from discord_tools.plans import PlanDriftError
 from discord_tools.records import snowflake_time
 
 # Discord's bulk-delete endpoint rejects messages older than 14 days, hard.
@@ -74,16 +76,72 @@ def split_bulk_window(message_ids: Iterable[int], *, now: datetime | None = None
     return bulk, single
 
 
-def confirm_clear_messages(*, read: Callable[[str], str] = input, write: Callable[[str], None] = print) -> str:
+# What the gate says about itself, under the warning and above the typed word.
+# The warning describes the verb; these two lines describe this run of it, so
+# DELETE is typed against a named target and a number rather than against the
+# idea of clearing. The count is the one the deletion will use: the scan that
+# produced it is the list the messages are deleted from.
+UNNAMED_TARGET = "the selected channel or thread"
+UNNAMED_SERVER = "the selected server"
+
+
+def confirm_clear_messages(
+    *,
+    target: str = UNNAMED_TARGET,
+    matched: int = 0,
+    bulk: int = 0,
+    single: int = 0,
+    read: Callable[[str], str] = input,
+    write: Callable[[str], None] = print,
+) -> str:
     write(CLEAR_MESSAGES_WARNING)
+    write(f"Target    {target}")
+    write(
+        f"Clearing  {matched} message(s) — {bulk} inside the 14-day bulk window (fast), "
+        f"{single} older (one-by-one, slower)"
+    )
     return read("Type DELETE to continue: ")
 
 
 def confirm_clear_server_messages(
-    *, include_threads: bool = True, read: Callable[[str], str] = input, write: Callable[[str], None] = print
+    *,
+    include_threads: bool = True,
+    target: str = UNNAMED_SERVER,
+    matched: int = 0,
+    locations: int = 0,
+    read: Callable[[str], str] = input,
+    write: Callable[[str], None] = print,
 ) -> str:
     write(CLEAR_SERVER_MESSAGES_WARNING if include_threads else CLEAR_SERVER_MESSAGES_WARNING_SKIP_THREADS)
+    write(f"Target    {target}")
+    write(f"Clearing  {matched} message(s) across {locations} location(s)")
     return read("Type DELETE to continue: ")
+
+
+async def refuse_if_messages_arrived(client, channel_id: int, scanned: list[int], *, where: str) -> None:
+    """Refuse when something arrived after the count the gate showed.
+
+    The count above the typed word is a promise about the blast radius, and
+    the gate sits on screen for as long as a person takes to read it. A
+    message posted in that gap was never counted and never shown; deleting it
+    would make the number a lie, so the run stops instead. One history call
+    bounded by the newest id already seen answers it -- snowflakes carry their
+    own time, so "newer than the scan" needs no second walk.
+
+    Fewer messages than were counted is the safe direction and passes: they
+    are simply not there to delete.
+    """
+    async for message in client.iter_history(channel_id, limit=1, after=max(scanned) if scanned else None):
+        raise PlanDriftError(
+            Error(
+                code="PLAN_DRIFT",
+                message=(
+                    f"Message {int(getattr(message, 'id'))} arrived in {where} after the "
+                    f"{len(scanned)} counted above, so nothing was deleted."
+                ),
+                hint="Run it again: the dry-run counts the location as it is now.",
+            )
+        )
 
 
 def _chunks(values: list[int], size: int) -> Iterable[list[int]]:
@@ -163,12 +221,13 @@ async def clear_messages(
 
     # Case-insensitive: typing the word is the proof of intent, not the shift
     # key — a dead caps lock must not make deletion impossible.
-    if confirm().strip().lower() != "delete":
+    if confirm(matched=len(ids), bulk=len(bulk), single=len(single)).strip().lower() != "delete":
         progress("Clear messages cancelled")
         return DeleteResult(matched=len(ids), bulk=len(bulk), single=len(single), deleted=0, dry_run=False, cancelled=True)
 
     if before_write is not None:
         await before_write()
+    await refuse_if_messages_arrived(client, channel_id, ids, where=f"channel {channel_id}")
 
     deleted, error = await delete_message_ids(
         client,
@@ -283,12 +342,16 @@ async def clear_server_messages(
     if execute:
         # One server, one explicit gate. Per-location confirmation would make
         # a large server a prompt gauntlet and still would not add safety.
-        if confirm().strip().lower() != "delete":
+        if confirm(matched=matched, locations=len(unique_locations)).strip().lower() != "delete":
             progress("Clear server messages cancelled")
             cancelled = True
         else:
             if before_write is not None:
                 await before_write()
+            for location, ids, _bulk, _single in plans:
+                await refuse_if_messages_arrived(
+                    client, location.id, ids, where=f"{location.name} ({location.id})"
+                )
             for location, ids, bulk, single in plans:
                 progress(f"Clearing {location.name} ({location.id})")
                 location_deleted, error = await delete_message_ids(

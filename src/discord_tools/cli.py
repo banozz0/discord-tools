@@ -2121,7 +2121,7 @@ async def _run_clear_messages(client, args, config, out) -> Outcome:
         return Outcome(status="refused", target=target, plan=write.plan, error=write.refusal)
 
     if not args.execute:
-        out.say(plans.format_preflight(write.plan))
+        out.say(plans.CLEAR_RIGHTS_PER_LOCATION if server_clear else plans.format_preflight(write.plan))
     else:
         refusal = out.approval_unavailable(
             "Run `discord-tools clear-messages --execute` in a terminal: it asks you to type DELETE, "
@@ -2139,7 +2139,9 @@ async def _run_clear_messages(client, args, config, out) -> Outcome:
             args.server,
             execute=args.execute,
             include_threads=include_threads,
-            confirm=lambda: confirm_clear_server_messages(include_threads=include_threads, write=out.say),
+            confirm=lambda **counts: confirm_clear_server_messages(
+                include_threads=include_threads, target=target.display, write=out.say, **counts
+            ),
             progress=out.say,
             before_write=guard,
             reason=write.reason,
@@ -2165,21 +2167,20 @@ async def _run_clear_messages(client, args, config, out) -> Outcome:
             return Outcome(status="dry_run", target=target, plan=write.plan, result=result)
         if result["cancelled"]:
             return Outcome(status="cancelled", target=target, plan=write.plan, result=result)
-        return Outcome(
-            status="ok",
-            target=target,
-            plan=write.plan,
-            result=result,
-            evidence=Evidence.verified(
-                f"{result['cleared']} message(s) cleared across {result['locations']} location(s)"
-            ),
+        evidence = Evidence.verified(
+            f"{result['cleared']} message(s) cleared across {result['locations']} location(s)"
         )
+        out.say(
+            f"Cleared {result['cleared']} of {result['matched']} message(s) across "
+            f"{result['locations']} location(s) in {target.display}. Read back: {evidence.readback}"
+        )
+        return Outcome(status="ok", target=target, plan=write.plan, result=result, evidence=evidence)
 
     result = await clear_messages(
         client,
         args.channel,
         execute=args.execute,
-        confirm=partial(confirm_clear_messages, write=out.say),
+        confirm=partial(confirm_clear_messages, target=target.display, write=out.say),
         progress=out.say,
         before_write=guard,
         reason=write.reason,
@@ -2193,6 +2194,12 @@ async def _run_clear_messages(client, args, config, out) -> Outcome:
     evidence = await plans.read_back(
         "the channel could not be read back",
         lambda: plans.channel_emptied(client, args.channel),
+    )
+    # The sentence the audit line carries, on the screen that says Done: the
+    # counts alone never said whether the channel actually came back empty.
+    out.say(
+        f"Cleared {result.deleted} of {result.matched} message(s) in {target.display}. "
+        f"Read back: {evidence.readback}"
     )
     return Outcome(status="ok", target=target, plan=write.plan, result=result.to_dict(), evidence=evidence)
 

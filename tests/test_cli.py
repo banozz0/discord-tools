@@ -598,3 +598,68 @@ def test_create_offers_every_type_delete_accepts():
     for kind in GUILD_CHANNEL_TYPES:
         args = parser.parse_args(["create", "channel", "--server", "1", "--name", "x", "--type", kind])
         assert args.channel_type == kind
+
+
+# -- the clear gate says what it is about (card agent-bo-95422316) ----------
+
+
+def test_a_server_scope_preflight_says_where_the_rights_are_checked(capsys):
+    """Live Discord 5 read "Permissions  no special permission" over a whole
+    server, which is true of the plan and false about the write."""
+    client = FakeClient(
+        servers=[ServerInfo(id=1, name="Ops")],
+        channels={1: [ChannelInfo(id=10, name="general", type="text")]},
+    )
+    assert run_cli(["clear-messages", "--server", "1"], client) == 0
+    output = capsys.readouterr().out
+    assert "no special permission" not in output
+    assert "manage_messages, read_message_history" in output
+    assert "checked in each location as it is read" in output
+
+
+def test_a_channel_scope_preflight_still_names_the_rights_it_holds(capsys):
+    client = FakeClient(history={55: []})
+    assert run_cli(["clear-messages", "--channel", "55"], client) == 0
+    assert "manage_messages, read_message_history — held" in capsys.readouterr().out
+
+
+def test_a_done_clear_says_what_it_cleared_and_what_it_read_back(capsys, monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr("discord_tools.cli.confirm_clear_messages", lambda **_: "DELETE")
+    client = FakeClient(history={55: [SimpleNamespace(id=900000000000000000)]})
+    assert run_cli(["clear-messages", "--channel", "55", "--execute"], client) == 0
+    output = capsys.readouterr().out
+    assert "Cleared 1 of 1 message(s) in" in output
+    assert "Read back: channel 55 holds no messages the bot can see" in output
+
+
+def test_a_done_server_clear_says_the_same_sentence(capsys, monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr("discord_tools.cli.confirm_clear_server_messages", lambda **_: "DELETE")
+    client = FakeClient(
+        servers=[ServerInfo(id=1, name="Ops")],
+        channels={1: [ChannelInfo(id=10, name="general", type="text")]},
+        history={10: [SimpleNamespace(id=900000000000000000)]},
+    )
+    assert run_cli(["clear-messages", "--server", "1", "--execute"], client) == 0
+    output = capsys.readouterr().out
+    assert "Cleared 1 of 1 message(s) across 1 location(s) in" in output
+    assert "Read back: 1 message(s) cleared across 1 location(s)" in output
+
+
+def test_the_clear_gate_is_handed_the_target_it_resolved(monkeypatch):
+    from types import SimpleNamespace
+
+    seen = []
+
+    def confirm(**kwargs):
+        seen.append(kwargs)
+        return "no"
+
+    monkeypatch.setattr("discord_tools.cli.confirm_clear_messages", confirm)
+    client = FakeClient(history={55: [SimpleNamespace(id=900000000000000000)]})
+    run_cli(["clear-messages", "--channel", "55", "--execute"], client)
+    assert seen and "55" in seen[0]["target"]
+    assert (seen[0]["matched"], seen[0]["bulk"], seen[0]["single"]) == (1, 0, 1)

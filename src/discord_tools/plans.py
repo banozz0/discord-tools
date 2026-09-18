@@ -202,6 +202,16 @@ async def build(
     return Write(plan=plan, refusal=refusal)
 
 
+# A server clear carries no plan-level rights on purpose: they are held per
+# channel and checked as each one is read. `format_preflight` would print
+# "Permissions  no special permission" for that, which is true of the plan and
+# false about the write -- it reads as if clearing a whole server needs no
+# right at all. This says where they are checked instead.
+CLEAR_RIGHTS_PER_LOCATION = (
+    "Permissions  " + ", ".join(REQUIRED_RIGHTS["clear-messages"]) + " — checked in each location as it is read"
+)
+
+
 def format_preflight(plan: Plan) -> str:
     """The first thing a dry-run prints: what the write needs and what it holds."""
     required = ", ".join(plan.preflight.required) or "no special permission"

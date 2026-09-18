@@ -2,6 +2,7 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
+import pytest
 from conftest import FakeClient
 
 from discord_tools.delete import (
@@ -15,6 +16,7 @@ from discord_tools.delete import (
     split_bulk_window,
 )
 from discord_tools.models import ChannelInfo, ServerInfo
+from discord_tools.plans import PlanDriftError
 from discord_tools.records import DISCORD_EPOCH_MS
 
 NOW = datetime(2026, 8, 27, 12, 0, tzinfo=UTC)
@@ -65,7 +67,7 @@ def test_dry_run_deletes_nothing_and_reports_buckets():
 
 def test_execute_requires_the_word_delete():
     client = FakeClient(history={55: messages(RECENT)})
-    result = run_clear(client, execute=True, confirm=lambda: "yes")
+    result = run_clear(client, execute=True, confirm=lambda **_: "yes")
     assert result.cancelled is True
     assert result.deleted == 0
     assert client.deleted_bulk == []
@@ -77,14 +79,14 @@ def test_typed_delete_is_case_insensitive():
     # gate, not its case.
     for word in ("delete", "DELETE", " Delete "):
         client = FakeClient(history={55: messages(RECENT)})
-        result = run_clear(client, execute=True, confirm=lambda word=word: word)
+        result = run_clear(client, execute=True, confirm=lambda word=word, **_: word)
         assert result.cancelled is False
         assert result.deleted == 1
 
 
 def test_execute_bulk_and_single_paths():
     client = FakeClient(history={55: messages(RECENT, snowflake_at(NOW - timedelta(days=2)), OLD)})
-    result = run_clear(client, execute=True, confirm=lambda: "DELETE")
+    result = run_clear(client, execute=True, confirm=lambda **_: "DELETE")
     assert result.deleted == 3
     assert client.deleted_bulk == [(55, [RECENT, snowflake_at(NOW - timedelta(days=2))])]
     assert client.deleted_single == [(55, OLD)]
@@ -95,7 +97,7 @@ def test_a_lone_bulk_message_goes_single():
     # The bulk endpoint requires two ids minimum; one recent message must not
     # be sent to it.
     client = FakeClient(history={55: messages(RECENT)})
-    result = run_clear(client, execute=True, confirm=lambda: "DELETE")
+    result = run_clear(client, execute=True, confirm=lambda **_: "DELETE")
     assert result.deleted == 1
     assert client.deleted_bulk == []
     assert client.deleted_single == [(55, RECENT)]
@@ -106,7 +108,7 @@ def test_warning_names_what_survives():
     answer = confirm_clear_messages(read=lambda _prompt: "DELETE", write=output.append)
     assert answer == "DELETE"
     text = "\n".join(output)
-    assert text == CLEAR_MESSAGES_WARNING
+    assert text.startswith(CLEAR_MESSAGES_WARNING)
     assert "NOT be deleted" in text
     assert "does not undo" in text
 
@@ -116,7 +118,7 @@ def test_server_warning_names_the_larger_scope_and_what_survives():
     answer = confirm_clear_server_messages(read=lambda _prompt: "DELETE", write=output.append)
     assert answer == "DELETE"
     text = "\n".join(output)
-    assert text == CLEAR_SERVER_MESSAGES_WARNING
+    assert text.startswith(CLEAR_SERVER_MESSAGES_WARNING)
     assert "across the selected server" in text
     assert "Channels, categories, and threads will NOT be deleted" in text
     # The scary moment is where the escape hatch must be named.
@@ -153,7 +155,7 @@ def test_server_clear_can_skip_threads_entirely():
             client,
             1,
             execute=True,
-            confirm=lambda: "DELETE",
+            confirm=lambda **_: "DELETE",
             include_threads=False,
             sleep=lambda _s: _noop(),
             now=NOW,
@@ -163,7 +165,9 @@ def test_server_clear_can_skip_threads_entirely():
     assert result["locations"] == 1
     assert result["cleared"] == 1
     assert result["failures"] == []
-    assert client.history_reads == [10]
+    # The scan, then the recount that checks nothing arrived while the gate sat
+    # on screen. Both are channel 10: no thread is read at all.
+    assert client.history_reads == [10, 10]
     assert client.deleted_single == [(10, RECENT)]
 
 
@@ -174,10 +178,104 @@ def test_server_clear_wrong_confirmation_deletes_nothing():
         history={10: messages(RECENT, snowflake_at(NOW - timedelta(days=2)))},
     )
     result = asyncio.run(
-        clear_server_messages(client, 1, execute=True, confirm=lambda: "nope", sleep=lambda _s: _noop(), now=NOW)
+        clear_server_messages(client, 1, execute=True, confirm=lambda **_: "nope", sleep=lambda _s: _noop(), now=NOW)
     )
 
     assert result["cancelled"] is True
     assert result["cleared"] == 0
+    assert client.deleted_bulk == []
+    assert client.deleted_single == []
+
+
+# -- the typed word is a check on the target, not only on the verb ----------
+
+
+def test_the_gate_reprints_the_target_and_the_count_above_the_typed_word():
+    """Live Discord 5 on 2026-09-17: the WARNING said "the selected channel or
+    thread" and the only line naming the channel was a banner a screen
+    earlier, so DELETE was typed under no target and no number."""
+    output = []
+    prompts = []
+
+    def read(prompt):
+        prompts.append(prompt)
+        return "DELETE"
+
+    answer = confirm_clear_messages(
+        target="campaign-a (1550189961742131221)", matched=4, bulk=4, single=0,
+        read=read, write=output.append,
+    )
+    assert answer == "DELETE"
+    text = "\n".join(output)
+    assert text.startswith(CLEAR_MESSAGES_WARNING)
+    assert "campaign-a (1550189961742131221)" in text
+    assert "4 message(s)" in text
+    assert "14-day bulk window" in text
+    # Under the count, not above the banner.
+    assert text.index("campaign-a") > text.index("WARNING: CLEAR MESSAGES")
+    assert prompts == ["Type DELETE to continue: "]
+
+
+def test_the_server_gate_reprints_the_server_its_locations_and_the_count():
+    output = []
+    confirm_clear_server_messages(
+        target="Ops (1)", matched=7, locations=6,
+        read=lambda _prompt: "DELETE", write=output.append,
+    )
+    text = "\n".join(output)
+    assert text.startswith(CLEAR_SERVER_MESSAGES_WARNING)
+    assert "Ops (1)" in text
+    assert "7 message(s)" in text
+    assert "6 location(s)" in text
+
+
+def test_a_message_that_arrives_after_the_count_was_shown_refuses_the_clear():
+    """The count above the typed word is a promise about the blast radius. A
+    message posted while the gate sat on screen was never counted and never
+    shown, so it is not deleted: the run stops and says so."""
+    client = FakeClient(history={55: messages(RECENT)})
+    arrived = snowflake_at(NOW + timedelta(seconds=30))
+
+    def confirm(**_counts):
+        client.history[55] = messages(arrived, RECENT)
+        return "DELETE"
+
+    with pytest.raises(PlanDriftError) as caught:
+        run_clear(client, execute=True, confirm=confirm)
+    assert caught.value.error.code == "PLAN_DRIFT"
+    assert client.deleted_bulk == []
+    assert client.deleted_single == []
+
+
+def test_a_message_deleted_while_the_gate_sat_on_screen_does_not_refuse():
+    """Fewer messages than were counted is the safe direction: the clear runs
+    and the ones that are gone simply are not there to delete."""
+    client = FakeClient(history={55: messages(RECENT, OLD)})
+
+    def confirm(**_counts):
+        client.history[55] = messages(RECENT)
+        return "DELETE"
+
+    result = run_clear(client, execute=True, confirm=confirm)
+    assert result.cancelled is False
+    assert client.deleted_single == [(55, RECENT), (55, OLD)]
+
+
+def test_a_message_that_arrives_during_a_server_clear_refuses_it():
+    client = FakeClient(
+        servers=[ServerInfo(id=1, name="Ops")],
+        channels={1: [ChannelInfo(id=10, name="general", type="text")]},
+        history={10: messages(RECENT)},
+    )
+    arrived = snowflake_at(NOW + timedelta(seconds=30))
+
+    def confirm(**_counts):
+        client.history[10] = messages(arrived, RECENT)
+        return "DELETE"
+
+    with pytest.raises(PlanDriftError):
+        asyncio.run(
+            clear_server_messages(client, 1, execute=True, confirm=confirm, sleep=lambda _s: _noop(), now=NOW)
+        )
     assert client.deleted_bulk == []
     assert client.deleted_single == []

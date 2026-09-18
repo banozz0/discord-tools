@@ -300,10 +300,15 @@ def test_clear_flow_backing_out_never_executes():
 
 def test_clear_flow_does_not_rescan_the_same_target():
     # Dry-run, back to the scope screen, pick the same channel again: the scan
-    # is not repeated, and the counts already printed still stand.
+    # is not repeated. What it says about those counts is the point -- they are
+    # minutes old by then, and claiming they "still stand" is a promise the
+    # menu cannot keep; the for-real screen is where a live count is printed.
     code, calls, output = drive([CLEAR, "1", "1", "0", "1", "1", "1", "0"])
     assert [args.execute for args in calls] == [False, True]
-    assert "Same target as the last dry-run; its counts still stand." in screens(output)
+    text = screens(output)
+    assert "still stand" not in text
+    assert "Same target as the last dry-run; its counts are from that scan" in text
+    assert "reprints the live count above the typed word" in text
 
 
 def test_clear_flow_rescans_a_different_target():

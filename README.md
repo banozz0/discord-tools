@@ -68,7 +68,7 @@ scripts pass a subcommand.
 | `event` | Server-held scheduled events: `list`, `create`, `edit` and `delete` for a server's Events tab. Discord holds these, so they happen with this machine off. `delete` dry-runs, then takes `--execute` **and** the event's exact name. See [The two guarantees](#the-two-guarantees) |
 | `delete` | `channel` / `category` / `thread`. Dry-run by default; deleting for real takes `--execute` **and** typing the target's exact name. Deleting a category leaves its channels alive, just uncategorised. There is no `--yes` — deletion always needs a human |
 | `leave-server` | Makes the bot leave `--server <id>`; nothing in the server is deleted. Same gate as `delete`. Discord gives a bot no way to delete a server (that needs ownership, which a bot never has) |
-| `clear-messages` | Clears either `--channel <id>` or every accessible message location under `--server <id>`. Dry-run by default; deleting for real takes `--execute` **and** typing `DELETE`. Server clears include active/archived threads and forum/media posts (`--skip-threads` leaves them untouched and clears channels only), report skipped locations, and continue past per-location failures |
+| `clear-messages` | Clears either `--channel <id>` or every accessible message location under `--server <id>`. Dry-run by default; deleting for real takes `--execute` **and** typing `DELETE`, under a screen that names the target and the live count the deletion will use — a message that arrives after that count is shown refuses the run rather than being cleared unseen. A finished clear says how much it cleared and what it read back. Server clears include active/archived threads and forum/media posts (`--skip-threads` leaves them untouched and clears channels only), check `manage_messages` and `read_message_history` in each location as they reach it, report skipped locations, and continue past per-location failures |
 | `bot` | Shows the active profile's bot (username, description, avatar, intent, invite URL); edits go behind a diff + confirm |
 
 ## The menu
@@ -129,7 +129,7 @@ create, edit and delete a role; show and set a channel's overwrites), and, under
 the rest of the session acts as, and removing one. The exceptions are deliberate —
 `send`, `create`, `bot`, the message verbs, a role create or edit and a permission set never get `--yes` from the menu,
 `clear-messages` and *Delete messages* always dry-run first and still ask you to type
-`DELETE`, `delete`, *Leave a server*, a structure apply, a role delete, a scheduled-event
+`DELETE` under the target and its live count, `delete`, *Leave a server*, a structure apply, a role delete, a scheduled-event
 delete and an archive prune dry-run
 first and still ask you to type the target's own name, and a review approve or accept asks its `y/N`
 inside the command. The menu is never a shorter path past a gate.

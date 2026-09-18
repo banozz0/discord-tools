@@ -393,14 +393,14 @@ def test_a_partial_server_clear_is_audited_as_partial(home_is_a_tmp_dir, monkeyp
     from types import SimpleNamespace
 
     class Blocked(FakeClient):
-        async def iter_history(self, channel_id, *, limit=None, oldest_first=False):
+        async def iter_history(self, channel_id, *, limit=None, oldest_first=False, before=None, after=None):
             if channel_id == 702:
                 raise PermissionError("The bot cannot access channel 702.")
-            for message in await self._history(channel_id):
-                yield message
-
-        async def _history(self, channel_id):
-            return self.history.get(channel_id, [])
+            # The recount before the first delete asks for anything newer than
+            # the scan; the fake answers that bound rather than repeating the row.
+            for message in self.history.get(channel_id, []):
+                if after is None or int(message.id) > int(after):
+                    yield message
 
     client = Blocked(
         servers=[ServerInfo(id=10, name="Agency")],

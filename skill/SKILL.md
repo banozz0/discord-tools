@@ -102,7 +102,8 @@ something gone, give them the exact command and let them run it.
 Discord does not undo it, whether scoped to one `--channel` or a whole
 `--server` (with or without `--skip-threads`, which limits a server clear to
 channels only). Dry-run is its default and the destructive path needs both
-`--execute` and a typed `DELETE`, so you will not trip it by accident — but do
+`--execute` and a typed `DELETE` under a screen naming the target and the live
+count, so you will not trip it by accident — but do
 not run it at all, in any form, even to preview. If the answer is "those
 messages should go", say so and let the user run it.
 

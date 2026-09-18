@@ -2626,7 +2626,14 @@ async def _flow_clear(*, session, runner, read, write) -> bool:
         # are what make the next screen an informed answer.
         target = (channel_id, server_id, skip_threads)
         if target == scanned:
-            write("Same target as the last dry-run; its counts still stand.")
+            # Not "its counts still stand": that scan is minutes old by now, and
+            # the sentence used to promise a freshness nothing had checked. The
+            # for-real screen prints a live count above the typed word and
+            # refuses if anything arrived after it, so this says where to look.
+            write(
+                "Same target as the last dry-run; its counts are from that scan, and the "
+                "for-real screen reprints the live count above the typed word."
+            )
         else:
             if not await _dry_run_passed(dry_run, session=session, runner=runner, write=write):
                 return after_action(read=read, write=write)

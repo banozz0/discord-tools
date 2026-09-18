@@ -1027,7 +1027,9 @@ def walk_redirects(fetcher: HttpFetcher, context: FetchContext, checks: Sequence
     Runs only inside a fetch, so only after a human approved. Every URL the
     chain reaches is run through the hop-phase checks (scheme, the redirect
     cap, private network with its pin) before it is contacted, and the chain
-    is recorded on the context whether or not the walk ends well.
+    is recorded on the context whether or not the walk ends well. A 3xx that
+    carries no `Location` is refused here as a `redirects` block rather than
+    followed or mistaken for the end of the chain.
     """
     assert context.url is not None
     current = context.url
@@ -1035,6 +1037,14 @@ def walk_redirects(fetcher: HttpFetcher, context: FetchContext, checks: Sequence
         run_phase(checks, "hop", context)
         hop = fetcher.head(current, context.pins)
         if hop.location is None:
+            if 300 <= hop.status < 400:
+                # A redirect that names no destination is not the final hop: it
+                # has no body to serve, so reading it as one sends a GET that
+                # answers the same 3xx and the fetch dies as `failed` with no
+                # reason worth printing. The walk is where it is refusable.
+                raise Blocked(
+                    "redirects", f"{hop.status} at {current} with no Location header to follow"
+                )
             context.headers = dict(hop.headers)
             return hop
         following = urllib.parse.urljoin(current, hop.location)

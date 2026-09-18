@@ -170,6 +170,7 @@ def _runner_failures(fixture: Any, runner: Any, *, paths: Any) -> list[str]:
         ("runner_held", runner.RUNNER_HELD),
         ("backward_jump_s", runner.BACKWARD_JUMP_S),
         ("late_tolerance_s", runner.LATE_TOLERANCE_S),
+        ("drop_summary_s", runner.DROP_SUMMARY_S),
         ("status_log_lines", runner.STATUS_LOG_LINES),
         ("interval_pattern", runner.INTERVAL_PATTERN),
         ("state_keys", [runner.VERSION_KEY, runner.BASELINE_KEY, runner.CURSOR_KEY, runner.SCHEDULE_KEY, "cooldown:"]),

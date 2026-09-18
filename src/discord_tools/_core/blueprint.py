@@ -320,9 +320,16 @@ def build(raw: Mapping[str, Any], allowlist: Allowlist) -> ExportReport:
     dropped: set[str] = set()
     for section in allowlist.sections:
         items = sections.get(section, ())
-        for position, item in enumerate(sorted(items, key=_position_key)):
-            if "rid" not in item or "name" not in item:
+        # Checked before the sort, not inside it: `_position_key` reads the rid,
+        # so an object without one used to surface as a bare KeyError from the
+        # ordering pass, naming neither the section nor what was missing. A
+        # blueprint entry with a null `source_rid` is a different thing and is
+        # legitimate; this is a port's read, where every object came from the
+        # platform and has a rid.
+        for item in items:
+            if not isinstance(item, Mapping) or "rid" not in item or "name" not in item:
                 raise BlueprintError(f"an object in {section} has no rid or no name")
+        for position, item in enumerate(sorted(items, key=_position_key)):
             ordered.append((section, position, item))
     for section in sections:
         if section not in allowlist.objects:
@@ -781,6 +788,10 @@ def _write_remap(archive: Archive | None, remap: Remap, identity: Identity, hand
     source_rid = source_rid or handle
     if archive is None or not source_rid:
         return
+    # A row is bytes in the archive like any other write here, and an apply
+    # writes one per object: without this an apply long enough to cross
+    # `archive_max_bytes` crossed it with nothing to refuse it.
+    archive.check_budget(len(f"{remap.apply_id}{source_rid}{target_rid}{identity.id}{remap.blueprint_hash}".encode("utf-8")))
     archive._begin()
     try:
         archive.connection.execute(

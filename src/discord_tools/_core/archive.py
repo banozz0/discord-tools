@@ -13,7 +13,8 @@ What this module owns:
   row naming every scope the identity could not see;
 - search: FTS5 `MATCH` with bm25 ranking, an optional regex post-filter,
   highlight markers and N neighbours by date, returned as bounded, ordered rows
-  the export writers serialise unchanged;
+  the export writers serialise unchanged, with input FTS5 cannot parse retried
+  as the literal words it is;
 - retention and forget, both behind a `typed_name` plan from `plan`;
 - the disk budget, checked before the write that would cross it;
 - the FTS5 availability check `doctor` reports and `open` refuses on.
@@ -94,6 +95,8 @@ RENDER_KEY = "render_version"
 # running process holds by definition; preflight is still filled in so a
 # retention plan carries the same shape every other plan does.
 ARCHIVE_RIGHT = "archive.write"
+# A bookmark this archive wrote itself, as against one a rule left behind.
+BOOKMARK_SOURCE = "manual"
 
 
 class SearchError(ValueError):
@@ -102,6 +105,19 @@ class SearchError(ValueError):
 
 class ArchiveError(ValueError):
     """A row or argument that breaks the archive's own contract."""
+
+
+def _literal_query(query: str) -> str:
+    """The same words as a full-text query that carries no syntax at all.
+
+    The index reads `-`, `:` and a bare `"` as syntax, so a rule name, a slug
+    or any hyphenated word is a parse error rather than a search. Each
+    whitespace-separated run of the input becomes one quoted phrase, with an
+    embedded quote doubled the way SQLite escapes it; the tokenizer then splits
+    `campaign-alert-721` into the three tokens it indexed the text as, and the
+    phrase finds the row that holds them in that order.
+    """
+    return " ".join('"' + term.replace('"', '""') + '"' for term in query.split())
 
 
 def fts5_available(connection: sqlite3.Connection | None = None) -> bool:
@@ -556,6 +572,21 @@ class Archive:
                 raise
         return archive
 
+    @classmethod
+    def open_read_only(cls, path: Path | str, *, budgets: Budgets | None = None) -> "Archive":
+        """The archive at `path` opened read-only and unmigrated, for a picker or a report.
+
+        Nothing is created, nothing is migrated and no write can land: SQLite
+        refuses one on a `mode=ro` connection. FTS5 is not required either, so a
+        build without it can still count rows and list scopes; `search` on such a
+        connection is what refuses. A path with no archive behind it raises
+        `sqlite3.OperationalError`, so the caller decides what "not yet" means.
+        """
+        path = Path(path)
+        connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=BUSY_TIMEOUT_MS / 1000)
+        connection.row_factory = sqlite3.Row
+        return cls(connection, path, budgets=budgets)
+
     def close(self) -> None:
         self.connection.close()
 
@@ -857,6 +888,291 @@ class Archive:
 
     # -- sync ------------------------------------------------------------
 
+    # -- readbacks -------------------------------------------------------
+    #
+    # Section 4.2: the tables are the core's, so every query over them lives
+    # here and a tool calls a method. Each of these answers a question a tool
+    # asks; a platform-shaped key inside `platform_json` stays the tool's to
+    # read, which is why the cell comes back as the mapping it is.
+
+    def scope_rows(self, identity_id: str | None = None) -> tuple[dict[str, Any], ...]:
+        """Every scope row as a mapping, title order: rid, identity, kind, title, path,
+        parent rid and the `platform_json` cell as a mapping (None when it holds no object)."""
+        where, params = ("WHERE identity_id = ?", [identity_id]) if identity_id else ("", [])
+        rows = self.connection.execute(
+            f"SELECT rid, identity_id, kind, title, path, parent_rid, platform_json FROM scopes {where}"
+            " ORDER BY title, rid",
+            params,
+        ).fetchall()
+        return tuple(
+            {
+                "rid": row["rid"],
+                "identity_id": row["identity_id"],
+                "kind": row["kind"],
+                "title": row["title"],
+                "path": tuple(json.loads(row["path"] or "[]")),
+                "parent_rid": row["parent_rid"],
+                "platform_json": _json_mapping(row["platform_json"]),
+            }
+            for row in rows
+        )
+
+    def scope_summaries(self, identity_id: str | None = None) -> tuple[dict[str, Any], ...]:
+        """Every scope with its coverage row and its live row count, path order.
+
+        A scope the identity could not see still has a row: `visible` False and
+        the reason beside it, which is what makes a gap reportable rather than
+        invisible (section 8.3).
+        """
+        where, params = ("WHERE s.identity_id = ?", [identity_id]) if identity_id else ("", [])
+        rows = self.connection.execute(
+            "SELECT s.rid, s.identity_id, s.kind, s.title, s.path, s.parent_rid, s.platform_json,"
+            " c.visible, c.skipped_reason, c.synced_from, c.synced_to,"
+            " (SELECT COUNT(*) FROM messages m WHERE m.rid = s.rid) AS messages"
+            " FROM scopes s LEFT JOIN coverage c ON c.rid = s.rid AND c.identity_id = s.identity_id"
+            f" {where} ORDER BY s.path, s.rid",
+            params,
+        ).fetchall()
+        return tuple(
+            {
+                "rid": row["rid"],
+                "identity_id": row["identity_id"],
+                "kind": row["kind"],
+                "title": row["title"],
+                "path": tuple(json.loads(row["path"] or "[]")),
+                "parent_rid": row["parent_rid"],
+                "platform_json": _json_mapping(row["platform_json"]),
+                "visible": None if row["visible"] is None else bool(row["visible"]),
+                "skipped_reason": row["skipped_reason"],
+                "synced_from": row["synced_from"],
+                "synced_to": row["synced_to"],
+                "messages": row["messages"],
+            }
+            for row in rows
+        )
+
+    def scope_count(self, identity_id: str | None = None) -> int:
+        """How many scopes the archive holds, all identities or one."""
+        where, params = ("WHERE identity_id = ?", [identity_id]) if identity_id else ("", [])
+        return int(self.connection.execute(f"SELECT COUNT(*) FROM scopes {where}", params).fetchone()[0])
+
+    def message_count(self, *, rid: str | None = None, identity_id: str | None = None) -> int:
+        """How many message rows the archive holds, narrowed by scope, by identity, or neither.
+
+        Deleted rows count: the row and its text stay (section 8.3), so this is
+        what the archive holds rather than what the platform still shows.
+        """
+        clauses, params = [], []
+        if rid is not None:
+            clauses.append("rid = ?")
+            params.append(rid)
+        if identity_id is not None:
+            clauses.append("identity_id = ?")
+            params.append(identity_id)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        return int(self.connection.execute(f"SELECT COUNT(*) FROM messages {where}", params).fetchone()[0])
+
+    def message_date(self, rid: str, message_id: str | int) -> str | None:
+        """When one archived message was sent, or None when the archive does not hold it."""
+        row = self.connection.execute(
+            "SELECT date FROM messages WHERE rid = ? AND message_id = ?", (rid, str(message_id))
+        ).fetchone()
+        return None if row is None else row["date"]
+
+    def live_message_ids(self, rid: str) -> tuple[str, ...]:
+        """Every message id of `rid` no walk has stamped `deleted_at` on yet."""
+        rows = self.connection.execute(
+            "SELECT message_id FROM messages WHERE rid = ? AND deleted_at IS NULL ORDER BY message_id", (rid,)
+        ).fetchall()
+        return tuple(row["message_id"] for row in rows)
+
+    def mark_deleted(self, rid: str, message_ids: Iterable[str | int], *, when: str | None = None) -> int:
+        """Stamp `deleted_at` on the named rows of `rid`; how many this call stamped.
+
+        A row already stamped is left as it was: the first walk that missed it is
+        when it went, not the second. One transaction, budget checked first,
+        like every other write here.
+        """
+        ids = [str(message_id) for message_id in message_ids]
+        if not ids:
+            return 0
+        self.check_budget()
+        now = when or utc_now()
+        self._begin()
+        try:
+            stamped = 0
+            for message_id in ids:
+                cursor = self.connection.execute(
+                    "UPDATE messages SET deleted_at = ? WHERE rid = ? AND message_id = ? AND deleted_at IS NULL",
+                    (now, rid, message_id),
+                )
+                stamped += cursor.rowcount
+            self._commit()
+        except Exception:
+            self._rollback()
+            raise
+        return stamped
+
+    def identity_label(self, identity_id: str) -> str | None:
+        """The label an identity row carries, or None when the archive has no such row."""
+        row = self.connection.execute(
+            "SELECT label FROM identities WHERE identity_id = ?", (identity_id,)
+        ).fetchone()
+        return None if row is None else row["label"]
+
+    def author_rid(self, name: str, *, match_label: bool = True) -> str | None:
+        """The rid of an author the archive has seen under `name`, case-insensitively.
+
+        The username first, then the display label when `match_label`; None when
+        no archived message is from anyone by that name.
+        """
+        text = str(name or "").strip().lstrip("@")
+        if not text:
+            return None
+        sql = "SELECT rid FROM authors WHERE LOWER(username) = LOWER(?)"
+        params: list[Any] = [text]
+        if match_label:
+            sql += " OR LOWER(label) = LOWER(?)"
+            params.append(text)
+        row = self.connection.execute(f"{sql} LIMIT 1", params).fetchone()
+        return None if row is None else row["rid"]
+
+    def known_author_rids(self, rids: Iterable[str]) -> tuple[str, ...]:
+        """Which of `rids` the authors table holds, in the order given."""
+        wanted = [str(rid) for rid in rids]
+        if not wanted:
+            return ()
+        marks = ", ".join("?" * len(wanted))
+        held = {
+            row["rid"]
+            for row in self.connection.execute(f"SELECT rid FROM authors WHERE rid IN ({marks})", wanted)
+        }
+        return tuple(rid for rid in wanted if rid in held)
+
+    def apply_history(self, limit: int = 20) -> tuple[dict[str, Any], ...]:
+        """One row per apply the remaps table records, newest first: id, created, blueprint hash."""
+        rows = self.connection.execute(
+            "SELECT apply_id, MIN(created) AS created, blueprint_hash FROM remaps"
+            " GROUP BY apply_id ORDER BY created DESC LIMIT ?",
+            (int(limit),),
+        ).fetchall()
+        return tuple(
+            {"apply_id": row["apply_id"], "created": row["created"], "blueprint_hash": row["blueprint_hash"]}
+            for row in rows
+        )
+
+    def manifest_extras(self, manifest_id: str) -> dict[str, Any] | None:
+        """A manifest's `platform_json` cell as a mapping, or None when there is no object there."""
+        row = self.connection.execute(
+            "SELECT platform_json FROM manifests WHERE manifest_id = ?", (manifest_id,)
+        ).fetchone()
+        return None if row is None else _json_mapping(row["platform_json"])
+
+    def set_manifest_extras(self, manifest_id: str, values: Mapping[str, Any]) -> bool:
+        """Merge `values` into a manifest's `platform_json`; whether a row was written.
+
+        A None value is not a value: it is left out rather than stored, so a
+        caller can hand over everything it has and let the absent stay absent.
+        The keys are the caller's -- the cell is section 8.2's extension point.
+        """
+        present = {key: value for key, value in values.items() if value is not None}
+        if not present:
+            return False
+        stored = self.manifest_extras(manifest_id)
+        if stored is None and self.connection.execute(
+            "SELECT 1 FROM manifests WHERE manifest_id = ?", (manifest_id,)
+        ).fetchone() is None:
+            return False
+        merged = {**(stored or {}), **present}
+        self.check_budget(len(json.dumps(merged, ensure_ascii=False).encode("utf-8")))
+        self._begin()
+        try:
+            self.connection.execute(
+                "UPDATE manifests SET platform_json = ? WHERE manifest_id = ?",
+                (json.dumps(merged, sort_keys=True, ensure_ascii=False), manifest_id),
+            )
+            self._commit()
+        except Exception:
+            self._rollback()
+            raise
+        return True
+
+    # -- bookmarks -------------------------------------------------------
+    #
+    # A bookmark is a row in this archive and nothing on the platform: a tool
+    # whose platform has no such thing still has one, and a tool whose platform
+    # does keeps the two apart by writing only here.
+
+    def add_bookmark(
+        self,
+        *,
+        rid: str,
+        message_id: str | int,
+        identity_id: str,
+        label: str = "",
+        source: str = BOOKMARK_SOURCE,
+    ) -> dict[str, Any]:
+        """Bookmark one message, or relabel the bookmark already on it; the row as it now reads.
+
+        Rewriting keeps `created`: when it was first marked is the fact worth
+        holding, and a relabel is not a new bookmark.
+        """
+        message_id = str(message_id)
+        self.check_budget(len(str(label).encode("utf-8")) + len(rid) + len(message_id))
+        self._begin()
+        try:
+            self.connection.execute(
+                "INSERT INTO bookmarks (rid, message_id, identity_id, label, created, source)"
+                " VALUES (?, ?, ?, ?, ?, ?)"
+                " ON CONFLICT (rid, message_id) DO UPDATE SET"
+                " label = excluded.label, identity_id = excluded.identity_id, source = excluded.source",
+                (rid, message_id, identity_id, label, utc_now(), source),
+            )
+            self._commit()
+        except Exception:
+            self._rollback()
+            raise
+        return self.bookmark(rid, message_id) or {}
+
+    def remove_bookmark(self, rid: str, message_id: str | int) -> bool:
+        """Take the bookmark off one message; whether there was one."""
+        self._begin()
+        try:
+            cursor = self.connection.execute(
+                "DELETE FROM bookmarks WHERE rid = ? AND message_id = ?", (rid, str(message_id))
+            )
+            self._commit()
+        except Exception:
+            self._rollback()
+            raise
+        return cursor.rowcount > 0
+
+    def bookmark(self, rid: str, message_id: str | int) -> dict[str, Any] | None:
+        """One bookmark row, or None when that message carries none."""
+        row = self.connection.execute(
+            "SELECT rid, message_id, identity_id, label, created, source FROM bookmarks"
+            " WHERE rid = ? AND message_id = ?",
+            (rid, str(message_id)),
+        ).fetchone()
+        return None if row is None else dict(row)
+
+    def bookmarks(self, identity_id: str | None = None) -> tuple[dict[str, Any], ...]:
+        """Every bookmark, newest first, with its scope's title and the archived text beside it.
+
+        `text` is None when the archive no longer holds the message -- retention
+        may have taken it -- which is a thing to print, not a row to hide.
+        """
+        where, params = ("WHERE b.identity_id = ?", [identity_id]) if identity_id else ("", [])
+        rows = self.connection.execute(
+            "SELECT b.rid, b.message_id, b.identity_id, b.label, b.created, b.source,"
+            " s.title AS scope_title,"
+            " (SELECT m.text FROM messages m WHERE m.rid = b.rid AND m.message_id = b.message_id) AS text"
+            f" FROM bookmarks b LEFT JOIN scopes s ON s.rid = b.rid {where}"
+            " ORDER BY b.created DESC, b.message_id DESC",
+            params,
+        ).fetchall()
+        return tuple(dict(row) for row in rows)
+
     def _write_batch(
         self,
         rid: str,
@@ -1033,9 +1349,18 @@ class Archive:
         agrees. `regex` is a Python post-filter over the matched rows, scanning
         at most `max_scan` of them so a pathological pattern stays bounded.
         `context` attaches N neighbours by date from the same scope.
+
+        The query runs as written first, so deliberate FTS5 syntax keeps its
+        meaning. Only if FTS5 refuses to parse it is it retried as literal text
+        — `_literal_query` — which is what makes a hyphenated word, a slug or a
+        colon searchable instead of a parse error. `SearchError` only ever says
+        so in this module's own words: no SQLite internal reaches the caller.
         """
         if limit < 1:
             raise SearchError("a search returns at least one row; limit is 1 or more")
+        literal = _literal_query(query)
+        if not literal:
+            raise SearchError("a search looks for at least one word; this query holds none")
         pattern = None
         if regex is not None:
             try:
@@ -1045,6 +1370,7 @@ class Archive:
 
         where = ["messages_fts MATCH ?"]
         params: list[Any] = [markers[0], markers[1], query]
+        match_at = len(params) - 1
         if scope is not None:
             rids = [scope] if isinstance(scope, str) else list(scope)
             if not rids:
@@ -1086,8 +1412,13 @@ class Archive:
         )
         try:
             rows = self.connection.execute(sql, params).fetchall()
-        except sqlite3.OperationalError as exc:
-            raise SearchError(f"{query!r} is not a valid full-text query: {exc}") from exc
+        except sqlite3.OperationalError:
+            # Not full-text syntax, so it was words: search it as the words it is.
+            params[match_at] = literal
+            try:
+                rows = self.connection.execute(sql, params).fetchall()
+            except sqlite3.OperationalError as exc:
+                raise SearchError(f"{query!r} is not something this archive can search") from exc
 
         hits: list[SearchHit] = []
         for row in rows:

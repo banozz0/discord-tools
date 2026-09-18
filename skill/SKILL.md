@@ -338,7 +338,10 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
 - **`archive search` is the cheap way to answer a history question.** It reads
   `~/.discord-tools/archive.sqlite`, makes no Discord call, ranks by relevance,
   and spans every archived channel unless `--scope <id>` narrows it. `--query`
-  takes FTS5 syntax (words, quoted phrases, AND, OR, NOT); `--context N` adds
+  takes FTS5 syntax (words, quoted phrases, AND, OR, NOT); a query FTS5 cannot
+  parse — a hyphenated word, a stray quote — is searched as literal words
+  rather than refused, so only a query holding no word at all is refused;
+  `--context N` adds
   the neighbours around a hit; `--from` takes an ID or a username. If it
   answers `ARCHIVE_UNAVAILABLE` there is no archive yet: run `archive sync`
   (a read; it may take a while on a big server) or fall back to live `search`.

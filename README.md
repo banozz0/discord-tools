@@ -216,7 +216,10 @@ and why — `no_access` where the bot lacks Read Messages or Read Message Histor
 `unsupported_kind` for a channel type it has no reader for.
 
 `search --query` is full-text search ranked by relevance (FTS5 syntax: words,
-`"quoted phrases"`, `AND`, `OR`, `NOT`), with `--regex` as a second filter over
+`"quoted phrases"`, `AND`, `OR`, `NOT`; a query FTS5 cannot parse — a
+hyphenated word like `campaign-alert-721`, a stray quote — is searched as the
+literal words it holds instead of being refused, and only a query with no word
+at all is refused), with `--regex` as a second filter over
 the matches, `--scope`, `--from` (an ID, a username the archive has seen, or a
 rid), `--since`, `--until`, `--context N` for the messages around each hit,
 `--limit` (50) and `--include-deleted`. `export` writes exactly what the search

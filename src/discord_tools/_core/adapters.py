@@ -133,6 +133,20 @@ class EventSource(Protocol):
         """
         ...
 
+    # Optional, and not a member of this Protocol: a source written before it
+    # satisfies `EventSource` exactly as it did, and the runner asks with
+    # `getattr`.
+    #
+    #     def carries(self, rid: str) -> bool:
+    #         """False only when `rid` names a scope no event of this source
+    #         can ever carry again - a scoping this build no longer mints, say -
+    #         so its stored cursor can never advance. True for every scope the
+    #         source can still deliver, and for every rid it is unsure about.
+    #         Never False because a lookup failed: the runner retires the
+    #         cursor on a False, and a cursor wrongly retired loses the events
+    #         that arrived while the runner was down. Raising keeps the cursor
+    #         too, so failing is safe; guessing is not."""
+
 
 @runtime_checkable
 class MessageSender(Protocol):

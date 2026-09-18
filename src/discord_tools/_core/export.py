@@ -17,7 +17,9 @@ unchanged and in order, so every format holds the same ids in the same order;
   script element, no stylesheet, image, font or link fetched from anywhere.
 
 Relative output names land in the tool's exports directory through `paths`;
-an absolute path is honoured as written. Both are written 0600.
+an absolute path is honoured as written. Both are written 0600. The directory
+they land in is not tightened: an export holds nothing the tool keeps private,
+so a mode the user chose on their exports directory survives the write.
 """
 
 from __future__ import annotations
@@ -30,7 +32,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from .archive import MARKERS, SearchHit
-from .paths import ToolPaths, make_private_dir, write_private
+from .paths import ToolPaths, make_dir, write_private
 
 FORMATS = ("json", "csv", "jsonl", "markdown", "html")
 EXTENSIONS = {"json": ".json", "csv": ".csv", "jsonl": ".jsonl", "markdown": ".md", "html": ".html"}
@@ -327,8 +329,5 @@ def write(
     rows = rows_of(hits)
     text = render(rows, fmt, **options)
     path = resolve_output(output, paths)
-    if paths.exports == path.parent or paths.exports in path.parents:
-        make_private_dir(path.parent)
-    else:
-        path.parent.mkdir(parents=True, exist_ok=True)
+    make_dir(path.parent)
     return write_private(path, text)

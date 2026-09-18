@@ -175,6 +175,14 @@ def test_a_member_the_bot_cannot_reach_is_refused_before_any_write(member, says)
     assert writes(client) == [] and client.reasons == []
 
 
+def test_a_refused_removal_still_prints_what_the_bot_holds():
+    """The refusal is about the hierarchy, not the permission; the preflight line is
+    the evidence of that, and a dry-run prints it while a refusal used to return first."""
+    client = agency()
+    _code, _body, stderr = go(["--json", "member", "ban", "--server", "10", "--member", "51", "--reason", "x", "--execute"], client)
+    assert "Permissions  ban_members — held" in stderr, stderr
+
+
 def test_a_missing_right_is_named_before_the_hierarchy_is_even_consulted():
     client = agency(default_permissions={"view_channel": True})
     code, body, _stderr = go(["--json", "member", "kick", "--server", "10", "--member", "50", "--reason", "x", "--execute"], client)
@@ -427,6 +435,17 @@ def test_nick_sets_a_nickname_and_an_empty_one_clears_it():
     code, body, _stderr = go(["--json", "member", "nick", "--server", "10", "--member", "50", "--nick", "", "--yes"], client)
     assert (code, body["result"]["nick"]) == (0, None)
     assert client.nicks == [(10, 50, None)] and "is now shown as ana" in body["evidence"]["readback"]
+
+
+def test_clearing_a_nickname_says_cleared_on_the_done_line_too():
+    client = agency()
+    _code, _body, stderr = go(["--json", "member", "nick", "--server", "10", "--member", "50", "--nick", "", "--yes"], client)
+    assert "Cleared ana's nickname (50)" in stderr, stderr
+    assert "Renamed" not in stderr, "the done line claimed a rename for a clear"
+
+    client = agency()
+    _code, _body, stderr = go(["--json", "member", "nick", "--server", "10", "--member", "50", "--nick", "Ana", "--yes"], client)
+    assert "Renamed ana (50) to Ana." in stderr, stderr
 
 
 # -- member unban --------------------------------------------------------------------

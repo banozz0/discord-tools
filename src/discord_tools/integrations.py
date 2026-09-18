@@ -226,13 +226,16 @@ def format_emojis(emojis: Sequence[Mapping[str, Any]], *, server: str) -> str:
     if not emojis:
         return f"No custom emoji on {server}. `discord-tools emoji add --server <id> --name <name> --file <path>` adds one."
     lines = [f"Custom emoji on {server}", RULE]
+    # The mention is the one column somebody pastes, so it is never cut: the column
+    # is as wide as the longest one, because `<:name:snowflake>` runs past 28.
+    width = max(28, *(len(str(emoji.get("mention") or "-")) for emoji in emojis))
     for emoji in sorted(emojis, key=lambda entry: str(entry["name"])):
         flags = ", ".join(
             part for part in ("animated" if emoji.get("animated") else "", "managed" if emoji.get("managed") else "",
                               "" if emoji.get("available", True) else "unavailable") if part
         )
         lines.append(
-            f"{str(emoji['name']):<28.28}  {int(emoji['id']):<20}  {str(emoji.get('mention') or '-'):<28.28}  "
+            f"{str(emoji['name']):<28.28}  {int(emoji['id']):<20}  {str(emoji.get('mention') or '-'):<{width}}  "
             f"{str(emoji.get('creator') or '-'):<18.18}  {flags}".rstrip()
         )
     lines.append(f"{len(emojis)} emoji; paste the middle column into a message to use one.")
@@ -264,8 +267,14 @@ def format_stickers(stickers: Sequence[Mapping[str, Any]], *, server: str) -> st
     return "\n".join(lines)
 
 
+def file_size(size: int) -> str:
+    """A file's size in the unit that says something about it: Discord's caps are in
+    KiB, but an emoji is often a few hundred bytes and `0 KiB` reads as an empty file."""
+    return f"{size} bytes" if size < 1024 else f"{size // 1024} KiB"
+
+
 def format_expression_plan(*, what: str, name: str, filename: str, size: int, reason: str, detail: str = "") -> str:
-    lines = [f"Add the {what} {name} to the server", RULE, f"File         {filename} ({size // 1024} KiB)"]
+    lines = [f"Add the {what} {name} to the server", RULE, f"File         {filename} ({file_size(size)})"]
     if detail:
         lines.append(detail)
     lines.append(RULE)

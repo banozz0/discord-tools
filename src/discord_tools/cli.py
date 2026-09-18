@@ -2763,13 +2763,15 @@ async def _run_permission(client, args, config, out) -> Outcome:
         return Outcome(status="refused", target=target, plan=write.plan, error=write.refusal)
     preview = roles_rim.format_overwrite_plan(channel, role, new_allow, new_deny, clear=args.clear)
     stopped = await _gate_role_write(
-        out, write, approval="prompt_y", yes=args.yes, preview=preview, question="Set it?", typed="", what="channel", target=target
+        out, write, approval="prompt_y", yes=args.yes, preview=preview,
+        question="Remove it?" if args.clear else "Set it?", typed="", what="channel", target=target
     )
     if stopped is not None:
         return stopped
     await _drift_guard(out, write, build)()
     await client.edit_channel(channel_id, reason=write.reason, overwrites=rows)
-    out.say(f"Set {role['name']}'s overwrite on {channel['name']} ({channel_id}).")
+    verb = "Removed" if args.clear else "Set"
+    out.say(f"{verb} {role['name']}'s overwrite on {channel['name']} ({channel_id}).")
 
     async def readback():
         now = await client.channel_overwrites(channel_id)
@@ -2985,6 +2987,10 @@ async def _run_member_removal(client, args, out, *, identity, server, resolver, 
     # four reads it takes to ask are worth skipping when the answer is settled.
     refusal = write.refusal or (None if absent else await _member_hierarchy(client, server_id, member, verb=verb))
     if refusal is not None:
+        # The refusal that follows is usually the hierarchy, not the permission, and
+        # the preflight line is the evidence of which — a dry-run prints it and this
+        # returned before reaching that.
+        out.say(plans.format_preflight(write.plan))
         return Outcome(status="refused", target=target, plan=write.plan, error=refusal)
 
     reason = moderation.moderation_reason(write.reason, args.reason)
@@ -3160,7 +3166,10 @@ async def _run_member_nick(client, args, out, *, identity, server, resolver, mem
         raise plans.PlanDriftError(drifted)
 
     await client.set_member_nick(server_id, int(member["id"]), nick, reason=reason)
-    out.say(f"Renamed {member['username']} ({member['id']}) to {nick or member['username']}.")
+    if nick is None:
+        out.say(f"Cleared {member['username']}'s nickname ({member['id']}); they show as {member['username']} again.")
+    else:
+        out.say(f"Renamed {member['username']} ({member['id']}) to {nick}.")
 
     async def readback():
         now = await client.get_member(server_id, int(member["id"]))
@@ -3673,7 +3682,7 @@ async def _run_emoji_add(client, args, out, *, identity, resolver, server) -> Ou
     return await _add_expression(
         client, args, out, identity=identity, resolver=resolver, server=server, what="emoji",
         limit=integrations.MAX_EMOJI_BYTES, suffixes=integrations.EMOJI_SUFFIXES,
-        detail=f"Typed as    :{args.name}:",
+        detail=f"Typed as     :{args.name}:",
         call=lambda data, _filename, reason: client.create_emoji(int(server.ids["guild"]), args.name, data, reason=reason),
     )
 

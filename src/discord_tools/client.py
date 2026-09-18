@@ -4,7 +4,7 @@ import io
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, AsyncIterator, Iterable, Sequence
+from typing import Any, AsyncIterator, Iterable, Mapping, Sequence
 
 import discord
 
@@ -260,21 +260,30 @@ def _structure_row(channel: Any) -> dict[str, Any]:
     }
 
 
-def _webhook_dict(webhook: Any) -> dict[str, Any]:
+def _webhook_dict(webhook: Any, channels: Mapping[int, str] | None = None) -> dict[str, Any]:
     """One webhook, URL and all.
 
     The seam reports what Discord returned; who may see the token is the rim's
     decision, and a seam that redacted here would leave `webhook create` no way
     to show the URL the one time showing it is the point. A channel-follower
     webhook carries no token and so has no URL.
+
+    `Webhook.channel` is `guild.get_channel(channel_id)`, a lookup in a cache this
+    client never fills — it logs in with `Intents.none()` — so it answers None and
+    every screen printed the channel as `-`. `channels` is the caller's id → name
+    mapping, read when discord.py has nothing.
     """
     token = getattr(webhook, "token", None)
+    channel_id = int(webhook.channel_id) if getattr(webhook, "channel_id", None) else None
+    channel = getattr(getattr(webhook, "channel", None), "name", None)
+    if channel is None and channel_id is not None and channels:
+        channel = channels.get(channel_id)
     return {
         "id": int(webhook.id),
         "name": webhook.name or "",
         "type": _enum_name(getattr(webhook, "type", None)),
-        "channel_id": int(webhook.channel_id) if getattr(webhook, "channel_id", None) else None,
-        "channel": getattr(getattr(webhook, "channel", None), "name", None),
+        "channel_id": channel_id,
+        "channel": channel,
         "creator": getattr(getattr(webhook, "user", None), "name", None),
         "url": f"https://discord.com/api/webhooks/{int(webhook.id)}/{token}" if token else None,
     }
@@ -1242,17 +1251,24 @@ class DiscordClient:
         Discord shows a webhook's token to nobody else."""
         guild = await self._fetch_guild(server_id)
         try:
-            return [_webhook_dict(hook) for hook in await guild.webhooks()]
+            hooks = await guild.webhooks()
         except discord.Forbidden as exc:
             raise PermissionError(
                 f"Discord refused the webhooks of server {server_id}: reading them needs Manage Webhooks."
             ) from exc
+        # One extra call, and only when discord.py named no channel: the listing is
+        # read to find which channel a webhook posts into.
+        names: dict[int, str] = {}
+        if any(getattr(getattr(hook, "channel", None), "name", None) is None for hook in hooks):
+            names = {int(channel.id): str(channel.name) for channel in await guild.fetch_channels()}
+        return [_webhook_dict(hook, names) for hook in hooks]
 
     async def create_webhook(self, channel_id: int, name: str, *, reason: str | None = None) -> dict[str, Any]:
         channel = await self._fetch_channel(channel_id)
         if not hasattr(channel, "create_webhook"):
             raise ClientError(f"Channel {channel_id} ({_channel_type_name(channel)}) cannot hold a webhook.")
-        return _webhook_dict(await channel.create_webhook(name=name, reason=reason))
+        made = await channel.create_webhook(name=name, reason=reason)
+        return _webhook_dict(made, {int(channel.id): str(channel.name)})
 
     async def delete_webhook(self, server_id: int, webhook_id: int, *, reason: str | None = None) -> None:
         """Delete by id, found in the server's own list, so a caller never has to

@@ -130,6 +130,27 @@ def test_an_emoji_row_carries_what_you_paste_into_a_message():
     assert "paste the middle column" in listing
 
 
+def test_an_emoji_listing_prints_a_whole_mention_however_long_the_name_is():
+    """The line under the list says to paste the middle column, so a cut mention is
+    a broken paste: a real one is `<:name:snowflake>`, well past 28 characters."""
+    long = {"id": 1550190030977503256, "name": "campaign_emoji", "animated": False, "managed": False,
+            "available": True, "role_ids": [], "creator": "sven", "mention": "<:campaign_emoji:1550190030977503256>"}
+    short = {**long, "id": 800, "name": "parrot", "mention": "<:parrot:800>"}
+    listing = integrations.format_emojis([long, short], server="Agency")
+    assert "<:campaign_emoji:1550190030977503256>" in listing, listing
+    rows = listing.splitlines()[2:4]
+    assert rows[0].index("sven") == rows[1].index("sven"), "the columns after the mention still line up"
+
+
+def test_an_expression_preview_gives_a_small_file_a_size_it_can_read():
+    small = integrations.format_expression_plan(
+        what="emoji", name="campaign_emoji", filename="wave.png", size=612, reason="r", detail="Typed as     :campaign_emoji:"
+    )
+    assert "wave.png (612 bytes)" in small, small
+    big = integrations.format_expression_plan(what="emoji", name="x", filename="wave.png", size=200 * 1024, reason="r")
+    assert "wave.png (200 KiB)" in big
+
+
 def test_a_sticker_listing_names_the_emoji_it_suggests():
     sticker = {"id": 810, "name": "wave", "description": "hello", "emoji": "👋", "format": "png", "available": True, "creator": "sven"}
     assert integrations.sticker_row(sticker)["emoji"] == "👋"

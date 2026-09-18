@@ -407,6 +407,16 @@ def test_permission_set_clear_removes_the_row_and_everyone_is_a_word(monkeypatch
     assert [row["target_id"] for row in client.structure[10][1]["overwrites"]] == [42, 10]
 
 
+def test_clearing_an_overwrite_asks_and_reports_a_removal_not_a_set(monkeypatch):
+    client = agency()
+    asked = []
+    monkeypatch.setattr("builtins.input", lambda prompt="": asked.append(prompt) or "y")
+    _code, _body, stderr = go(["--json", "permission", "set", "--target", "101", "--role", "12", "--clear"], client)
+    assert asked == ["Remove it? [y/N]: "], asked
+    assert "Removed Members's overwrite on deploys (101)." in stderr
+    assert "Set Members's overwrite" not in stderr
+
+
 def test_permission_set_refuses_nothing_and_administrator_and_both_sides():
     client = agency()
     with pytest.raises(ValueError, match="Nothing to set"):

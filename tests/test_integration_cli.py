@@ -188,7 +188,7 @@ def test_an_emoji_is_added_from_a_file_with_the_plans_reason_and_read_back(tmp_p
     assert client.created_emojis == [("wave", 68)]
     assert client.reasons == [f"cli-tools emoji add plan {body['plan']['plan_id'][:8]}"]
     assert body["evidence"]["readback"].startswith("emoji wave (")
-    assert "Typed as    :wave:" in stderr and "parrot.png (0 KiB)" in stderr
+    assert "Typed as     :wave:" in stderr and "parrot.png (68 bytes)" in stderr
     assert f"Discord will record the reason: {client.reasons[0]}" in stderr
 
 

@@ -596,6 +596,40 @@ def test_a_webhook_carries_its_url_out_of_the_seam_whole_and_a_follower_has_none
     assert (rows[1]["url"], rows[1]["creator"]) == (None, None), "a channel-follower webhook has no token"
 
 
+def test_a_webhook_names_its_channel_even_though_nothing_is_cached(monkeypatch):
+    """`Webhook.channel` is `guild.get_channel(...)`, a cache lookup, and this client
+    logs in with no cache at all — so the live listing printed the channel as `-`.
+    The id is always there, and the server's own channel list turns it into a name."""
+    hook = SimpleNamespace(
+        id=700, name="deploy bot", type=SimpleNamespace(name="incoming"), channel_id=101,
+        channel=None, user=SimpleNamespace(name="sven"), token=SEG,
+    )
+
+    async def webhooks():
+        return [hook]
+
+    async def fetch_channels():
+        return [SimpleNamespace(id=101, name="campaign-b", type=SimpleNamespace(name="text"), category_id=None)]
+
+    guild = SimpleNamespace(id=10, webhooks=webhooks, fetch_channels=fetch_channels)
+    client, _guild = _structure_client(monkeypatch, guild)
+    assert asyncio.run(client.list_webhooks(10))[0]["channel"] == "campaign-b"
+
+    made = SimpleNamespace(id=702, name="deploy bot", type=SimpleNamespace(name="incoming"), channel_id=101,
+                           channel=None, user=None, token=SEG2)
+
+    async def create_webhook(*, name, reason=None):
+        return made
+
+    channel = SimpleNamespace(id=101, name="campaign-b", type=SimpleNamespace(name="text"), create_webhook=create_webhook)
+
+    async def fetch_channel(_channel_id):
+        return channel
+
+    monkeypatch.setattr(client, "_fetch_channel", fetch_channel)
+    assert asyncio.run(client.create_webhook(101, "deploy bot"))["channel"] == "campaign-b"
+
+
 def test_list_webhooks_forbidden_names_manage_webhooks(monkeypatch):
     import pytest
 

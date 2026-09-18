@@ -316,7 +316,7 @@ def test_review_list_makes_no_request_and_shows_the_url_as_written(opener, home_
 
     code, out = go(["review", "list"], json_out=False)
     text = out.stdout.getvalue()
-    assert LINK_URL in text and "report.bin" in text and "Nothing here has been fetched" in text
+    assert LINK_URL in text and "report.bin" in text and "Nothing is fetched until you run" in text
     assert opener.requests == []
 
 
@@ -528,6 +528,43 @@ def test_an_infected_verdict_cannot_be_accepted_but_can_be_rejected(opener, answ
     assert rejected["freed_bytes"] >= len(PAYLOAD), "the payload and its sidecar"
     assert not directory.exists()
     assert row_named("media").state == "rejected"
+
+
+def test_review_reject_asks_before_it_deletes_the_quarantined_bytes(opener, answers, home_is_a_tmp_dir):
+    """Section 7: a write that is not a container removal is `prompt_y`. Reject deletes
+    bytes and the candidate stays rejected, so it asks like approve and accept do."""
+    synced()
+    media = row_named("media")
+    approve(media.manifest_id)
+    directory = quarantine_payload(row_named("media")).parent
+    answers["value"] = "n"
+    code, out = go(["--json", "review", "reject", "--ids", media.manifest_id])
+    assert code == 1 and envelope(out)["result"]["cancelled"] is True
+    assert row_named("media").state == "quarantined"
+    assert directory.exists(), "a no kept the bytes"
+
+
+def test_review_reject_without_a_terminal_exits_3(opener, answers, home_is_a_tmp_dir):
+    synced()
+    media = row_named("media")
+    approve(media.manifest_id)
+    code, out = go(["--json", "review", "reject", "--ids", media.manifest_id], isatty=False)
+    assert code == 3 and envelope(out)["error"]["code"] == "APPROVAL_REQUIRED"
+    assert row_named("media").state == "quarantined"
+
+
+def test_the_listing_does_not_call_a_fetched_candidate_unfetched(opener, answers, home_is_a_tmp_dir):
+    """Live on 2026-09-17: `review list` printed "Nothing here has been fetched" under an
+    accepted row that had been fetched. The line is about the listing, not the rows."""
+    synced()
+    media = row_named("media")
+    approve(media.manifest_id)
+    go(["--json", "review", "accept", "--ids", media.manifest_id])
+    code, out = go(["review", "list"], json_out=False)
+    assert code == 0
+    printed = out.stdout.getvalue() + out.stderr.getvalue()
+    assert " accepted " in printed
+    assert "Nothing here has been fetched" not in printed
 
 
 def test_review_status_names_everything_a_fetch_learned(opener, answers, home_is_a_tmp_dir):

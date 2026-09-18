@@ -161,8 +161,9 @@ store. Both ask `y/N` at a prompt no agent can answer and have no `--yes`;
 under `--json` with no terminal they exit 3 with `APPROVAL_REQUIRED` and fetch
 nothing, which is the design, not a failure to retry. `review list` and
 `review status` are reads and fine: they show what is waiting and what a fetch
-found, and contact no host. `review reject` only deletes quarantined bytes and
-is fine when the user asked for that candidate gone.
+found, and contact no host. `review reject` deletes quarantined bytes, so it
+asks the same `y/N` and has no `--yes` either: hand the user the command when
+they want a candidate gone.
 
 **15. Never run `structure apply`.** It creates and edits real roles,
 categories, channels, AutoMod rules and the server's own settings — including
@@ -278,7 +279,7 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
 | "what attachments / links are waiting?" | `discord-tools review list` — from the archive, contacts no host |
 | "what did that download find?" | `discord-tools review status --ids <manifest id>` — redirects, refreshes, sha256, verdict |
 | "download / accept that file" | hand them `discord-tools review approve --ids <manifest id>` then `review accept --ids ...` — rule 14, they run it |
-| "throw that candidate away" | `discord-tools review reject --ids <manifest id>` |
+| "throw that candidate away" | hand them `discord-tools review reject --ids <manifest id>` — it shows the candidate and asks y/N, rule 14 |
 | "back up / export this server's structure" | `discord-tools structure export --target <server id> --output name.json` — roles, channels, overwrites, AutoMod and settings; never members, messages or webhooks |
 | "how does this server differ from the blueprint?" | `discord-tools structure diff --blueprint name.json --target <server id>` |
 | "copy this server's structure to that one" | hand them `discord-tools structure apply --blueprint name.json --target <server id>` (the dry-run), then `--execute` — rule 15, they run it |
@@ -629,10 +630,10 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
   moment to have confirmed it, not to have skipped the prompt.
 - **`--mention everyone`** on any posting verb — it always prompts, and the
   ping is the user's decision.
-- **`review approve` and `review accept`** — rule 14. A download onto the
-  user's machine and a file leaving quarantine are the user's two decisions;
-  both refuse to run unattended by construction. `review list` and `status`
-  are reads and fine.
+- **`review approve`, `review accept` and `review reject`** — rule 14. A
+  download onto the user's machine, a file leaving quarantine and bytes being
+  deleted are the user's decisions; all three refuse to run unattended by
+  construction. `review list` and `status` are reads and fine.
 - **A bare `discord-tools`** — no subcommand opens the interactive menu, which
   waits for a human. With no terminal attached it prints help instead, so it
   will not hang in a pipe, but it answers nothing either.

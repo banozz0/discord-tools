@@ -1050,13 +1050,38 @@ def test_a_filter_left_out_does_not_throw_the_typed_rule_away():
     assert (args.watch_kind, args.rules_kind, args.name, args.on) == ("rules", "add", "campaign-7", "message")
     assert args.bookmark is True
     assert args.scope == ["dc:channel:901"]
-    assert args.keyword == ["campaign", "7"]
+    assert args.keyword == ["campaign 7"]
     # The three nobody filled in are simply not there, and nothing was re-asked.
     assert (args.sender, args.domain, args.media_type) == (None, None, None)
     assert len([prompt for prompt in prompts if prompt.startswith("Rule name")]) == 1
     # No prompt asks a question whose blank answer would mean two things.
     assert not any("Only these senders" in prompt for prompt in prompts)
     assert "Main › Rules: write a new rule › campaign-7 › Narrow it down" in screens(output)
+
+
+def test_a_keyword_filter_can_be_a_phrase_from_the_menu():
+    # Live on 2026-09-17: "campaign 7 ping" typed at the keyword prompt was stored as
+    # three OR-matched words, so no phrase could be expressed from the menu. The flag
+    # takes one keyword per --keyword, so the prompt takes them comma-separated.
+    prompts: list[str] = []
+    code, calls, _output = drive(
+        [
+            RULES_ADD,
+            "campaign-7",       # Rule name
+            "message",          # Fires on
+            "4",                # Actions: Bookmark it locally
+            "8",                # Actions: Done - that is the whole list
+            "2",                # Filter: Narrow it down
+            "4", "campaign 7 ping, deploy",   # keywords
+            "6",                # Done - narrow it by these
+            "",                 # Done screen: Enter = main menu
+            "0", "0", "0", "0", "0", "0",
+        ],
+        prompts=prompts,
+    )
+    assert code == 0
+    assert calls[0].keyword == ["campaign 7 ping", "deploy"]
+    assert any("comma-separated" in prompt for prompt in prompts if prompt.startswith("Words"))
 
 
 def test_an_event_with_no_description_is_created_instead_of_restarting_the_form():

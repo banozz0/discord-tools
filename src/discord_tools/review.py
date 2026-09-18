@@ -157,7 +157,7 @@ def format_queue(rows: Sequence[QueueRow]) -> str:
             f"{row.manifest_id:16}  {row.kind:5}  {row.state:11}  {size_of(row):>9}  "
             f"{cell(row.sender or '?', 12)}  {cell(location_of(row), _LOCATION_WIDTH)}  {cell(name_of(row), _NAME_WIDTH)}"
         )
-    lines.append(f"{len(rows)} candidate(s). Nothing here has been fetched.")
+    lines.append(f"{len(rows)} candidate(s). Nothing is fetched until you run `discord-tools review approve`.")
     return "\n".join(lines)
 
 
@@ -222,6 +222,14 @@ def format_verdicts(rows: Sequence[QueueRow]) -> str:
             "BLOCKED": row.last_error or "a built-in check failed",
         }.get(verdict, "")
         lines.append(f"{row.manifest_id}  {name_of(row)}  {size_of(row)}  {verdict}" + (f" - {note}" if note else ""))
+    return "\n".join(lines)
+
+
+def format_rejection(rows: Sequence[QueueRow]) -> str:
+    """What `reject` shows before it asks: what goes, and that it does not come back."""
+    lines = ["Rejecting: any quarantined bytes are deleted and the candidate stays rejected"]
+    for row in rows:
+        lines.append(f"{row.manifest_id}  {row.kind}  {row.state}  {size_of(row)}  {name_of(row)}")
     return "\n".join(lines)
 
 

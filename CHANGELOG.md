@@ -12,6 +12,11 @@ and `event` alike, and every help line and menu prompt says so. Before this,
 `schedule post --at`, `send --at` and `event --start/--end` read a bare time as
 this machine's clock while `search --since` read it as UTC. The preview still
 shows the resolved time before the y/N; an offset you write is read as written.
+The schedule store and the runner that fires a schedule read the same zone, so
+`schedule post --at` and `send --at` store exactly the moment the preview
+showed; a cron expression's hour field reads in UTC too. The live test of this
+release caught the store still reading this machine's clock: a bare time
+previewed as UTC and was then refused as past.
 
 ### `clear-messages` names its target and refuses what it has not shown you
 The gate prints the target and the live count directly above the typed

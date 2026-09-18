@@ -73,6 +73,7 @@ def test_run_auth_happy_path_saves_and_prints_invite(tmp_path):
     output = []
     code = run(
         run_auth(
+            env={},
             read=scripted([""]),
             read_secret=scripted([make_token()]),
             write=output.append,
@@ -204,3 +205,56 @@ def test_a_cancelled_auth_records_nothing(tmp_path):
         )
     )
     assert profile_store.read("harry", home=tmp_path) is None
+
+
+def test_run_auth_defaults_to_the_profile_the_env_selects(tmp_path):
+    """Enter at the name prompt re-keys the profile this machine is acting as."""
+    saved = {}
+
+    def fake_save(profile, token, home=None):
+        saved["profile"] = profile
+        return tmp_path / ".env"
+
+    prompts = []
+
+    def read(prompt):
+        prompts.append(prompt)
+        return ""
+
+    code = run(
+        run_auth(
+            env={"DISCORD_TOOLS_PROFILE": "harry"},
+            read=read,
+            read_secret=scripted([make_token()]),
+            write=lambda _line: None,
+            open_client=fake_open_client(FakeClient()),
+            save=fake_save,
+            home=tmp_path,
+        )
+    )
+    assert code == 0
+    assert "[harry]" in prompts[0]
+    assert saved["profile"] == "harry"
+
+
+def test_an_explicit_profile_still_beats_the_env(tmp_path):
+    saved = {}
+
+    def fake_save(profile, token, home=None):
+        saved["profile"] = profile
+        return tmp_path / ".env"
+
+    code = run(
+        run_auth(
+            profile="dobby",
+            env={"DISCORD_TOOLS_PROFILE": "harry"},
+            read=scripted([""]),
+            read_secret=scripted([make_token()]),
+            write=lambda _line: None,
+            open_client=fake_open_client(FakeClient()),
+            save=fake_save,
+            home=tmp_path,
+        )
+    )
+    assert code == 0
+    assert saved["profile"] == "dobby"

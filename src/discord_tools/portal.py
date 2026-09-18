@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import getpass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from discord_tools import profiles as profile_store
 from discord_tools.adapters.identity import label_for
-from discord_tools.config import ConfigError, DEFAULT_PROFILE, bot_id_from_token, save_token
+from discord_tools.config import ConfigError, bot_id_from_token, load_environment, resolve_profile, save_token
 from discord_tools.doctor import INTENT_FIX
 
 RULE = "--------------------------------------------"
@@ -77,6 +77,7 @@ def ask_token(*, read_secret: Callable[[str], str], write: Callable[[str], None]
 async def run_auth(
     *,
     profile: str | None = None,
+    env: Mapping[str, str] | None = None,
     read: Callable[[str], str] = input,
     read_secret: Callable[[str], str] | None = None,
     write: Callable[[str], None] = print,
@@ -93,7 +94,13 @@ async def run_auth(
         open_client = real_open_client
 
     write(PORTAL_STEPS)
-    chosen_profile = ask_profile(profile or DEFAULT_PROFILE, read=read, write=write)
+    # The name offered is the profile this run is already acting as, resolved
+    # the one way the rest of the tool resolves it: --profile, then
+    # DISCORD_TOOLS_PROFILE, then "default". Offering "default" to someone whose
+    # env picks another bot turns "Enter, paste" into a new profile instead of
+    # the re-key they meant.
+    default_profile = resolve_profile(load_environment(env, home=home), profile)
+    chosen_profile = ask_profile(default_profile, read=read, write=write)
 
     identity = None
     token = None

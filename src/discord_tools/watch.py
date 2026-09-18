@@ -34,7 +34,7 @@ import json
 import shutil
 import sys
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
@@ -487,7 +487,7 @@ def check_schedule_time(*, at: str | None, every: str | None, now: float | None 
         raise ValueError("schedule post takes --at <time> or --every <repeat>, one of the two.")
     try:
         if at is not None:
-            when = parse_at(at)
+            when = parse_when(at)
             if when.timestamp() <= (time.time() if now is None else now):
                 raise ValueError(f"{at!r} is in the past, so nothing would ever post it.")
         else:
@@ -500,7 +500,7 @@ def format_schedule_preview(
     *, channel_label: str, text: str, at: str | None, every: str | None, sender: str
 ) -> str:
     """The whole message, its destination and its guarantee, before the y/N."""
-    when = f"once at {parse_at(at).isoformat()}" if at is not None else f"every {every}"
+    when = f"once at {parse_when(at).isoformat()}" if at is not None else f"every {every}"
     return "\n".join(
         [
             f"Scheduling as {sender}",
@@ -571,12 +571,22 @@ def event_target(server, event_id: int, name: str | None = None):
     )
 
 
+def parse_when(text: str) -> datetime:
+    """A typed time as a moment; `records.BARE_TIME_IS_UTC` is the reading.
+
+    The core's parser defaults a bare time to this machine's clock. Naming UTC
+    here is what keeps `--at` and `--start` meaning the same moment as the
+    `--since` of a search and as every time the tool prints.
+    """
+    return parse_at(text, UTC)
+
+
 def parse_moment(value: str | None, flag: str) -> datetime | None:
-    """An ISO 8601 time for a scheduled event; a bare time is this machine's."""
+    """An ISO 8601 time for a scheduled event; a bare time is UTC."""
     if value is None:
         return None
     try:
-        return parse_at(value)
+        return parse_when(value)
     except RunnerError as exc:
         raise ValueError(f"{flag}: {exc}") from exc
 

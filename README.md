@@ -760,11 +760,14 @@ bot. It carries no file and no `--reply-to`: the runner would post them later,
 and by then the file may have moved and the message being answered may be
 gone, so both are refused rather than quietly dropped.
 
-`--at` takes an ISO 8601 time (no offset means UTC, the one reading every
-typed time in this tool has, and the zone every printed one is marked with);
+`--at` takes an ISO 8601 time. A time with no offset is this machine's local
+time, the one reading every typed time in this tool has; an offset or a
+trailing `Z` you write always wins, and the preview shows the resolved time
+with its offset before the y/N.
 `--every` takes
 an interval (`15m`, `2h`, `1d`) or a five-field cron expression, whose hour
-field reads in UTC too, so a listing's `next` prints back the hour you typed.
+field is this machine's local time too. A listing prints `at` and `next` in
+UTC and says so, like every time this tool prints.
 Schedules are
 planned from a monotonic baseline recorded with the wall time: a wall clock
 that jumps backwards re-plans, one that jumps forwards fires each missed

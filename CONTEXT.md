@@ -67,7 +67,12 @@ The terms this codebase uses, and the boundaries they imply.
   (`records.py::shown_time`): UTC, and saying so — `2026-09-17 07:07 UTC`. A
   screen that prints the ISO string whole already says it with `Z` or an
   offset; JSON keeps the ISO string. Never converted to this machine's zone,
-  because `search` and `archive` read a bare `--since` time as UTC.
+  so a row reads the same on every machine.
+- **Typed time** — a time a person types (`records.py::parse_typed_time`,
+  rule string `BARE_TIME_IS_LOCAL`): with no offset it is this machine's local
+  time, cron hours included; an offset or a trailing `Z` always wins. A preview
+  prints it with the offset it was read in; JSON, plans and stored rows carry
+  the same moment in UTC (`records.py::utc_iso`).
 - **Intent (message-content)** — the portal toggle without which fetched
   messages have empty `content`. Read from application flags
   (`/applications/@me`); `auth` walks the user through enabling it, `doctor`

@@ -44,7 +44,7 @@ from discord_tools import messages as message_ops
 from discord_tools.models import MessageInfo
 from discord_tools.envelope import TOOL, CountingClient, Outcome, Run, command_name, echoed_args
 from discord_tools.portal import invite_url, run_auth
-from discord_tools.records import BARE_TIME_IS_UTC
+from discord_tools.records import BARE_TIME_IS_LOCAL, utc_iso
 from discord_tools import profiles as profile_store
 from discord_tools.profiles import confirm_removal
 from discord_tools.config import (
@@ -158,8 +158,8 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument("--channel", required=True, type=snowflake, help="Channel or thread ID")
     search.add_argument("--keyword", "--contains", dest="keyword", help="Case-insensitive text filter")
     search.add_argument("--from-user", help="Author username or ID")
-    search.add_argument("--since", help=f"Inclusive ISO date or datetime lower bound; {BARE_TIME_IS_UTC}")
-    search.add_argument("--until", help=f"Inclusive ISO date or datetime upper bound; {BARE_TIME_IS_UTC}")
+    search.add_argument("--since", help=f"Inclusive ISO date or datetime lower bound; {BARE_TIME_IS_LOCAL}")
+    search.add_argument("--until", help=f"Inclusive ISO date or datetime upper bound; {BARE_TIME_IS_LOCAL}")
     search.add_argument("--limit", type=positive_int, help="Maximum exported messages")
     search.add_argument("--format", choices=EXPORT_FORMATS, default="json", help="Export format")
     search.add_argument(
@@ -188,7 +188,7 @@ def build_parser() -> argparse.ArgumentParser:
     send_parser.add_argument(
         "--at",
         metavar="TIME",
-        help=f"Post it later instead of now: the same runner-held schedule `schedule post --at` makes ({BARE_TIME_IS_UTC})",
+        help=f"Post it later instead of now: the same runner-held schedule `schedule post --at` makes ({BARE_TIME_IS_LOCAL})",
     )
     _mention_flag(send_parser)
     send_parser.add_argument(
@@ -288,7 +288,7 @@ def build_parser() -> argparse.ArgumentParser:
     archive_sync.add_argument(
         "--scope", action="append", metavar="RID_OR_ID", help="Only this channel or thread (a rid or a numeric ID); repeatable"
     )
-    archive_sync.add_argument("--since", help=f"Stop walking back at this ISO date ({BARE_TIME_IS_UTC}); later runs still resume from the checkpoint")
+    archive_sync.add_argument("--since", help=f"Stop walking back at this ISO date ({BARE_TIME_IS_LOCAL}); later runs still resume from the checkpoint")
     archive_sync.add_argument("--full", action="store_true", help="Ignore the checkpoints and walk every scope from the newest message again")
 
     archive_kinds.add_parser("status", help="Scopes, rows, dates, coverage, size against the budget")
@@ -299,8 +299,8 @@ def build_parser() -> argparse.ArgumentParser:
         parser.add_argument("--scope", action="append", metavar="RID_OR_ID", help="Only this channel or thread (a rid or a numeric ID); repeatable")
         parser.add_argument("--identity", help="Only rows archived by this bot identity (a dc:bot rid)")
         parser.add_argument("--from", dest="author", help="Only messages from this author: a numeric ID, a username, or a rid")
-        parser.add_argument("--since", help=f"Inclusive ISO date or datetime lower bound; {BARE_TIME_IS_UTC}")
-        parser.add_argument("--until", help=f"Inclusive ISO date or datetime upper bound; {BARE_TIME_IS_UTC}")
+        parser.add_argument("--since", help=f"Inclusive ISO date or datetime lower bound; {BARE_TIME_IS_LOCAL}")
+        parser.add_argument("--until", help=f"Inclusive ISO date or datetime upper bound; {BARE_TIME_IS_LOCAL}")
         parser.add_argument("--context", type=int, default=0, metavar="N", help="Also show N neighbouring messages on each side of a hit")
         parser.add_argument("--limit", type=positive_int, default=50, help="Maximum hits (default: 50)")
         parser.add_argument("--include-deleted", action="store_true", help="Also show messages marked deleted on a later sync")
@@ -487,7 +487,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--until",
         required=True,
         metavar="TIME",
-        help=f"When it ends: an ISO 8601 time ({BARE_TIME_IS_UTC}), or a duration like 30m, 2h, 7d. Required, and never more than 28 days (Discord's own limit)",
+        help=f"When it ends: an ISO 8601 time ({BARE_TIME_IS_LOCAL}), or a duration like 30m, 2h, 7d. Required, and never more than 28 days (Discord's own limit)",
     )
     member_timeout.add_argument("--reason", help="Why; Discord stores it in the server's own audit log")
     member_timeout.add_argument("--yes", action="store_true", help="Skip the y/N prompt")
@@ -532,7 +532,7 @@ def build_parser() -> argparse.ArgumentParser:
     audit_log_list.add_argument("--server", required=True, type=snowflake, help="Server ID")
     audit_log_list.add_argument("--action", help=f"Only this action, in {moderation.AUDIT_ACTIONS_ARE}")
     audit_log_list.add_argument("--user", type=snowflake, help="Only entries by this user ID")
-    audit_log_list.add_argument("--since", metavar="TIME", help=f"Only entries after this ISO 8601 time ({BARE_TIME_IS_UTC}), or a duration back like 24h")
+    audit_log_list.add_argument("--since", metavar="TIME", help=f"Only entries after this ISO 8601 time ({BARE_TIME_IS_LOCAL}), or a duration back like 24h")
     audit_log_list.add_argument("--limit", type=int, default=50, help="How many entries at most (default: 50)")
 
     webhook_parser = subparsers.add_parser(
@@ -836,8 +836,8 @@ def build_parser() -> argparse.ArgumentParser:
     schedule_post = schedule_kinds.add_parser("post", help="Schedule a message; it fires through the runner (preview + y/N)")
     schedule_post.add_argument("--channel", type=snowflake, required=True, help="Channel or thread ID to post in")
     schedule_post.add_argument("--text", required=True, help="The message; `-` reads it from stdin")
-    schedule_post.add_argument("--at", metavar="TIME", help=f"ISO 8601 time to post once; {BARE_TIME_IS_UTC}")
-    schedule_post.add_argument("--every", metavar="REPEAT", help=f"An interval (15m, 2h, 1d) or a five-field cron expression, whose hours read in UTC ({BARE_TIME_IS_UTC})")
+    schedule_post.add_argument("--at", metavar="TIME", help=f"ISO 8601 time to post once; {BARE_TIME_IS_LOCAL}")
+    schedule_post.add_argument("--every", metavar="REPEAT", help="An interval (15m, 2h, 1d) or a five-field cron expression, whose hours are this machine's local time")
     schedule_post.add_argument("--yes", action="store_true", help="Skip the preview's y/N (the channel must be in DISCORD_SEND_ALLOWLIST either way)")
     schedule_kinds.add_parser("list", help="Every runner-held schedule with its guarantee (no login)")
     schedule_cancel = schedule_kinds.add_parser("cancel", help="Cancel a runner-held schedule (no login)")
@@ -858,8 +858,8 @@ def build_parser() -> argparse.ArgumentParser:
         if not creating:
             parser.add_argument("--id", dest="event_id", type=snowflake, required=True, help="The event's ID")
         parser.add_argument("--name", help="What the event is called")
-        parser.add_argument("--start", metavar="TIME", help=f"ISO 8601 start; {BARE_TIME_IS_UTC}")
-        parser.add_argument("--end", metavar="TIME", help=f"ISO 8601 end ({BARE_TIME_IS_UTC}); Discord requires one for an external event")
+        parser.add_argument("--start", metavar="TIME", help=f"ISO 8601 start; {BARE_TIME_IS_LOCAL}")
+        parser.add_argument("--end", metavar="TIME", help=f"ISO 8601 end ({BARE_TIME_IS_LOCAL}); Discord requires one for an external event")
         parser.add_argument("--place", choices=watch_rim.EVENT_PLACES, help="Where it happens: a voice or stage channel, or somewhere external")
         parser.add_argument("--channel", type=snowflake, help="Voice or stage channel ID, for a voice or stage_instance event")
         parser.add_argument("--location", help="Where an external event happens, in words")
@@ -3066,7 +3066,7 @@ async def _run_member_timeout(client, args, out, *, identity, server, resolver, 
         live = await client.get_member(server_id, int(member["id"]))
         return await _moderation_plan(
             client, out, identity=identity, resolver=resolver, server_id=server_id, command_key="member-timeout",
-            approval="prompt_y", mutation=Mutation(op="timeout_member", rid=target.rid, params={"until": until.isoformat()}),
+            approval="prompt_y", mutation=Mutation(op="timeout_member", rid=target.rid, params={"until": utc_iso(until)}),
             extra_target=moderation.member_target(server, live),
         )
 
@@ -3092,7 +3092,7 @@ async def _run_member_timeout(client, args, out, *, identity, server, resolver, 
     evidence = await plans.read_back("the member could not be read back", lambda: _member_readback(client, server_id, member, gone=False))
     return Outcome(
         status="ok", target=target, plan=write.plan,
-        result={"member_id": int(member["id"]), "until": until.isoformat(), "reason": args.reason}, evidence=evidence,
+        result={"member_id": int(member["id"]), "until": utc_iso(until), "reason": args.reason}, evidence=evidence,
     )
 
 
@@ -3394,7 +3394,7 @@ async def _run_audit_log(client, args, config, out) -> Outcome:
     if refusal is not None:
         return Outcome(status="refused", target=server, error=refusal)
 
-    since = moderation.parse_since(args.since).isoformat() if args.since else None
+    since = utc_iso(moderation.parse_since(args.since)) if args.since else None
     entries = await client.audit_log(server_id, action=args.action, user_id=args.user, since=since, limit=args.limit)
     out.say(moderation.format_audit(entries, server=server.title))
     rows = [moderation.audit_row(entry) for entry in entries]
@@ -4854,13 +4854,11 @@ def _rule_paths():
 def _runner_state(archive, identity):
     """The schedule store, reading a typed time the way the preview already does.
 
-    `records.BARE_TIME_IS_UTC` is this tool's reading everywhere, and
-    `watch.parse_when` gives the preview that. The store defaults to this
-    machine's clock, so the same string meant two different moments: live on
-    2026-09-18 a bare time half an hour ahead in UTC previewed as UTC and was
-    then refused as past, and one further out would have fired at an hour
-    nobody typed. Both sides name the zone instead, and the runner that fires
-    the row names the same one.
+    `records.BARE_TIME_IS_LOCAL` is this tool's reading everywhere, and
+    `watch.parse_when` gives the preview that. Live on 2026-09-18 the preview
+    and the store read one string in two zones, so a time was previewed, taken
+    and then refused as past. Both sides are handed the one zone
+    `watch.SCHEDULE_TZ` names, and so is the runner that fires the row.
     """
     from discord_tools._core.runner import Clock, RunnerState, Schedules
 
@@ -5173,7 +5171,7 @@ async def _run_schedule_post(client, args, config, out) -> Outcome:
             schedule = schedules.add(
                 watch_rim.schedule_rid(args.channel),
                 text,
-                at=None if args.at is None else watch_rim.parse_when(args.at).isoformat(),
+                at=None if args.at is None else utc_iso(watch_rim.parse_when(args.at)),
                 every=args.every,
             )
         except RunnerError as exc:
@@ -5237,7 +5235,8 @@ async def _run_event(client, args, config, out) -> Outcome:
 
 
 async def _run_event_write(client, args, out, *, identity, server, creating: bool) -> Outcome:
-    fields = watch_rim.event_fields(args, creating=creating)
+    typed = watch_rim.event_fields(args, creating=creating)
+    fields = watch_rim.event_fields_in_utc(typed)
     existing = None if creating else await client.get_scheduled_event(args.server, args.event_id)
     target = server if creating else watch_rim.event_target(server, args.event_id, existing["name"])
 
@@ -5264,7 +5263,7 @@ async def _run_event_write(client, args, out, *, identity, server, creating: boo
     if write.refusal is not None:
         return Outcome(status="refused", target=target, plan=write.plan, error=write.refusal)
 
-    preview = watch_rim.format_event_preview(fields, server=server.display, sender=identity.label, existing=existing)
+    preview = watch_rim.format_event_preview(typed, server=server.display, sender=identity.label, existing=existing)
     out.say(plans.format_preflight(write.plan))
     stopped = _rule_gate(out, yes=args.yes, preview=preview, question="Create it?" if creating else "Change it?")
     if stopped is not None:

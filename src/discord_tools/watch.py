@@ -55,10 +55,10 @@ from discord_tools._core.runner import (
     SERVER_HELD,
     Delivery,
     RunnerError,
-    parse_at,
     parse_every,
 )
 from discord_tools.adapters import events as gateway
+from discord_tools.records import parse_typed_time
 
 RULE = "--------------------------------------------"
 PLATFORM = "discord"
@@ -580,27 +580,24 @@ def event_target(server, event_id: int, name: str | None = None):
     )
 
 
-SCHEDULE_TZ = UTC
-"""The zone every schedule is read in: the store, and the runner that fires it.
+SCHEDULE_TZ = None
+"""The zone every schedule is read in, cron hours included: this machine's.
 
 Named in one place because two processes write and read one row - `schedule
-post` here and the `watch run` that fires it later - and a zone either of them
-defaulted would be a schedule firing at an hour nobody typed.
+post` here and the `watch run` that fires it later - and both hand this to the
+core. None is the core's word for this machine's local time, which it looks up
+each time it reads a schedule, so a runner left up across a clock change keeps
+firing at the hour that was typed.
 """
 
 
 def parse_when(text: str) -> datetime:
-    """A typed time as a moment; `records.BARE_TIME_IS_UTC` is the reading.
-
-    The core's parser defaults a bare time to this machine's clock. Naming UTC
-    here is what keeps `--at` and `--start` meaning the same moment as the
-    `--since` of a search and as every time the tool prints.
-    """
-    return parse_at(text, UTC)
+    """A typed time as a moment; `records.parse_typed_time` is the one reading."""
+    return parse_typed_time(text)
 
 
 def parse_moment(value: str | None, flag: str) -> datetime | None:
-    """An ISO 8601 time for a scheduled event; a bare time is UTC."""
+    """An ISO 8601 time for a scheduled event; a bare time is this machine's local time."""
     if value is None:
         return None
     try:
@@ -643,6 +640,16 @@ def event_fields(args: Any, *, creating: bool) -> dict[str, Any]:
         "start_time": start,
         "end_time": end,
     }
+
+
+def event_fields_in_utc(fields: Mapping[str, Any]) -> dict[str, Any]:
+    """The same fields with every moment in UTC: what the plan, Discord and the JSON are handed.
+
+    The preview is drawn from the fields as typed, so a time shows with the
+    offset it was read in; everything a program reads back keeps the one zone
+    it always had.
+    """
+    return {key: (value.astimezone(UTC) if isinstance(value, datetime) else value) for key, value in fields.items()}
 
 
 def format_events(rows: Sequence[Mapping[str, Any]]) -> str:

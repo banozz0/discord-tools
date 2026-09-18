@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, time
 from typing import Any, Mapping, MutableMapping
 
+from discord_tools._core.runner import RunnerError, parse_at
+
 # Discord's snowflake epoch: 2015-01-01T00:00:00Z, in milliseconds.
 DISCORD_EPOCH_MS = 1_420_070_400_000
 
@@ -15,15 +17,34 @@ def snowflake_time(snowflake: int) -> datetime:
     return datetime.fromtimestamp(((snowflake >> 22) + DISCORD_EPOCH_MS) / 1000, tz=UTC)
 
 
-# One reading for every time a person types, said wherever one is asked for.
-# Bounds, deadlines and scheduled moments used to split: a bare `--since` was
-# UTC while a bare `--at` was this machine's clock, and no prompt said either,
-# so the same eleven characters meant two moments. UTC is the one reading,
-# because it is the zone every time this tool prints is marked with -- a time
-# copied off a row means the same moment typed back in.
-BARE_TIME_IS_UTC = "a time with no offset is UTC"
+# One reading for every time a person types, said wherever one is asked for:
+# this machine's local time, the clock in front of whoever is typing. 0.21.0
+# read a bare time as UTC, so 18:00 typed in Malta posted at 20:00. An offset
+# or a trailing Z written on the time always wins, and what the tool prints
+# and hands on in JSON stays UTC and says so.
+BARE_TIME_IS_LOCAL = "a time with no offset is this machine's local time"
 
-DATE_SHAPE = f"a date is written year first: 2026-09-06, or 2026-09-06T14:30, and {BARE_TIME_IS_UTC}"
+DATE_SHAPE = f"a date is written year first: 2026-09-06, or 2026-09-06T14:30, and {BARE_TIME_IS_LOCAL}"
+
+
+def parse_typed_time(text: str) -> datetime:
+    """A time a person typed, as an aware moment: `BARE_TIME_IS_LOCAL` is the reading.
+
+    The one function every bound, deadline and scheduled moment goes through.
+    It is the core's own parser, which reads a bare time off this machine's
+    clock and hands it back with that offset on it, which is what a preview
+    prints; `RunnerError` when the text is not a time.
+    """
+    return parse_at(text)
+
+
+def utc_iso(moment: datetime) -> str:
+    """A moment as JSON, a plan and a stored row carry it: ISO 8601, in UTC.
+
+    A preview prints a typed time with the offset it was read in; everything a
+    program reads back says the same moment in the one zone it always has.
+    """
+    return moment.astimezone(UTC).isoformat()
 
 
 def parse_date_bound(value: str | None, *, end_of_day: bool) -> datetime | None:
@@ -31,22 +52,19 @@ def parse_date_bound(value: str | None, *, end_of_day: bool) -> datetime | None:
 
     `06/09/2026` is what a person types and what Python's parser answers with
     `Invalid isoformat string`, which names the rule without saying it; the
-    error here says the shape instead, and the menu asks again on it.
+    error here says the shape instead, and the menu asks again on it. A bare
+    date is this machine's day, from its first moment to its last.
     """
     if not value:
         return None
 
     try:
         if "T" not in value and len(value) == 10:
-            parsed_date = date.fromisoformat(value)
-            parsed_time = time.max if end_of_day else time.min
-            return datetime.combine(parsed_date, parsed_time, tzinfo=UTC)
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError as exc:
+            date.fromisoformat(value)
+            return parse_typed_time(f"{value}T{(time.max if end_of_day else time.min).isoformat()}").astimezone(UTC)
+        return parse_typed_time(value).astimezone(UTC)
+    except (ValueError, RunnerError) as exc:
         raise ValueError(f"{value!r} is not a date this tool reads: {DATE_SHAPE}") from exc
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=UTC)
-    return parsed.astimezone(UTC)
 
 
 # How a time is written wherever a person reads one: in UTC, and saying so.
@@ -56,7 +74,7 @@ TIME_WIDTH = len("2026-09-06 14:30 UTC")
 
 
 def _moment(value: str | datetime | None) -> datetime | None:
-    """`value` as an aware UTC moment; a time with no offset is UTC, as every bound here is."""
+    """`value` as an aware UTC moment; a stored time with no offset is UTC, as Discord hands them over."""
     if isinstance(value, datetime):
         moment = value
     else:
@@ -74,10 +92,10 @@ def shown_time(value: str | datetime | None, *, seconds: bool = False) -> str:
 
     Discord hands every time over in UTC, and the rows used to print the first
     sixteen characters of its ISO string, which a reader took for their own
-    clock. The zone is said rather than converted to this machine's, so a time
-    copied off a row means the same moment typed back into `--since`, which
-    reads a bare time as UTC. Empty in, empty out; text that is not a time
-    comes back as it was.
+    clock. The zone is said rather than converted to this machine's, so a row
+    reads the same on every machine; a time copied off one into `--since`
+    takes its Z along, because a bare typed time is this machine's clock.
+    Empty in, empty out; text that is not a time comes back as it was.
     """
     if value is None or value == "":
         return ""

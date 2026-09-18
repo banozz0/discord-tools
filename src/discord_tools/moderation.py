@@ -49,9 +49,10 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 from discord_tools._core import rid as _rid
 from discord_tools._core.contract import Error
 from discord_tools._core.identity import Target
-from discord_tools._core.runner import RunnerError, parse_at
+from discord_tools._core.runner import RunnerError
 from discord_tools.adapters.targets import TargetError
 from discord_tools.models import id_and_ref
+from discord_tools.records import parse_typed_time
 from discord_tools.roles import RULE, rank, tie_note, top_role
 
 PLATFORM = "discord"
@@ -254,11 +255,7 @@ def _moment(text: str, *, from_: datetime, ahead: bool) -> datetime:
         span = timedelta(**{UNITS[duration.group(2).lower()]: int(duration.group(1))})
         return from_ + span if ahead else from_ - span
     try:
-        # `records.BARE_TIME_IS_UTC`: the core's own parser reads a bare time as
-        # this machine's clock, which would make `--since 2026-09-06T14:30` a
-        # different moment here than in a search. The zone is named rather than
-        # left to the runner's default.
-        return parse_at(raw, UTC)
+        return parse_typed_time(raw)
     except RunnerError as exc:
         raise ValueError(f"{text!r} is not a time. Use an ISO 8601 time, or a duration like 30m, 2h or 7d ({exc}).") from exc
 

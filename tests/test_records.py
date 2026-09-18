@@ -56,8 +56,9 @@ def test_record_falls_back_to_snowflake_date():
 
 
 def test_parse_date_bound_expands_bare_dates():
-    assert parse_date_bound("2026-08-20", end_of_day=False).hour == 0
-    assert parse_date_bound("2026-08-20", end_of_day=True).hour == 23
+    # The day is this machine's, so its edges are read back on this machine's clock.
+    assert parse_date_bound("2026-08-20", end_of_day=False).astimezone().hour == 0
+    assert parse_date_bound("2026-08-20", end_of_day=True).astimezone().hour == 23
     assert parse_date_bound(None, end_of_day=True) is None
 
 
@@ -108,9 +109,11 @@ def test_a_shown_time_is_utc_and_says_so():
     assert len(shown_time("2026-09-17T07:07:35Z")) == TIME_WIDTH
 
 
-def test_a_time_copied_off_a_row_into_since_is_the_same_moment():
+def test_a_time_copied_off_a_row_into_since_is_the_same_moment_with_its_z(machine_is_two_hours_ahead):
+    """A row prints UTC and says so; a bare time typed back is this machine's
+    clock, so the copy carries the zone the row named."""
     shown = shown_time("2026-09-17T07:07:35+00:00")
-    assert parse_date_bound(shown.removesuffix(" UTC"), end_of_day=False) == datetime(2026, 9, 17, 7, 7, tzinfo=UTC)
+    assert parse_date_bound(shown.replace(" UTC", "Z"), end_of_day=False) == datetime(2026, 9, 17, 7, 7, tzinfo=UTC)
 
 
 def test_a_discord_time_tag_is_the_moment_in_every_readers_own_zone():
@@ -224,43 +227,70 @@ def test_every_time_a_screen_prints_says_its_zone(tmp_path):
 
 # -- the input side: one stated zone --------------------------------------
 #
-# The screens above say UTC on every time they print. These say the same about
-# every time a person types: one reading for a bare time, and every help line
-# and prompt that takes one says which.
+# The screens above say UTC on every time they print. A time a person types is
+# the other way round: it is read off the clock in front of them, this
+# machine's, and every help line and prompt that takes one says so. 0.21.0 read
+# a bare time as UTC, so 18:00 typed in Malta posted at 20:00.
 
 BARE_TYPED = "2026-09-06T14:30"
-TYPED_MEANS = datetime(2026, 9, 6, 14, 30, tzinfo=UTC)
+TYPED_MEANS = datetime(2026, 9, 6, 12, 30, tzinfo=UTC)  # 14:30 in Malta, UTC+2 in September
 TIME_FLAGS = {"--since", "--until", "--at", "--start", "--end"}
 
 
-def test_every_parser_reads_a_bare_typed_time_as_the_same_utc_moment():
-    """Four parsers, one reading. `--since` in a search and `--at` on a
-    schedule used to mean different moments on the same clock."""
+def test_every_parser_reads_a_bare_typed_time_as_the_same_local_moment(machine_is_two_hours_ahead):
+    """Four parsers, one reading, and one function under all of them."""
     from discord_tools import moderation, watch
-    from discord_tools.records import parse_date_bound
+    from discord_tools.records import parse_date_bound, parse_typed_time
 
+    assert parse_typed_time(BARE_TYPED) == TYPED_MEANS
     assert parse_date_bound(BARE_TYPED, end_of_day=False) == TYPED_MEANS
     assert watch.parse_moment(BARE_TYPED, "--start") == TYPED_MEANS
+    assert watch.parse_when(BARE_TYPED) == TYPED_MEANS
     assert moderation.parse_since(BARE_TYPED) == TYPED_MEANS
     assert moderation.parse_until(BARE_TYPED, now=datetime(2026, 9, 6, 10, 0, tzinfo=UTC)) == TYPED_MEANS
 
 
-def test_a_typed_time_that_carries_an_offset_is_read_as_written():
+def test_a_bare_typed_time_comes_back_with_this_machines_offset_on_it(machine_is_two_hours_ahead):
+    """What a preview prints: the hour that was typed, and the offset it was read in."""
+    from discord_tools.records import parse_typed_time
+
+    assert parse_typed_time(BARE_TYPED).isoformat() == "2026-09-06T14:30:00+02:00"
+
+
+def test_a_bare_date_is_this_machines_day_from_its_first_moment_to_its_last(machine_is_two_hours_ahead):
+    assert parse_date_bound("2026-09-06", end_of_day=False) == datetime(2026, 9, 5, 22, 0, tzinfo=UTC)
+    assert parse_date_bound("2026-09-06", end_of_day=True) == datetime(2026, 9, 6, 21, 59, 59, 999999, tzinfo=UTC)
+
+
+def test_a_bound_is_handed_on_in_utc_whatever_zone_it_was_typed_in(machine_is_two_hours_ahead):
+    assert parse_date_bound(BARE_TYPED, end_of_day=False).utcoffset().total_seconds() == 0
+
+
+def test_a_trailing_z_wins_over_this_machines_clock(machine_is_two_hours_ahead):
+    from discord_tools import moderation, watch
+
+    written = datetime(2026, 9, 6, 14, 30, tzinfo=UTC)
+    assert parse_date_bound("2026-09-06T14:30Z", end_of_day=False) == written
+    assert watch.parse_when("2026-09-06T14:30Z") == written
+    assert moderation.parse_since("2026-09-06T14:30Z") == written
+
+
+def test_a_typed_time_that_carries_an_offset_is_read_as_written(machine_is_two_hours_ahead):
     from discord_tools import watch
     from discord_tools.records import parse_date_bound
 
-    assert parse_date_bound("2026-09-06T16:30+02:00", end_of_day=False) == TYPED_MEANS
-    assert watch.parse_moment("2026-09-06T16:30+02:00", "--start") == TYPED_MEANS
+    assert parse_date_bound("2026-09-06T09:30-03:00", end_of_day=False) == TYPED_MEANS
+    assert watch.parse_moment("2026-09-06T09:30-03:00", "--start") == TYPED_MEANS
 
 
 def test_every_flag_that_takes_a_time_says_which_zone_it_reads():
     from capture_help import COMMANDS, parser_for
-    from discord_tools.records import BARE_TIME_IS_UTC
+    from discord_tools.records import BARE_TIME_IS_LOCAL
 
     silent = []
     for path in COMMANDS:
         for action in parser_for(path)._actions:
-            if TIME_FLAGS.intersection(action.option_strings) and BARE_TIME_IS_UTC not in (action.help or ""):
+            if TIME_FLAGS.intersection(action.option_strings) and BARE_TIME_IS_LOCAL not in (action.help or ""):
                 silent.append((" ".join(path) or "root", action.option_strings[0]))
     assert silent == []
 
@@ -269,18 +299,18 @@ def test_every_menu_prompt_that_asks_for_a_time_says_which_zone_it_reads():
     from pathlib import Path
 
     from discord_tools import menu
-    from discord_tools.records import BARE_TIME_IS_UTC
+    from discord_tools.records import BARE_TIME_IS_LOCAL
 
     source = Path(menu.__file__).read_text(encoding="utf-8").splitlines()
     # The prompts are f-strings over the constant, so the line carries its name.
-    assert BARE_TIME_IS_UTC
-    silent = [line.strip() for line in source if "ISO 8601" in line and "BARE_TIME_IS_UTC" not in line]
+    assert BARE_TIME_IS_LOCAL
+    silent = [line.strip() for line in source if "ISO 8601" in line and "BARE_TIME_IS_LOCAL" not in line]
     assert silent == []
 
 
 def test_the_menu_date_prompt_carries_the_zone_in_its_label():
     from discord_tools import menu
-    from discord_tools.records import BARE_TIME_IS_UTC
+    from discord_tools.records import BARE_TIME_IS_LOCAL
 
     asked = []
 
@@ -289,4 +319,4 @@ def test_the_menu_date_prompt_carries_the_zone_in_its_label():
         return BARE_TYPED
 
     assert menu._ask_date("Since", read=read, write=lambda _text: None) == BARE_TYPED
-    assert BARE_TIME_IS_UTC in asked[0]
+    assert BARE_TIME_IS_LOCAL in asked[0]

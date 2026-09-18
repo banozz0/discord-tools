@@ -137,17 +137,11 @@ def test_until_takes_a_duration_or_an_iso_time():
     assert moderation.parse_until("2026-09-10T12:00:00+00:00", now=NOW) == datetime(2026, 9, 10, 12, 0, tzinfo=timezone.utc)
 
 
-def test_until_reads_a_bare_time_as_utc_on_a_machine_that_is_not(monkeypatch):
-    """A timeout ends at a moment Discord holds, so a bare `--until` read from
-    this machine's clock would end it two hours out from what was typed and
-    printed. The zone is named, never the host's."""
-    monkeypatch.setenv("TZ", "Europe/Malta")  # UTC+2 in summer, UTC+1 in winter
-    time.tzset()
-    try:
-        assert moderation.parse_until("2026-09-10T12:00", now=NOW) == datetime(2026, 9, 10, 12, 0, tzinfo=timezone.utc)
-    finally:
-        monkeypatch.undo()
-        time.tzset()
+def test_until_reads_a_bare_time_off_this_machines_clock(machine_is_two_hours_ahead):
+    """Whoever sets a timeout types the hour on the clock in front of them; the
+    moment Discord is handed is that one, two hours earlier in UTC."""
+    assert moderation.parse_until("2026-09-10T12:00", now=NOW) == datetime(2026, 9, 10, 10, 0, tzinfo=timezone.utc)
+    assert moderation.parse_until("2026-09-10T12:00", now=NOW).isoformat() == "2026-09-10T12:00:00+02:00"
 
 
 @pytest.mark.parametrize(

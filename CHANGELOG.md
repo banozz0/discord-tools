@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.22.0 — 2026-09-18
+
+### One behaviour change: a typed time with no offset is this machine's local time
+0.21.0 read every time you typed without an offset as UTC, cron hours included,
+so `--at 18:00` typed in Malta posted at 20:00. This release reads it as this
+machine's local time instead, everywhere: `search`, `archive` and `export`
+`--since` and `--until`, `audit-log --since`, `member timeout --until`,
+`schedule post --at`, `send --at`, `event --start` and `--end`, and the hour
+field of a cron expression. A bare date is this machine's day, from its first
+moment to its last. Every help line and menu prompt says the rule in the same
+words: a time with no offset is this machine's local time.
+
+An offset or a trailing `Z` you write always wins. The preview shows the
+resolved time with its offset before the y/N (`once at
+2026-09-20T18:00:00+02:00`), and the schedule is stored at exactly that moment.
+What the tool prints on a row stays UTC and says so, and JSON output, plans and
+stored schedules stay in UTC, so a time copied off a row and typed back needs
+its `Z`.
+
+If you wrote a schedule or a cron expression under 0.21.0 expecting UTC, a
+one-off `--at` row keeps the moment it was stored with; a cron row now fires at
+that hour on this machine's clock, so cancel it and post it again if you meant
+UTC.
+
 ## 0.21.0 — 2026-09-18
 
 The final wave of this cycle: the shared core at v0.14 and the small faults the

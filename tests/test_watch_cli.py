@@ -50,21 +50,6 @@ def go(argv, client=None, *, isatty=True):
     return code, json.loads(out.stdout.getvalue()), out.stderr.getvalue()
 
 
-@pytest.fixture
-def machine_is_two_hours_ahead(monkeypatch):
-    """This process's local zone forced to UTC+2, so the host's own is never the test.
-
-    Every typed time in this tool reads as UTC (`records.BARE_TIME_IS_UTC`),
-    and the only way to prove that is to run where local time is something
-    else.
-    """
-    monkeypatch.setenv("TZ", "Europe/Malta")  # UTC+2 in summer, UTC+1 in winter
-    time.tzset()
-    yield
-    monkeypatch.undo()
-    time.tzset()
-
-
 def answer(monkeypatch, text):
     monkeypatch.setattr("builtins.input", lambda _prompt="": text)
 
@@ -373,42 +358,58 @@ def test_a_bare_schedule_time_is_stored_as_the_moment_the_preview_showed(
     home_is_a_tmp_dir, monkeypatch, machine_is_two_hours_ahead
 ):
     """Live on 2026-09-18, W4: `schedule post --at 2026-09-18T11:02` previewed
-    `once at 11:02:00+00:00`, took the y, then refused `is in the past`. The
-    preview read the bare time as UTC and the store read it as this machine's
-    clock, two hours ahead, so anything less than the offset away was refused
-    and anything further was stored two hours off what was promised."""
-    soon = datetime.now(timezone.utc) + timedelta(minutes=30)
-    typed = soon.strftime("%Y-%m-%dT%H:%M:%S")
+    one moment, took the y, then refused `is in the past`, because the preview
+    and the store read the bare time in two zones. Both read it off this
+    machine's clock now: the preview says so with the offset, and the row
+    holds that same moment, in UTC like every time the JSON carries."""
+    soon = (datetime.now(timezone.utc) + timedelta(minutes=30)).replace(microsecond=0)
+    typed = soon.astimezone().strftime("%Y-%m-%dT%H:%M:%S")  # the wall clock here, no offset on it
 
     answer(monkeypatch, "y")
     code, body, stderr = go(
         ["--json", "schedule", "post", "--channel", "101", "--text", "standup", "--at", typed], agency()
     )
     assert (code, body["status"]) == (0, "ok"), stderr
-    assert body["result"]["schedule"]["at"] == f"{typed}+00:00"
+    assert f"once at {soon.astimezone().isoformat()}" in stderr
+    assert soon.astimezone().utcoffset() != timedelta(0)
+    assert body["result"]["schedule"]["at"] == soon.isoformat()
 
     _code, listed, _stderr = go(["--json", "schedule", "list"])
     row = listed["result"]["schedules"][0]
-    assert row["at"] == f"{typed}+00:00"
+    assert row["at"] == soon.isoformat()
     assert abs(row["next_wall"] - soon.timestamp()) < 1
+
+
+def test_a_cron_hour_is_an_hour_on_this_machines_clock(home_is_a_tmp_dir, monkeypatch, machine_is_two_hours_ahead):
+    """0.21.0 read cron hours in UTC, so `0 18 * * *` typed in Malta posted at 20:00."""
+    answer(monkeypatch, "y")
+    code, body, stderr = go(
+        ["--json", "schedule", "post", "--channel", "101", "--text", "standup", "--every", "0 18 * * *"], agency()
+    )
+    assert code == 0, stderr
+    fires = datetime.fromtimestamp(body["result"]["schedule"]["next_wall"]).astimezone()
+    assert (fires.hour, fires.minute) == (18, 0)
+    assert fires.utcoffset() != timedelta(0)
 
 
 def test_the_cli_and_the_runner_read_a_schedule_the_same_way(home_is_a_tmp_dir):
     """Two processes write and fire one row: `schedule post` here and the
-    `watch run` that fires it later. A zone either of them defaulted would be
-    a schedule that fires at an hour nobody typed."""
+    `watch run` that fires it later. Both hand the core the one zone
+    `watch.SCHEDULE_TZ` names, and None is the core's word for this machine's
+    local time."""
     from discord_tools import watch
     from discord_tools._core.identity import Identity
     from discord_tools.cli import _runner_state
 
     paths = archive_store.tool_paths()
     identity = Identity(platform="discord", mode="bot", label="harry", id="dc:user:42", profile="harry")
+    assert watch.SCHEDULE_TZ is None
     with archive_store.open_archive() as archive:
-        assert _runner_state(archive, identity).tz is timezone.utc
+        assert _runner_state(archive, identity).tz is watch.SCHEDULE_TZ
         runner = watch.build_runner(
             archive=archive, identity=identity, rules=watch.RuleSet(paths.rules), paths=paths, sender=None
         )
-        assert runner.schedules.tz is timezone.utc
+        assert runner.schedules.tz is watch.SCHEDULE_TZ
 
 
 def test_a_schedule_the_store_refuses_is_a_coded_refusal_not_a_usage_dump(home_is_a_tmp_dir, monkeypatch):
@@ -454,11 +455,11 @@ def an_event(client, **overrides):
     return asyncio.run(client.create_scheduled_event(10, fields))
 
 
-def test_an_events_bare_start_and_end_are_utc_whatever_this_machine_reads(
+def test_an_events_bare_start_and_end_are_this_machines_clock_and_reach_discord_in_utc(
     home_is_a_tmp_dir, monkeypatch, machine_is_two_hours_ahead
 ):
-    """`event` writes its times to Discord, so a zone read from the host would
-    put the event two hours out for everyone who sees it."""
+    """Whoever makes the event types the hour on their own clock. The preview
+    says which offset that was; Discord and the JSON get the moment in UTC."""
     client = agency()
     answer(monkeypatch, "y")
     code, body, stderr = go(
@@ -467,8 +468,9 @@ def test_an_events_bare_start_and_end_are_utc_whatever_this_machine_reads(
         client,
     )
     assert code == 0, stderr
-    assert body["result"]["event"]["start"] == "2099-01-01T09:00:00+00:00"
-    assert body["result"]["event"]["end"] == "2099-01-01T10:00:00+00:00"
+    assert "Starts   2099-01-01T09:00:00+01:00" in stderr  # Malta in January
+    assert body["result"]["event"]["start"] == "2099-01-01T08:00:00+00:00"
+    assert body["result"]["event"]["end"] == "2099-01-01T09:00:00+00:00"
 
 
 def test_event_create_previews_and_a_no_writes_nothing(home_is_a_tmp_dir, monkeypatch):

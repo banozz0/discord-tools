@@ -44,6 +44,23 @@ def never_the_real_home(tmp_path_factory):
         yield home
 
 
+@pytest.fixture
+def machine_is_two_hours_ahead(monkeypatch):
+    """This process's local zone forced to UTC+2, so the host's own is never the test.
+
+    Every typed time in this tool reads as this machine's local time
+    (`records.BARE_TIME_IS_LOCAL`), and on a CI host whose clock is UTC that
+    reading and the UTC one are the same moment, so neither could fail.
+    """
+    import time
+
+    monkeypatch.setenv("TZ", "Europe/Malta")  # UTC+2 in summer, UTC+1 in winter
+    time.tzset()
+    yield
+    monkeypatch.undo()
+    time.tzset()
+
+
 @pytest.fixture(autouse=True)
 def home_is_a_tmp_dir(tmp_path, monkeypatch, never_the_real_home):
     """No test ever writes into the real home directory.

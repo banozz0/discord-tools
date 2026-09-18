@@ -11,7 +11,7 @@ from discord_tools._core import rid as _rid
 from discord_tools._core.contract import CodedError
 from discord_tools.client import API_ERRORS, ClientError, permission_names, start_client
 from discord_tools.plans import PlanDriftError
-from discord_tools.records import BARE_TIME_IS_UTC
+from discord_tools.records import BARE_TIME_IS_LOCAL
 from discord_tools._core.columns import cell
 from discord_tools._core.identity import Target
 from discord_tools._core.identity import banner as identity_banner
@@ -497,7 +497,7 @@ def _ask_date(label: str, *, read, write) -> Any:
     from discord_tools.records import DATE_SHAPE, parse_date_bound
 
     while True:
-        typed = ask_text(f"{label} ({BARE_TIME_IS_UTC})", read=read, write=write)
+        typed = ask_text(f"{label} ({BARE_TIME_IS_LOCAL})", read=read, write=write)
         if typed is BACK:
             return BACK
         try:
@@ -1875,7 +1875,7 @@ async def _flow_member_timeout(*, session, runner, read, write) -> bool:
                 return True
             continue
         where = crumb(trail, str(member["display_name"]))
-        until = ask_text(f"Until when? A duration like 30m, 2h or 7d, or an ISO 8601 time ({BARE_TIME_IS_UTC}; 28 days at most)", read=read, write=write)
+        until = ask_text(f"Until when? A duration like 30m, 2h or 7d, or an ISO 8601 time ({BARE_TIME_IS_LOCAL}; 28 days at most)", read=read, write=write)
         if until is BACK:
             continue
         reason = ask_text("Why? Discord stores this in the server's own audit log", read=read, write=write)
@@ -2081,7 +2081,7 @@ async def _flow_audit_log(*, session, runner, read, write) -> bool:
             user = typed
         # A blank cancels every text prompt, so "no time limit" is a row of its own.
         when = choose(
-            ["No time limit (the newest 50 entries)", f"Since a time (a duration like 24h or 7d, or an ISO 8601 time; {BARE_TIME_IS_UTC})"],
+            ["No time limit (the newest 50 entries)", f"Since a time (a duration like 24h or 7d, or an ISO 8601 time; {BARE_TIME_IS_LOCAL})"],
             title=crumb(where, "Since when?"),
             read=read,
             write=write,
@@ -2090,7 +2090,7 @@ async def _flow_audit_log(*, session, runner, read, write) -> bool:
             continue
         since = None
         if when == 1:
-            since = ask_text(f"Since when? A duration like 24h or 7d, or an ISO 8601 time ({BARE_TIME_IS_UTC})", read=read, write=write)
+            since = ask_text(f"Since when? A duration like 24h or 7d, or an ISO 8601 time ({BARE_TIME_IS_LOCAL})", read=read, write=write)
             if since is BACK:
                 continue
         args = _namespace(
@@ -3785,7 +3785,7 @@ async def _flow_schedule_post(*, session, runner, read, write) -> bool:
             continue
         at = every = None
         if repeat == 0:
-            at = ask_text(f"When (ISO 8601; {BARE_TIME_IS_UTC})", read=read, write=write)
+            at = ask_text(f"When (ISO 8601; {BARE_TIME_IS_LOCAL})", read=read, write=write)
             if at is BACK:
                 continue
         else:
@@ -3899,7 +3899,7 @@ async def _flow_event_create(*, session, runner, read, write) -> bool:
             if await _single_server(session):
                 return True
             continue
-        start = ask_text(f"Starts (ISO 8601; {BARE_TIME_IS_UTC})", read=read, write=write)
+        start = ask_text(f"Starts (ISO 8601; {BARE_TIME_IS_LOCAL})", read=read, write=write)
         if start is BACK:
             continue
         place = await _ask_event_place(read=read, write=write, trail=where)
@@ -3909,7 +3909,7 @@ async def _flow_event_create(*, session, runner, read, write) -> bool:
         if place["place"] == "external":
             # Discord requires an end time for an external event, so this is
             # asked rather than offered.
-            end = ask_text(f"Ends (ISO 8601, {BARE_TIME_IS_UTC} - Discord requires one for a place in words)", read=read, write=write)
+            end = ask_text(f"Ends (ISO 8601, {BARE_TIME_IS_LOCAL} - Discord requires one for a place in words)", read=read, write=write)
             if end is BACK:
                 continue
         # A blank cancels every text prompt, so "no description" is a row of its
@@ -3976,7 +3976,7 @@ async def _flow_event_edit(*, session, runner, read, write) -> bool:
         if field is BACK:
             continue
         key = ("name", "start", "end", "description")[field]
-        answer = ask_text(("Event name", f"Starts (ISO 8601; {BARE_TIME_IS_UTC})", f"Ends (ISO 8601; {BARE_TIME_IS_UTC})", "What it is about")[field], read=read, write=write)
+        answer = ask_text(("Event name", f"Starts (ISO 8601; {BARE_TIME_IS_LOCAL})", f"Ends (ISO 8601; {BARE_TIME_IS_LOCAL})", "What it is about")[field], read=read, write=write)
         if answer is BACK:
             continue
         result = await _act(

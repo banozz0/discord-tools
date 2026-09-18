@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.21.0 — 2026-09-18
 
 The final wave of this cycle: the shared core at v0.14 and the small faults the
 live menu campaign left on the board.

@@ -24,8 +24,11 @@ read back.
 ### A forwarded message reads the same everywhere
 `message copy` posts the words and files a forward moved, a watch keyword rule
 fires on a forward and on a poll, a forwarded file or link reaches the review
-queue, and the mark names the channel it came from (`[fwd #releases]`) wherever
-the name is already known.
+queue, and the mark names the channel it came from (`[fwd #releases]`) in
+`search`, in every export, in `pins list` and in what `archive sync` stores: the
+tool learns the server's channel listing once per run, because the cache it
+first relied on is one only a gateway connection fills. A forward out of another
+server, or out of a thread, still shows its id.
 
 ### Review and watch
 `review reject` shows what it would delete and asks y/N like approve and accept,

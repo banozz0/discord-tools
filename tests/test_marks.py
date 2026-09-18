@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import discord
@@ -26,11 +27,14 @@ from discord.state import ConnectionState
 from conftest import FakeClient
 from discord_tools import archive as archive_store
 from discord_tools._core.archive import fts5_available
-from discord_tools.adapters.archive import message_record
+from discord_tools.adapters.archive import candidates_of, message_record
+from discord_tools.adapters.events import message_events
+from discord_tools.client import _message_info
 from discord_tools.cli import build_parser, run
 from discord_tools.config import Config
 from discord_tools.envelope import Run, command_name, echoed_args
 from discord_tools.exporters import write_records
+from discord_tools.messages import copy_text
 from discord_tools.models import ChannelInfo, ServerInfo
 from discord_tools import records
 from discord_tools.records import message_matches_filters, message_to_record
@@ -65,8 +69,8 @@ def payload(message_id: int, **fields):
     return base
 
 
-def build(message_id: int, **fields) -> discord.Message:
-    return discord.Message(state=STATE, channel=CHANNEL, data=payload(message_id, **fields))
+def build(message_id: int, *, channel=CHANNEL, **fields) -> discord.Message:
+    return discord.Message(state=STATE, channel=channel, data=payload(message_id, **fields))
 
 
 def attachment(filename: str, content_type: str | None, **extra):
@@ -86,10 +90,11 @@ def copied(message_id: int = 101, text: str = "ship it") -> discord.Message:
     return build(message_id, content=text)
 
 
-def forwarded(message_id: int = 102, text: str = "ship it", attachments=()) -> discord.Message:
+def forwarded(message_id: int = 102, text: str = "ship it", attachments=(), channel=CHANNEL) -> discord.Message:
     """What `message forward` posts: empty content, the original in a snapshot."""
     return build(
         message_id,
+        channel=channel,
         message_reference={"type": 1, "channel_id": str(SOURCE_CHANNEL), "guild_id": "1", "message_id": str(FROM)},
         message_snapshots=[
             {
@@ -107,9 +112,10 @@ def forwarded(message_id: int = 102, text: str = "ship it", attachments=()) -> d
     )
 
 
-def poll(message_id: int = 103, content: str = "") -> discord.Message:
+def poll(message_id: int = 103, content: str = "", channel=CHANNEL) -> discord.Message:
     return build(
         message_id,
+        channel=channel,
         content=content,
         poll={
             "question": {"text": "ship it?"},
@@ -460,3 +466,84 @@ def test_doctor_calls_a_sample_of_events_inconclusive_not_a_missing_intent():
 
     checks = asyncio.run(channel_checks(probe_client([pin_event(2), sticker(1)]), 10))
     assert checks[-1].status == "WARN"
+
+
+# -- everywhere else a forward is read (card agent-bo-95422308) --------------
+#
+# The rows were only the first place. A copy posted an attribution with
+# nothing above it, a watch rule matched an empty string, the review queue
+# never saw a forwarded file, and every mark named a channel id.
+
+
+def a_channel(channel_id: int, name: str, *, holding=()):
+    """A message's channel, with the server cache a gateway connection fills."""
+    known = {int(item.id): item for item in holding}
+    guild = SimpleNamespace(get_channel_or_thread=lambda wanted: known.get(int(wanted)))
+    return MagicMock(guild=guild, id=channel_id, name=name)
+
+
+def test_a_copy_of_a_forward_carries_the_words_and_the_file_it_moved():
+    """Live: `message copy` of a forward posted the attribution and nothing else."""
+    info = _message_info(forwarded(), 10)
+    assert info.text == "ship it"
+
+    with_file = _message_info(forwarded(text="", attachments=[attachment("report.pdf", "application/pdf")]), 10)
+    assert [item.filename for item in with_file.attachments] == ["report.pdf"]
+
+    posted = copy_text(info, ChannelInfo(id=10, name="general", type="text"))
+    assert posted.startswith("ship it\n— sven in #general")
+
+
+def test_a_poll_previews_as_its_question_rather_than_no_text():
+    assert _message_info(poll(), 10).text == "[poll] ship it? — yes / no"
+    assert _message_info(copied(), 10).text == "ship it"
+
+
+def test_a_watch_rule_matches_a_forward_and_a_poll():
+    """A rule matches an event's text, and a forward's and a poll's was empty."""
+    gateway = a_channel(10, "general")
+    (event,) = message_events(poll(channel=gateway))
+    assert "ship it?" in event["text"]
+
+    events = message_events(forwarded(channel=gateway, text="ship it https://build.example.invalid/1"))
+    assert "ship it" in events[0]["text"]
+    assert [event["kind"] for event in events] == ["message", "link"]
+    assert events[1]["links"] == ["https://build.example.invalid/1"]
+
+
+def test_a_forwarded_file_is_a_media_event():
+    events = message_events(
+        forwarded(channel=a_channel(10, "general"), text="", attachments=[attachment("report.pdf", "application/pdf")])
+    )
+    assert [event["kind"] for event in events] == ["message", "media"]
+    assert events[0]["metadata"]["attachment_names"] == ["report.pdf"]
+
+
+def test_a_forwarded_file_and_link_reach_the_review_queue():
+    """`review` fetches nothing the sync did not queue, and a forward queued nothing."""
+    found = candidates_of(
+        forwarded(text="see https://l.example.invalid/q", attachments=[attachment("report.pdf", "application/pdf")]),
+        rid="dc:channel:10",
+        author_rid="dc:user:7",
+    )
+    assert [candidate.kind for candidate, _ in found] == ["media", "link"]
+    assert found[0][0].display_name == "report.pdf"
+    assert found[1][0].url == "https://l.example.invalid/q"
+
+
+def test_a_forward_names_the_channel_it_came_from_where_the_name_is_known():
+    """`[fwd #20]` says nothing a person reads; the name is taken, never fetched."""
+    origin = SimpleNamespace(id=SOURCE_CHANNEL, name="releases")
+    known = forwarded(channel=a_channel(10, "general", holding=[origin]))
+
+    assert message_to_record(known, channel_id=10)["forwarded_from"]["channel_name"] == "releases"
+    assert row(known).endswith("sven: [fwd #releases] ship it")
+    assert message_record(known, channel_id=10, cursor="102:102")["platform_json"]["forwarded_from"]["label"] == "#releases"
+
+
+def test_a_forward_out_of_a_server_this_bot_cannot_see_keeps_the_id():
+    """No name is knowable there, and no row is worth a fetch: the id stands."""
+    elsewhere = forwarded(channel=a_channel(10, "general"))
+
+    assert "channel_name" not in message_to_record(elsewhere, channel_id=10)["forwarded_from"]
+    assert row(elsewhere).endswith(f"sven: [fwd #{SOURCE_CHANNEL}] ship it")

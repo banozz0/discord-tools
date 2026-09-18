@@ -355,8 +355,10 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
   `~/.discord-tools/exports/`, never the working directory, so chat data
   cannot leak into a repo. An absolute path is honored as written.
 - **A `search` row says what the message is, in front of its text.**
-  `[fwd #<channel id>]` is Discord's own forward and the channel it came from
-  (a `message copy` carries no mark, which is how the two tell apart);
+  `[fwd #releases]` is Discord's own forward and the channel it came from,
+  named where this tool already has the name and `[fwd #<channel id>]` where it
+  cannot know it (a channel in another server; no row is worth a fetch), and a
+  `message copy` carries no mark, which is how the two tell apart;
   `[poll]`, `[image]`, `[video]`, `[audio]`, `[voice]`, `[file]` and
   `[sticker]` name what it carries; `[event]` is a row Discord wrote itself (a
   pin, a join, a thread created). A message with no words of its own shows a
@@ -410,9 +412,11 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
   bound is the same: 200 a run, `BULK_LIMIT` above it rather than the first
   200, and `--limit` past 1000 needs `--i-know`, which a user passes, not an
   agent. Every selected message is fetched from Discord, so the preview under
-  `--yes` reflects the channel now, not the archive. A `--from-search` that
-  matches nothing is `TARGET_NOT_FOUND` ("Nothing to forward/copy") before the
-  preview, as it is for `delete`.
+  `--yes` reflects the channel now, not the archive. A `copy` posts the words
+  the message shows — a forward's are the ones it moved and a poll's are its
+  question — so copying either is never an attribution over nothing. A
+  `--from-search` that matches nothing is `TARGET_NOT_FOUND` ("Nothing to
+  forward/copy") before the preview, as it is for `delete`.
 - **`message delete` asks for `manage_messages` only when it needs it.** A
   selection of nothing but the bot's own messages dry-runs without the right
   and, when the user runs it, deletes one by one (Discord's bulk delete wants

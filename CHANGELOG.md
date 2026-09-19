@@ -3,8 +3,9 @@
 ## Unreleased
 
 ### The README is a front page now, and it links the website
-It ran 850 lines and 9,003 words; it is 216 lines now: install, setup, a quick
-start, the menu, one table with a row per command, what the tool won't do, a
+It ran 850 lines and 9,003 words; it is 201 lines now: the menu as a picture
+under the pitch, linked to the live demo on the website, then install, setup,
+a quick start, one table with a row per command, what the tool won't do, a
 safety model in three tiers that says exactly what `--yes` does and where it
 does not exist, the options people reach for, and the contract for scripts.
 The depth it carried stays in each command's `--help`, in `skill/SKILL.md` and

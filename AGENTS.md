@@ -79,6 +79,10 @@ maintainer's private runbook. Rebuild `dist/` after any source edit.
   `adapters/events.py` and is the one lifted `SPEC.md` rule. Everything else
   stays login-only REST, and a test asserts it.
 - A CLI-surface change updates `skill/SKILL.md` in the same commit.
+- The README's top picture is `assets/menu.png`, the root menu taken off the live
+  site. When `ROOT_ITEMS` changes, update the site first, then re-run
+  `node ~/code/cli-tools-site/scripts/capture-menu.mjs discord-tools assets/menu.png`
+  and fix the rows in the image's alt text.
 - A user-visible fix gets its CHANGELOG entry + version bump in the same change.
 - Never commit tokens, IDs of real servers, or exported chat data. `.env*`
   files (even `.env.example`) stay untracked — the global secrets hook blocks

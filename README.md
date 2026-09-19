@@ -4,11 +4,13 @@
 
 A command-line tool for your own Discord servers, driven by a bot you own. Find the real IDs of servers, channels and threads, search and export messages, keep an archive you can search offline, send and schedule messages, and run a server — roles, permissions, members, invites, webhooks, AutoMod, events — from a menu, a terminal or a script.
 
+<a href="https://cli-tools-site.vercel.app/"><img src="https://raw.githubusercontent.com/banozz0/discord-tools/main/assets/menu.png" alt="The discord-tools menu: 1 Find IDs, 2 Read, 3 Write, 4 Build, 5 Clear messages, 6 Manage, 7 Watch, 8 Identity, 9 Check setup, 0 Exit" width="600"></a>
+
+Run `discord-tools` with no arguments and that is what you get. **Try it before you install:** the [website](https://cli-tools-site.vercel.app/) lets you click through the real menu in your browser, and [its guide](https://cli-tools-site.vercel.app/docs#discord-tools) goes further into most commands.
+
 It signs in as a bot because Discord does not allow automating a person's account: no self-bots, ever. A guided setup walks you through making the bot.
 
 Everything runs on your machine with your own bot token: no server, no third party, nothing leaves your computer except the Discord calls you asked for and the downloads you approve. Built on [discord.py](https://github.com/Rapptz/discord.py).
-
-**Try it before you install:** the [website](https://cli-tools-site.vercel.app/) lets you click through the real menu in your browser, and [its guide](https://cli-tools-site.vercel.app/docs#discord-tools) goes further into most commands.
 
 ## Install
 
@@ -60,24 +62,7 @@ Every command has `--help` with all of its flags.
 
 ## The menu
 
-Run `discord-tools` with no arguments:
-
-```text
-discord-tools
---------------------------------------------
-1. Find IDs (servers, channels, threads)
-2. Read (search live, archive, export, members)
-3. Write (send, reply, edit, delete, forward, react, pin, poll)
-4. Build (create, delete, structure, leave a server)
-5. Clear messages
-6. Manage (roles, members, invites, webhooks)
-7. Watch (rules, runner, review queue)
-8. Identity (profiles, my bot, set up a bot)
-9. Check setup
-0. Exit
-```
-
-Every command has a row, so you never need to remember a flag. You pick servers, channels and threads from live lists instead of typing IDs, and `0` steps back. It is in colour on a terminal, and plain text in a pipe, under `NO_COLOR` or with `TERM=dumb`. The menu asks exactly what the commands ask, never passes `--yes` for you, and is never a shorter path past a gate.
+Run `discord-tools` with no arguments and you get the nine rows pictured at the top. Every command has a row, so you never need to remember a flag. You pick servers, channels and threads from live lists instead of typing IDs, and `0` steps back. It is in colour on a terminal, and plain text in a pipe, under `NO_COLOR` or with `TERM=dumb`. The menu asks exactly what the commands ask, never passes `--yes` for you, and is never a shorter path past a gate.
 
 ## What it can do
 

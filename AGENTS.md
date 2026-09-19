@@ -130,7 +130,8 @@ the token segment in every envelope, args echo, audit line and listing.
 `event delete` dry-runs
 by default and executes only with `--execute` + the event's exact name, no
 `--yes`; `event create`, `event edit`, `schedule post`, `schedule cancel` and
-every rule write preview + y/N. A rule's actions are a closed list and none of
+`watch rules add`, `edit` and `remove` preview + y/N; `watch rules enable` and
+`disable` flip one field without asking. A rule's actions are a closed list and none of
 them mutates; a `schedule post` off `DISCORD_SEND_ALLOWLIST` is refused when
 the row is written, because the runner posts unattended. The menu is never a
 shorter path past a gate.

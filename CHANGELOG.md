@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### The README is a front page now, and it links the website
+It ran 850 lines and 9,003 words; it is 216 lines now: install, setup, a quick
+start, the menu, one table with a row per command, what the tool won't do, a
+safety model in three tiers that says exactly what `--yes` does and where it
+does not exist, the options people reach for, and the contract for scripts.
+The depth it carried stays in each command's `--help`, in `skill/SKILL.md` and
+in the guide on the website, which until now showed only as a badge and is
+linked in the opening lines. It no longer says a `socks5://` proxy works: the
+HTTP client under discord.py speaks to HTTP proxies only. No behaviour changed.
+It reaches the PyPI page with the next release.
+
 ## 0.22.0 — 2026-09-18
 
 ### One behaviour change: a typed time with no offset is this machine's local time

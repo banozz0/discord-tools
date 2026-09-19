@@ -2,80 +2,67 @@
 
 [![Site: cli-tools-site.vercel.app](https://img.shields.io/badge/site-cli--tools--site.vercel.app-5865f2?style=flat-square&labelColor=09090b)](https://cli-tools-site.vercel.app/)
 
-A local CLI for your own Discord servers, driven by a bot you own: discover
-server, channel and thread IDs, list server members, search and export
-messages, keep a local archive of history and search it offline, send messages,
-create and delete channels and threads, export a server's structure as a
-blueprint and apply it elsewhere, manage roles and permission overwrites,
-moderate members, manage webhooks, emoji, stickers and AutoMod rules, edit a
-channel's settings, clear messages, watch a server live and act on what
-happens, schedule a post or a server event, and manage the bot's settings —
-with a guided setup that walks you through the Discord Developer Portal.
+A command-line tool for your own Discord servers, driven by a bot you own. Find the real IDs of servers, channels and threads, search and export messages, keep an archive you can search offline, send and schedule messages, and run a server — roles, permissions, members, invites, webhooks, AutoMod, events — from a menu, a terminal or a script.
 
-One menu for humans, the same commands as flags for agents, and a safety
-gate on anything destructive. Bot-token auth only: Discord does not allow
-automating a person's account, so this drives a bot instead — no self-bots,
-ever (ToS).
+It signs in as a bot because Discord does not allow automating a person's account: no self-bots, ever. A guided setup walks you through making the bot.
+
+Everything runs on your machine with your own bot token: no server, no third party, nothing leaves your computer except the Discord calls you asked for and the downloads you approve. Built on [discord.py](https://github.com/Rapptz/discord.py).
+
+**Try it before you install:** the [website](https://cli-tools-site.vercel.app/) lets you click through the real menu in your browser, and [its guide](https://cli-tools-site.vercel.app/docs#discord-tools) goes further into most commands.
 
 ## Install
 
 ```bash
+pipx install discord-tools-cli
+# or
+uv tool install discord-tools-cli
+# or
 pip install discord-tools-cli
-discord-tools auth      # guided bot setup: portal walkthrough, token check, invite URL
-discord-tools doctor    # verify token, message-content intent, servers, permissions
 ```
 
-(The PyPI name is `discord-tools-cli` — plain `discord-tools` is squatted by an
-unrelated, archived package. The installed command is `discord-tools`.)
+Needs Python 3.11+, and `uv` downloads one for you if it's missing. `pipx` and `uv` keep the tool in an environment of its own; `pip` installs it into whichever one is active.
 
-Or straight from GitHub, which carries the newest version before PyPI does:
+The package is `discord-tools-cli` because plain `discord-tools` on PyPI is an unrelated, archived package; the command you type is `discord-tools`.
+
+The newest version reaches GitHub before PyPI:
 
 ```bash
 pipx install git+https://github.com/banozz0/discord-tools.git
+# or
+uv tool install git+https://github.com/banozz0/discord-tools.git
 ```
 
-Python 3.11+. Bare `discord-tools` opens a looping menu for humans; agents and
-scripts pass a subcommand.
+## Set up (once, a few minutes)
 
-## Commands
+```bash
+discord-tools auth       # walks you through the Discord Developer Portal, checks the token, prints the invite URL
+discord-tools doctor     # says what's missing, and never prints a secret
+```
 
-| Command | What it does |
-|---|---|
-| `auth` | Guided Developer Portal setup; verifies the token and the message-content intent, stores the token as a named profile, prints the invite URL |
-| `doctor` | Checks Python, config, token, which bot the profile was set up as, the proxy, the file modes, the archive, the scanner, quarantine, the intent, joined servers; `--channel <id>` adds per-channel permission checks and a message-visibility probe |
-| `profiles` | Lists every stored bot by name and by the label `auth` recorded; `profiles remove --name <name>` drops one after you type its name back. Neither needs a working token |
-| `discover` | Prints the server → channel → thread tree with every ID; `--server <id>` narrows, `--json <path>` writes a file |
-| `members` | Lists a server's members (ID, username, display name, bot flag); `--output <name>` exports JSON/CSV. Needs the privileged **Server Members** intent enabled in the portal. `member list` is the same command under the group name and takes the same flags |
-| `search` | Searches a channel/thread's history locally (Discord gives bots no search API): `--keyword`, `--from-user`, `--since`, `--until`, `--limit`; `--output <name>` exports JSON, CSV, JSONL, Markdown or HTML (`--format`). `--archive` searches the local archive instead of fetching. The printed table previews long bodies at 70 characters — exports carry them whole — and its times are UTC and say so |
-| `archive` | The local archive: `sync` fetches new history from everything the bot can read and resumes where it stopped; `status` shows scopes, rows and coverage; `search --query` is ranked full-text search with `--regex`, `--from`, `--since`, `--until`, `--context`; `export --format json/csv/jsonl/markdown/html --output` writes the same result; `retention --scope --keep 90d` and `forget --scope` prune it, dry-run by default and behind the scope's exact name. See [The archive](#the-archive) |
-| `review` | The review queue: attachments and links the archive saw, waiting. `list` shows them without contacting a host; `approve` asks y/N and fetches into quarantine (no `--yes`); `status` shows redirects, refreshes, sha256 and the verdict; `accept` shows the verdict and asks before moving a file into `media/`; `reject` shows the candidate and asks before deleting the bytes; `retry` resumes a failed fetch. See [The review queue](#the-review-queue) |
-| `send` | Posts as the bot after a full-message preview + y/N; `--yes` skips the prompt only for channels in `DISCORD_SEND_ALLOWLIST`. `--reply-to <message id>` answers a message; `--mention users/roles/everyone` lets it ping (nobody by default, and `everyone` always asks); `--at <time>` makes the same runner-held schedule `schedule post --at` does |
-| `message` | What you do to a message once it exists: `reply`, `edit` (the bot's own only), `delete` (dry-run, then `--execute` + typed `DELETE`, bounded by `--limit`), `forward`, `copy`, `react`/`unreact`, `pin`/`unpin`, `pins` (list what a channel holds pinned), `poll`, `typing`, `bookmark` (local). Each shows the channel and the message first. `read`, `unread` and `draft` say a bot cannot. See [Message operations](#message-operations) |
-| `create` | `channel` (`--type text/news/voice/stage_voice/forum/media`) / `category` / `thread` (`--private`), each behind a confirmation. Every type `delete` can remove, `create` can make again |
-| `structure` | Structure blueprints: `export --target <server id> --output <file>` writes a server's roles, categories, channels, overwrites, forum tags, AutoMod rules and settings as one deterministic file (never members, messages, webhooks, invites, bans or emoji); `diff` compares it with a server; `apply` dry-runs, and for real takes `--execute` **and** the server's exact name typed back, creates and edits with new IDs and never deletes; `remap --apply-id` prints the ID table. See [Structure blueprints](#structure-blueprints) |
-| `role` | `list --server <id>` (highest first, the bot's own marked); `create`, `edit` (name, colour, hoist, mentionable, the whole permission set as names) behind a preview + y/N; `delete` dry-runs, and for real takes `--execute` **and** the role's exact name, no `--yes`. Anything touching Administrator is typed too. Every write preflights Manage Roles, refuses `HIERARCHY_DENIED` where the bot's top role cannot reach, and never grants a right the bot lacks. See [Roles and permissions](#roles-and-permissions) |
-| `permission` | `show --target <channel or category id>` prints every role overwrite by name (`--names` lists the vocabulary); `set --target --role --allow --deny` merges into what the role has there, `--clear` removes it, preview + y/N. See [Roles and permissions](#roles-and-permissions) |
-| `member` | Moderation: `list` (the `members` command by its group name); `kick` and `ban` dry-run, and for real take `--execute` **and** the member's exact username, with no `--yes` and a required `--reason`; `unban`, `timeout --until` (required, 28 days at most), `untimeout` (ends one early) and `nick` preview + y/N. Every write preflights the right Discord checks and refuses `HIERARCHY_DENIED` for the owner, the bot itself, or a member the bot's top role cannot reach. See [Members, invites and the audit log](#members-invites-and-the-audit-log) |
-| `invite` | `list --server <id>` prints every invite **with its link**; `create --channel <id>` makes one (`--max-age`, `--max-uses`, `--temporary`) behind a preview + y/N and prints the link once; `revoke` dry-runs, and for real takes `--execute` **and** the exact code, no `--yes`. Links appear in `list` and `create` and nowhere else |
-| `audit-log` | `list --server <id>` prints the server's own audit log, newest first, filtered by `--action`, `--user` and `--since`. Needs **View Audit Log**. This is Discord's log of everyone's changes; `audit.jsonl` in `~/.discord-tools/` is this tool's own log of its own writes |
-| `webhook` | `list --server <id>` shows every webhook **with its URL's token hidden**; `create --channel <id> --name <name>` makes one behind a preview + y/N and prints the whole URL only with `--reveal`, once, on screen; `delete` dry-runs, and for real takes `--execute` **and** the webhook's exact name, no `--yes`. Needs **Manage Webhooks** — on the server to list, and on the webhook's own channel to delete, because a channel overwrite can grant or take that right away. See [Webhooks, emoji and stickers](#webhooks-emoji-and-stickers) |
-| `emoji` | `list --server <id>` shows every custom emoji with the text you paste to use it; `add --name --file` uploads one (PNG/JPG/GIF/WebP, 256 KiB) behind a preview + y/N; `remove` dry-runs, and for real takes `--execute` **and** the emoji's exact name, no `--yes`. Adding needs **Create Expressions**, removing **Manage Expressions**; listing needs nothing |
-| `sticker` | `list --server <id>`; `add --name --file --emoji` uploads one (PNG/APNG/Lottie JSON/GIF, 512 KiB, with the emoji Discord suggests it by) behind a preview + y/N; `remove` dry-runs, then `--execute` **and** the sticker's exact name. Same rights as `emoji` |
-| `automod` | The rules Discord applies by itself: `list --server <id>`; `create` writes one — the flags name the trigger (`--keyword`, `--regex`, `--preset`, `--mention-limit`, `--spam`) and what it then does (`--block`, `--alert`, `--timeout`), plus `--allow`, `--exempt-role`, `--exempt-channel` and `--enabled/--no-enabled`; `edit` changes one inside the trigger family it already has; `delete` dry-runs, then `--execute` **and** the rule's exact name. Needs **Manage Server**. See [AutoMod and channel settings](#automod-and-channel-settings) |
-| `channel` | `show --channel <id>` prints a channel's or category's settings — type, parent category, name, topic, age gate, slow mode, position, a voice channel's bitrate and user limit, and the counts one fetch gives (overwrites, forum tags) — with no permission beyond seeing it. `edit --channel <id>` changes `--name`, `--topic`, `--nsfw/--no-nsfw`, `--slowmode` and `--position` behind a preview + y/N, then reads the diff back from Discord. Needs **Manage Channels**. A field the channel's type does not have is refused by name |
-| `watch` | Rules and the runner: `rules list/add/edit/remove/enable/disable/test` write and check the rules; `run` watches the server live over a gateway connection and acts on what happens; `status`, `stop` and `reload` drive a running one. macOS and Linux (the lock is a POSIX file lock). See [Watching a server](#watching-a-server) |
-| `schedule` | Runner-held scheduled posts: `post --channel --text --at | --every` stores one, `list` shows them, `cancel --id` removes one. They fire **only while `watch run` is up on this machine**, and every listing says so. See [The two guarantees](#the-two-guarantees) |
-| `event` | Server-held scheduled events: `list`, `create`, `edit` and `delete` for a server's Events tab. Discord holds these, so they happen with this machine off. `delete` dry-runs, then takes `--execute` **and** the event's exact name. See [The two guarantees](#the-two-guarantees) |
-| `delete` | `channel` / `category` / `thread`. Dry-run by default; deleting for real takes `--execute` **and** typing the target's exact name. Deleting a category leaves its channels alive, just uncategorised. There is no `--yes` — deletion always needs a human |
-| `leave-server` | Makes the bot leave `--server <id>`; nothing in the server is deleted. Same gate as `delete`. Discord gives a bot no way to delete a server (that needs ownership, which a bot never has) |
-| `clear-messages` | Clears either `--channel <id>` or every accessible message location under `--server <id>`. Dry-run by default; deleting for real takes `--execute` **and** typing `DELETE`, under a screen that names the target and the live count the deletion will use — a message that arrives after that count is shown refuses the run rather than being cleared unseen. A finished clear says how much it cleared and what it read back. Server clears include active/archived threads and forum/media posts (`--skip-threads` leaves them untouched and clears channels only), check `manage_messages` and `read_message_history` in each location as they reach it, report skipped locations, and continue past per-location failures |
-| `bot` | Shows the active profile's bot (username, description, avatar, intent, invite URL); edits go behind a diff + confirm |
+`auth` is the whole setup: you create the bot in the portal, paste its token at a hidden prompt, and open the invite URL to add the bot to your server. The token is saved in `~/.discord-tools/.env`, readable only by you.
+
+Two switches in the portal decide what the bot can see. With the **Message Content** intent off, every message comes back with empty text — `doctor` names it and `auth` walks you through turning it on. `members`, and watch rules about joins and leaves, need the **Server Members** intent.
+
+## Quick start
+
+```bash
+discord-tools                                     # no arguments: the menu
+discord-tools discover                            # servers, channels and threads with their real IDs
+discord-tools search --channel 1394827364512 --keyword deploy
+discord-tools search --channel 1394827364512 --keyword deploy --output deploys.json   # or --format csv|jsonl|markdown|html
+discord-tools archive sync                        # a local copy of everything the bot can read...
+discord-tools archive search --query "deploy AND green"                               # ...searched offline
+discord-tools send --channel 1394827364512 --text "deploy is green"                   # shows it, then asks y/N
+discord-tools clear-messages --channel 1394827364512                                  # dry-run; --execute to delete
+```
+
+Every command has `--help` with all of its flags.
 
 ## The menu
 
-`discord-tools` with no arguments opens a looping menu:
+Run `discord-tools` with no arguments:
 
-```
+```text
 discord-tools
 --------------------------------------------
 1. Find IDs (servers, channels, threads)
@@ -90,761 +77,140 @@ discord-tools
 0. Exit
 ```
 
-Row 6's members, invites and webhooks have not shipped yet; that row says so and
-steps back. Row 7 holds the review queue, the rules, the runner and both kinds of
-schedule. The numbers are section 14's, learned once rather than shifted again when
-the last commands arrive.
+Every command has a row, so you never need to remember a flag. You pick servers, channels and threads from live lists instead of typing IDs, and `0` steps back. It is in colour on a terminal, and plain text in a pipe, under `NO_COLOR` or with `TERM=dumb`. The menu asks exactly what the commands ask, never passes `--yes` for you, and is never a shorter path past a gate.
 
-`0` always steps back one screen — inside a picker or on a flow's own screen alike —
-and exits once you're back at the root; on a text prompt a blank line does the same.
-Every screen below the root carries its trail (`Main › Clear › Ops › Dry-run done`)
-and, under it, which bot is acting and on what:
+## What it can do
 
-```
-Main › Search › 🚨alerts
-Acting as: harrybot (profile harry) · bot · Target: Agency › 🚨alerts (1394827364512)
-``` Servers, channels, threads and categories come from
-live pick-lists rather than prompts asking you to type an ID, and every picker still
-takes a typed ID for the thing a list cannot carry: an archived thread, an exotic
-channel type, a category the bot cannot see. Long lists page on `n` and `p`, and an
-item keeps its number on every page.
+| Command | What it does |
+| --- | --- |
+| `discover` | Lists your servers, their channels and threads, with every numeric ID. |
+| `search` | Finds messages in one channel or thread by text, sender or date. Discord gives bots no search API, so it fetches the history and filters it here. Prints a table, or exports JSON, CSV, JSON lines, Markdown or HTML. `--archive` answers from the local archive, offline. |
+| `archive` | A local, full-text-searchable copy of everything the bot can read. `sync` resumes where it stopped and ends by saying what it could not read and why. Only `sync` logs in: `search`, `export` and `status` read the local file, and `retention` and `forget` prune it. |
+| `review` | Links and files the archive saw, waiting for you — the only way anything is ever downloaded. You approve a fetch, it lands in quarantine through eleven checks — the last a local ClamAV, if you have one — and you accept or reject it; `retry` resumes a fetch you already approved. |
+| `send` | Posts text, files or both to a channel or thread, optionally as a reply. Nobody is pinged unless you pass `--mention`. |
+| `message` | What you do to a message once it exists: reply, edit (the bot's own only), delete, forward, copy, react, pin, poll, typing, a local bookmark — and `pins` lists what a channel has pinned. `read`, `unread` and `draft` say a bot can't. |
+| `create`, `delete` | Make or remove a channel (text, news, voice, stage voice, forum, media), a category or a thread. `delete` removes only what `create` can make again. |
+| `clear-messages` | Empties one channel, or every channel and thread in a server, and keeps the channels. |
+| `leave-server` | Takes the bot out of a server. Nothing in it is deleted. |
+| `structure` | A server's shape as a file: export a blueprint (roles, categories, channels, overwrites, forum tags, AutoMod rules, settings — never people or messages), diff it against another server, apply it there. `apply` creates and edits, and never deletes. |
+| `role`, `permission` | Roles, and what one role may do in one channel. The tool never edits the bot's own roles, never grants a right the bot lacks, and says so when the bot's top role can't reach. |
+| `members`, `member` | The member list, and moderation: kick, ban, unban, timeout (28 days at most), nickname. A ban deletes no messages — `clear-messages` does that. |
+| `invite`, `audit-log` | Invite links: list, create, revoke. And Discord's own log of who changed what, filtered by action, user and time. |
+| `webhook`, `emoji`, `sticker` | List, create or add, and remove. A webhook URL is a credential: its token is hidden everywhere, and the whole URL prints once, on screen, only with `webhook create --reveal`. |
+| `automod` | Discord's own filtering rules, which run with your machine off: list, create, edit, delete. A rule blocks, alerts or times out; it never deletes. |
+| `channel` | `show` a channel's settings; `edit` its name, topic, age gate, slow mode or position. |
+| `watch` | Rules over live events — alert, tag, bookmark, record metadata, archive, queue for review, never download or change anything — and the foreground runner that fires them. macOS and Linux. |
+| `schedule`, `event` | `schedule post` is **runner-held**: `watch run` posts it, only while it's up on this machine, and `send --at` is the same thing. `event` is **server-held**: a server event Discord keeps and shows in the Events tab, even with your machine off. |
+| `bot` | The active bot's name, description, avatar and invite URL, and edits to them. |
+| `auth`, `profiles` | Set a bot up, list the bots this machine has, remove one. |
+| `doctor` | Checks your setup without printing a secret; `--channel` adds what the bot may do in one channel. |
 
-After a job the menu offers its own next step — *Tweak it* back to the filled-in
-search or send form, *Create another*, *Clear somewhere else*, *Edit more* — plus
-*Main menu*, and *Run it again* where a re-run makes sense. Enter is still the menu,
-`0` still exits, and `doctor` keeps the plain Enter/`0` prompt. Backing out of a form
-with something typed in it — a message, search filters, bot edits — asks first.
+## What it won't do (on purpose)
 
-Every flag has a row: `members`, `doctor --channel`, `bot --invite`, `bot --json`, a
-manual category ID for `create channel`, the four archive rows under *Read* (sync,
-search and export, status, prune), the message verbs under *Write* (send with a
-mentions row, reply, edit, delete, forward, copy, react, pin, poll, typing, bookmark,
-the bookmark list and a channel's pinned messages),
-the review queue under *Watch* (what is waiting, approve and fetch, accept, reject,
-status, retry) beside its four groups (the six rule rows, the four runner rows, the
-three scheduled-post rows and the four scheduled-event rows, each naming which
-guarantee it has), the four structure rows under *Build* (export a blueprint, diff it
-against a server, apply it, the remap table), the six rows under *Manage* (list,
-create, edit and delete a role; show and set a channel's overwrites), and, under *Identity*, listing the stored profiles, switching the one
-the rest of the session acts as, and removing one. The exceptions are deliberate —
-`send`, `create`, `bot`, the message verbs, a role create or edit and a permission set never get `--yes` from the menu,
-`clear-messages` and *Delete messages* always dry-run first and still ask you to type
-`DELETE` under the target and its live count, `delete`, *Leave a server*, a structure apply, a role delete, a scheduled-event
-delete and an archive prune dry-run
-first and still ask you to type the target's own name, and a review approve or accept asks its `y/N`
-inside the command. The menu is never a shorter path past a gate.
+- **Automate a person's account.** It drives a bot, and only a bot.
+- **Download anything you didn't approve.** A sync notes links and files and fetches none. A download needs your `y/N` at a terminal, then runs eleven checks in quarantine — scheme, every redirect, private-network addresses, file path, size, time, archive bombs, type against magic bytes, checksum, duplicates, and the scanner — and needs a second `y/N` to keep. No rule, schedule or `--yes` can do either step.
+- **Call a file clean because nobody looked.** The only scanner is a local ClamAV; without one, the verdict is `UNSCANNED`. No file is uploaded to a scanning service.
+- **Run in the background.** `watch run` is a foreground process you start and stop — the one command that holds a live connection to Discord. Nothing installs a service, so a runner-held schedule fires only while you keep it up.
+- **Copy people or history.** A blueprint carries a server's structure — never members, messages, bans, invites, webhooks or emoji files.
+- **Delete a server.** Discord gives no bot that right; the bot can only leave.
+- **Use a cloud.** Tokens, the archive and the audit log stay in `~/.discord-tools/`.
 
-*Delete* lists categories, channels and threads nested the way Discord shows them and
-works out what kind of thing you picked, so you confirm the thing you saw rather than a
-name off a flat list.
+## Safety model
 
-The message box takes several lines — end it with a `.` on its own line — so pasting
-a multi-line message works instead of feeding its later lines to the menu as answers.
+How much a command asks before it acts depends on how hard its change is to undo:
 
-The menu is in colour when it is talking to a terminal, and plain text in a pipe,
-under `NO_COLOR`, or with `TERM=dumb`. With no terminal attached at all it prints
-help instead of waiting for a human, so it never hangs a script.
+| Kind of command | What it asks before acting |
+| --- | --- |
+| **Reads** — `discover`, `members`, `search`, `archive search`, `audit-log`, `message pins`, `structure export` and `diff`, every `list`, `show` and `status`, `doctor` | Nothing. |
+| **Changes** — `send`, the message verbs, `create`, `bot` edits, `channel edit`, `role create` and `edit`, `permission set`, `member unban`, `timeout`, `untimeout` and `nick`, `invite create`, `webhook create`, `emoji add`, `sticker add`, `automod create` and `edit`, `event create` and `edit`, `schedule post` and `cancel`, `watch rules add`, `edit` and `remove`, and the review queue's approve, accept and reject | A preview, then `y/N`. |
+| **Hard to undo** — `clear-messages`, `message delete`, `delete`, `leave-server`, `structure apply`, `role delete`, `member kick` and `ban`, `invite revoke`, `webhook delete`, `emoji remove`, `sticker remove`, `automod delete`, `event delete`, `archive retention` and `forget` | A dry-run by default. For real: `--execute` **and** typing a confirmation — `DELETE`, or the exact name, username or code of what you're touching. No `--yes`. |
 
-## Profiles: a bot per agent
+`--yes` answers the `y/N` in advance, for scripts, and skips the preview with it. Where a command posts a message — `send`, `message reply`, `forward`, `copy` and `poll` — it works only for a channel in your [send allowlist](#sending-without-the-prompt); `schedule post` needs the channel on that list with or without it, because the runner posts unattended. `--mention everyone` asks even under `--yes`, and a role change that touches Administrator refuses `--yes` and asks for a typed name instead. It doesn't exist on `auth`, on `profiles remove` (which asks for the profile's name typed back), on the review queue's approve, accept and reject, or on anything in the third row. `member kick` and `ban` also need a `--reason`, which Discord stores in its audit log.
 
-Tokens live in `~/.discord-tools/.env` (mode 0600) as named profiles:
+A few local switches don't ask, because the opposite command undoes them: `watch rules enable` and `disable`, `watch reload` and `stop`. `archive sync` only adds to the local archive.
 
-```
-DISCORD_BOT_TOKENS=default:token-a,dobby:token-b
-```
+Whichever row it's in, every write to Discord:
 
-`--profile dobby` (before the subcommand) selects one; `DISCORD_TOOLS_PROFILE`
-sets the default; `DISCORD_TOKEN` overrides everything. `auth` writes this
-file for you — run it once per bot.
+- **Says who's acting.** The command opens with the bot it runs as — `Acting as: harrybot (profile harry) · bot` — and every preview names the channel or server it's about to touch.
+- **Checks the bot's rights first.** It asks Discord what the bot holds there, and refuses by name when a right is missing — or when the right is held but the bot's top role can't reach the role or member.
+- **Re-checks the target after you answer.** A channel or role renamed in the meantime refuses, instead of acting on whatever holds the name now.
+- **Reads back the result.** Under `--json`, `evidence.readback` says what it found afterwards, or starts with `unverified:` and says why. An unverified readback still reports `ok` — `structure apply` reports `partial` — so a script should check it.
+- **Logs it.** One line per executed write goes to `~/.discord-tools/audit.jsonl`, from the menu too, and Discord's own audit log names the tool as the reason. No bot token or webhook URL can reach that file, an envelope or an error message.
+- **Guards its own files.** The store folder, the `.env` and the profile records are `0600` in `0700` folders. If one of them becomes readable by others, every write to Discord refuses until it's fixed — reads still run — and `doctor` names the file and its mode. Your `exports/` are yours, and are never part of that check.
 
-Beside the token, `auth` records `~/.discord-tools/profiles/<name>/profile.json`:
-the bot's label and the bot ID it verified, and nothing secret. A Discord bot token
-carries its own bot ID, so a token pasted into the wrong profile is caught — the run
-refuses with `IDENTITY_MISMATCH` before making a single call, instead of quietly
-acting as the wrong bot.
+Command by command: [the guide's safety section](https://cli-tools-site.vercel.app/docs#before-it-sends-or-deletes-anything), and each command's `--help`.
+
+## More bots and options
+
+### A bot per agent
 
 ```bash
-discord-tools profiles                     # what this machine has
-discord-tools profiles remove --name dobby # after typing the name back
+# set a second bot up, then act as it: the flag goes before the command
+discord-tools --profile dobby auth
+discord-tools --profile dobby discover
+export DISCORD_TOOLS_PROFILE=dobby        # or make it this shell's default
+discord-tools profiles                    # which bots this machine has
 ```
 
-Neither needs a working token: listing has to work when the reason you are looking
-is that one stopped working. Removing a profile takes it off the `DISCORD_BOT_TOKENS`
-line and deletes its record directory, and says first that the token is not
-recoverable from here.
+Each bot is a named profile on one `DISCORD_BOT_TOKENS` line in `~/.discord-tools/.env`, which `auth` writes for you; a `DISCORD_TOKEN` in the environment overrides them all. `auth` also records the bot's ID beside it, so a token pasted into the wrong profile refuses with `IDENTITY_MISMATCH` before a single call. All profiles share one archive, and each row records the bot that read it.
 
-`DISCORD_PROXY=http://host:3128` sends every request through a proxy (`socks5://`
-too, with an optional `user:password@`). `doctor` prints the host and never the
-credentials.
+### Sending without the prompt
 
-`~/.discord-tools/`, its `.env` and the profile records are written 0700/0600,
-because that is where the bot token lives. If that stops being true, `doctor` names
-the file and its mode, and every command that writes to Discord refuses until it is
-fixed; reads still run, so you can find out what is wrong. `exports/` is not part of
-that check — those are your own chat exports, yours to share.
-
-`DISCORD_SEND_ALLOWLIST` is a comma-separated list of channel/thread IDs that
-`send --yes` may post to. Unset means every unattended send is refused — each
-destination is opted in by hand.
-
-## The archive
-
-Discord gives a bot no search API, so every `search` walks the channel again.
-The archive walks it once:
+`--yes` skips the `y/N`, and nobody sees where the message goes, so it only works for destinations you named in advance:
 
 ```bash
-discord-tools archive sync                       # everything the bot can read
-discord-tools archive sync --server 1394...      # one server
-discord-tools archive sync --scope 1394... --since 2026-08-01
-discord-tools archive status
-discord-tools archive search --query "deploy AND rollback" --context 2
-discord-tools archive search --query deploy --from dobby --since 2026-09-01 --regex '4\.\d'
-discord-tools archive export --query deploy --format html --output deploys.html
-discord-tools search --channel 1394... --keyword deploy --archive   # the same search, as an alias
+# in ~/.discord-tools/.env
+DISCORD_SEND_ALLOWLIST=1394827364512,1394827364598
 ```
 
-`sync` fetches new history from every text, announcement, voice and stage
-channel and every thread — active, archived, and the posts of forum and media
-channels — into `~/.discord-tools/archive.sqlite`, one file per install, its
-rows scoped to the bot that read them. Each scope keeps a checkpoint, so a run
-you interrupt resumes from its last committed batch and never writes a row
-twice, and the next run fetches only what is new. It prints one line per scope
-as it goes and ends with a coverage table: what it read, and what it could not
-and why — `no_access` where the bot lacks Read Messages or Read Message History,
-`intent_missing` where the message-content intent is off (the same probe
-`doctor` runs, so an archive never claims coverage of blank rows),
-`unsupported_kind` for a channel type it has no reader for.
+Each entry is a channel or thread ID. Unset, every `--yes` send is refused. The same list covers the message verbs that post, every `schedule post`, and the alerts a `watch` rule sends.
 
-`search --query` is full-text search ranked by relevance (FTS5 syntax: words,
-`"quoted phrases"`, `AND`, `OR`, `NOT`; a query FTS5 cannot parse — a
-hyphenated word like `campaign-alert-721`, a stray quote — is searched as the
-literal words it holds instead of being refused, and only a query with no word
-at all is refused), with `--regex` as a second filter over
-the matches, `--scope`, `--from` (an ID, a username the archive has seen, or a
-rid), `--since`, `--until`, `--context N` for the messages around each hit,
-`--limit` (50) and `--include-deleted`. `export` writes exactly what the search
-would print, in `json`, `csv`, `jsonl`, `markdown` or `html` — five files, the
-same messages in the same order, the HTML self-contained with no script.
+### Through a proxy
 
-`retention --scope <id> --keep 90d` (or `--keep 500`, a count of newest
-messages) prunes one scope's older rows; `forget --scope <id>` or
-`forget --identity dc:bot:<id>` removes everything for one scope or one bot.
-Both dry-run by default and execute only with `--execute` **and** the scope's
-exact name typed back — the same gate `delete` has, and no `--yes`. They change
-the local file only; nothing on Discord is touched. Budgets sit in
-`~/.discord-tools/config.json`, created with the defaults on first use (2 GiB
-for the archive); a sync that would cross one stops before writing with
-`DISK_BUDGET` and names the retention command that frees space.
+Add `DISCORD_PROXY=http://127.0.0.1:3128` to the `.env`, optionally with `user:password@`. `doctor` prints the host it goes through and never the credentials.
 
-Only `sync` logs in. `status`, `search`, `export`, `retention` and `forget`
-read the file and name the bot from the profile record `auth` wrote, so a
-search works while a token is being rotated. `doctor` reports whether this
-Python's SQLite has FTS5 (the archive needs it) and what the archive holds.
+### Typing a time
 
-## Message operations
+A time with no offset is this machine's local time, in every flag and prompt that takes one; a trailing `Z` or an offset like `+05:00` always wins. Previews echo the moment with its offset, and everything written for machines — `--json`, exports, the archive, the audit log — stays UTC.
 
-`send` posts something new. `message <verb>` is what you do to a message once
-it exists, and every verb shows the channel and the message it is about to act
-on — who wrote it, when, the text — before it asks:
+## For scripts and agents
 
-```bash
-discord-tools message reply --channel 1394... --to 1394829911100 --text "on it"
-discord-tools message edit --channel 1394... --id 1394829911101 --text "on it (done)"
-discord-tools message react --channel 1394... --id 1394829911100 --emoji 👍
-discord-tools message pin --channel 1394... --id 1394829911100
-discord-tools message pins --channel 1394...
-discord-tools message forward --channel 1394... --ids 1394829911100 --to 1394827364598
-discord-tools message copy --channel 1394... --ids 1394829911100 --to 1394827364598
-discord-tools message forward --channel 1394... --from-search "release notes" --to 1394827364598
-discord-tools message poll --channel 1394... --question "Ship Friday?" --option yes --option no --hours 48
-discord-tools message typing --channel 1394... --seconds 10
-discord-tools message bookmark --channel 1394... --id 1394829911100 --label "follow up"
-discord-tools message bookmark --list
-discord-tools message delete --channel 1394... --ids 1394829911100 1394829911101
-discord-tools message delete --channel 1394... --from-search "spam" --execute
-```
-
-**Nobody is pinged unless you say so.** `send`, `reply`, `edit` and `copy`
-hand Discord an empty mention policy: an `@everyone` or a `<@id>` in the text
-is drawn but pings no one. `--mention users`, `--mention roles` or
-`--mention everyone` opts in and the preview says which; `--mention everyone`
-asks at the prompt even with `--yes`, and with no terminal it refuses.
-
-**`edit` is the bot's own messages only.** That is Discord's rule, not a
-permission, so anyone else's message is refused with `PLATFORM_UNSUPPORTED`
-naming the author.
-
-**`delete` is `clear-messages`' gate on a selection.** By `--ids`, or by
-`--from-search "<query>"` over the channel's rows in the local archive. It
-dry-runs by default, listing what it would remove and how many fall outside
-the 14-day bulk window; deleting for real takes `--execute` **and** typing
-`DELETE`, and there is no `--yes`. One run never deletes more than `--limit`
-(200): a bigger selection is refused with `BULK_LIMIT` rather than trimmed to
-its first rows, and a limit above 1000 needs `--i-know` and then the exact
-count typed back after `DELETE`. It needs *Manage Messages* only when the
-selection holds someone else's message, the way Discord does: the bot's own
-messages go without it, one by one, because Discord's bulk delete wants the
-right even for those. One message by anybody else and the dry-run refuses,
-naming the right and that message. An archive search that matches nothing is
-refused as "Nothing to delete" before any preview or prompt.
-
-**`forward` is Discord's forward**, header and attachments included. **`copy`**
-re-posts the text with an attribution line — who, in which channel, when (a
-Discord time tag, which each reader sees in their own time zone), and a link to
-the original — followed by links to the attachments; it never
-downloads them. Both select the way `delete` does: `--ids`, or `--from-search`
-over the channel's archived rows, bounded by the same `--limit` (200) and
-`--i-know` above 1000, refused with `BULK_LIMIT` rather than trimmed, and an
-archive search that matches nothing is refused as "Nothing to forward" or
-"Nothing to copy" before the preview. Every selected message is fetched from
-Discord before the preview, so what you see is what lands. `pin` and `unpin`
-need the *Pin Messages* right (Discord split it out of Manage Messages in
-2025; the preflight names the one it checks).
-**`pins`** lists what a channel or thread holds pinned, newest pin first:
-id, when it was sent, who wrote it and the text, with `--json` adding when
-each was pinned. It only reads — no prompt, no plan, no audit line — but it
-still checks *Read Message History* first, because Discord answers a bot
-without it with no pins rather than a refusal, and "nothing pinned" would be
-a wrong answer.
-
-**`bookmark` is local.** Discord gives a bot no bookmark or draft API, so a
-bookmark is a row in `~/.discord-tools/archive.sqlite`, listed with
-`bookmark --list` without logging in, and named as local wherever it appears.
-`message read`, `unread` and `draft` exit 2 with `PLATFORM_UNSUPPORTED` and
-say why: read state belongs to a user account, and drafts live in the client.
-
-**`--yes` follows what the verb does.** `reply`, `copy`, `forward` and `poll`
-post into a channel, so their `--yes` works like `send --yes`: only for a
-destination in `DISCORD_SEND_ALLOWLIST`. `edit`, `react`, `pin`, `typing` and
-`bookmark` change something already there, and their `--yes` skips the prompt
-the way `create --yes` does. Every verb that changes something builds a plan,
-names the permission it needs and holds, re-checks the target after you answer,
-reads the result back and writes an audit line. Once it is done, it says so in
-one sentence, as `send` does — `Sent message 1394829911102 to #general
-(1394...).` — and the full result is in the `--json` envelope.
-
-## The review queue
-
-The tool never downloads anything on its own. Every attachment and every link
-`archive sync` sees becomes a candidate in one queue, and a candidate is fetched
-only after you approve it, into quarantine, where it is checked before you
-accept it:
-
-```bash
-discord-tools review list                        # what is waiting; contacts no host
-discord-tools review list --kind link --state queued
-discord-tools review approve                     # pick from the list, y/N, fetch
-discord-tools review approve --ids 3f9a1c2e7b4d6a08
-discord-tools review status --ids 3f9a1c2e7b4d6a08
-discord-tools review accept --ids 3f9a1c2e7b4d6a08 # shows the verdict, asks, moves it into media/
-discord-tools review reject --ids 3f9a1c2e7b4d6a08 # asks, then deletes the quarantined bytes
-discord-tools review retry --ids 3f9a1c2e7b4d6a08  # a failed fetch, from the bytes on disk
-```
-
-**Nothing is fetched without a human.** `list` reads the archive and makes no
-request, so a link's redirect chain is never resolved before someone said yes
-— resolving it would hand your address to an unknown host. `approve` asks
-`y/N` and has no `--yes`; with no terminal it exits 3 with `APPROVAL_REQUIRED`
-before anything is contacted, so a script or a schedule cannot approve.
-
-**Fetches resume.** A download that dies partway keeps its bytes and is
-`failed`; `retry` asks the server for the rest with `Range` and the sha256 is
-computed over the whole file, so a killed download resumed is byte-identical
-to one that was not. Discord signs every attachment URL with an expiry: when
-it has passed, or the CDN refuses the URL, the fetcher re-reads the message as
-the bot, takes the current URL and records the refresh, which `status` lists.
-
-**Every fetch is checked, in order, and the first failure is `BLOCKED` with
-the check named.** An attachment is fetched from Discord's CDN and nowhere
-else, its host resolved, refused unless every address is public, and the
-connection pinned to the address that was checked. A link goes through: scheme (`https`/`http` only), redirects (walked by
-`HEAD` only after approval, at most five, each hop re-checked), private
-network (loopback, link-local, RFC 1918, cloud metadata addresses refused by
-name, and the connection pinned to the address that was checked so a second
-DNS answer cannot rebind it), path (the file is named by its manifest id,
-never by the URL), size (`download_max_bytes`, 256 MiB, and the quarantine
-budget), time (ten minutes, or a minute without a byte), archive expansion
-(zip, tar, gzip, bzip2 and xz inspected without extraction; 7z, rar and
-anything it cannot open refused by name), type against extension against
-magic bytes, a supplied checksum, and a duplicate already in `media/`.
-
-**The scanner is ClamAV, if you have it.** `clamdscan` or `clamscan` from
-PATH: `CLEAN`, `INFECTED` with the signature, or `UNSCANNED` with the reason.
-No scanner means `UNSCANNED`, never a silent pass, and `doctor` says which
-binaries it looked for. `accept` prints the verdict before it asks; `BLOCKED`
-and `INFECTED` cannot be accepted (`UNSAFE_BLOCKED`) and `reject` clears them
-after its own `y/N`.
-No file is ever uploaded to a reputation or sandbox service.
-
-Accepted files live in `~/.discord-tools/media/<sha2>/<sha256>`, quarantined
-ones in `~/.discord-tools/quarantine/<download-id>/` beside a `manifest.json`
-of everything the fetch learned; both directories are `0700`, the budgets are
-`media_max_bytes` (5 GiB) and `quarantine_max_bytes` (1 GiB) in
-`config.json`. `list`, `status`, `accept` and `reject` never log in; `approve`
-and `retry` act as the bot, because refreshing an attachment URL means reading
-its message. The bot token appears in no request and no manifest.
-
-## Structure blueprints
-
-A blueprint is a server's structure as one file: roles, categories, channels,
-permission overwrites, forum tags, AutoMod rules and the server's settings,
-with every ID replaced by a handle like `role:moderators` so the same shape
-exported from two servers is the same bytes. Export one, diff it against
-another server, apply it there:
-
-```bash
-discord-tools structure export --target 1394... --output agency.json   # lands in ~/.discord-tools/exports/
-discord-tools structure diff --blueprint agency.json --target 1401...
-discord-tools structure apply --blueprint agency.json --target 1401...          # dry-run: every step, nothing touched
-discord-tools structure apply --blueprint agency.json --target 1401... --execute # asks for the server's exact name
-discord-tools structure remap --apply-id 423427ea0c234c7f                       # source ID -> target ID, no login
-```
-
-**It is not a clone, and it says so.** Every export prints this, and the file
-carries the same list under `never_transferred`:
-
-```
-This is a structure blueprint, not a copy of the server. It never carries:
-  - audit history
-  - authors (nothing is attributed to anyone)
-  - bans
-  - emoji binaries (names are listed as manual steps)
-  - integrations (bots and apps are invited by a person)
-  - invites
-  - managed roles (a bot's or integration's own role, the booster role)
-  - members (nobody joins a copy)
-  - messages (history stays where it was written)
-  - secrets (no token of any kind)
-  - sticker binaries (names are listed as manual steps)
-  - webhooks and their URLs
-```
-
-Anything the server has that the blueprint cannot carry — a bot's own role, an
-overwrite for a particular member, a custom emoji on a forum tag, a channel
-type this tool cannot create — is listed as a manual step rather than dropped
-in silence.
-
-**`apply` never deletes.** It dry-runs by default, printing the permissions it
-needs and holds, every create and update in order (roles, then categories,
-then channels, then the server's settings and AutoMod rules, so each handle
-resolves to an ID already minted) and every object only on the target, which
-it leaves alone. `--execute` asks for the target server's exact name — there is
-no `--yes`; with no terminal it exits 3 with `APPROVAL_REQUIRED` — and then
-applies one step at a time. The server's own name and settings become the
-blueprint's; the warning says so before the name is asked.
-
-**A failed step stops it and keeps what was made.** The report names the step
-and the reason and exits 1 with `PARTIAL_FAILURE`; every ID minted so far is
-in the remap table, `structure diff` shows exactly the remainder, and running
-`apply` again finishes it without making anything twice. After the last step
-the target is read back and diffed against the blueprint, and anything still
-different is `PARTIAL_FAILURE` as well. Every step carries an audit reason,
-and the local audit line names the plan.
-
-`export` and `diff` need *Manage Server* (Discord gates reading AutoMod rules
-on it); `apply` needs *Manage Server*, *Manage Roles* and *Manage Channels*
-and names every missing one before the first step. `remap` reads the archive
-and never logs in.
-
-## Roles and permissions
-
-Roles are the widest blast radius on Discord, and the place where a valid
-command can still be impossible: a bot with *Manage Roles* can only act on
-roles below its own top role, never on a managed role, and can only hand out
-rights it holds itself. The tool checks all three before it writes, and
-explains the refusal rather than relaying a 403.
-
-```bash
-discord-tools role list --server 1394...                                            # highest first; * = the bot's own
-discord-tools role create --server 1394... --name Helpers --colour '#00FF00' --permissions send_messages,attach_files
-discord-tools role edit --server 1394... --role 1401... --hoist --permissions none   # replaces the whole set
-discord-tools role delete --server 1394... --role 1401...                           # dry-run: the role, nothing touched
-discord-tools role delete --server 1394... --role 1401... --execute                 # asks for the role's exact name
-discord-tools permission show --target 1394...                                      # a channel's or category's role overwrites
-discord-tools permission set --target 1394... --role everyone --deny send_messages  # merges into what @everyone has there
-discord-tools permission set --target 1394... --role 1401... --clear                # removes that role's overwrite
-discord-tools permission show --names                                               # the permission vocabulary, no login
-```
-
-**Every write, in order:** preflight names a missing *Manage Roles* as
-`PERMISSION_DENIED` in the dry-run; `HIERARCHY_DENIED` names the bot's top
-role and the target's position when the right is held but cannot reach (a
-managed role, and any role the bot itself holds, are refused the same way —
-the tool never edits or elevates its own roles); a right the bot does not hold
-cannot be granted to a role or an overwrite, and the refusal names it. Then
-the gate, a drift check (a role renamed while the preview sat on screen is
-`PLAN_DRIFT`), the write with the audit reason, and a readback of the role or
-the overwrite as it now is.
-
-**The gates.** Creating and editing a role and setting an overwrite preview
-and ask `y/N`; `--yes` skips the prompt the way `create --yes` does. Deleting
-a role dry-runs by default and for real takes `--execute` **and** the role's
-exact name typed at a prompt — no `--yes`, and no terminal means
-`APPROVAL_REQUIRED`. Anything that grants or removes Administrator is typed
-too (the server's name on a create, the role's on an edit), under a warning
-that says what Administrator is, and `--yes` is refused there.
-
-Permission names are Discord's own in snake_case (`send_messages`,
-`manage_channels`); `--permissions` on a role is the whole set, replaced, and
-`none` clears it. An overwrite merges: allowing a right clears it from the
-deny side and the other way round, a right named on neither side keeps what
-it had. `administrator` is a role permission and is refused as an overwrite;
-a thread has no overwrites of its own and the refusal names its parent.
-
-## Members, invites and the audit log
-
-Moderation is the everyday admin job, and the one where a valid command can
-still be impossible: Discord lets a bot act only on members below its own top
-role, and never on the server owner. This tool refuses those before it writes
-and says which it was, rather than relaying a 403.
-
-```bash
-discord-tools member list --server 1394...                                          # the `members` command by its group name
-discord-tools member kick --server 1394... --member 1401... --reason "raiding"      # dry-run: who, and the reason Discord will store
-discord-tools member kick --server 1394... --member 1401... --reason "raiding" --execute   # asks for their exact username
-discord-tools member ban  --server 1394... --member 1401... --reason "raiding" --execute   # same gate; they cannot rejoin on any invite
-discord-tools member unban --server 1394... --member 1401...                        # preview + y/N
-discord-tools member timeout --server 1394... --member 1401... --until 2h           # or 30m, 7d, or an ISO 8601 time
-discord-tools member untimeout --server 1394... --member 1401...                    # end it now; refused if they are not timed out
-discord-tools member nick --server 1394... --member 1401... --nick "Ana (ops)"      # --nick '' clears it
-discord-tools invite list --server 1394...                                          # every invite, with its link
-discord-tools invite create --channel 1394... --max-age 3600 --max-uses 5           # prints the link once
-discord-tools invite revoke --server 1394... --code abc123 --execute                # asks for the exact code
-discord-tools audit-log list --server 1394... --action ban --since 7d               # Discord's own log of everyone's changes
-```
-
-**Every write, in order:** preflight names the missing right —
-*Kick Members*, *Ban Members*, *Moderate Members*, *Manage Nicknames*,
-*Manage Guild* or *Create Instant Invite* — as `PERMISSION_DENIED` before
-anything is sent. Then the check a held right does not settle:
-`HIERARCHY_DENIED` for the server owner (Discord lets nobody moderate them),
-for the bot itself (this tool never moderates the account it is acting as),
-and for a member whose top role is not below the bot's, with both positions
-named. Then the gate, a drift check, the write, and a readback — the member as
-they now are, or the proof they are gone.
-
-**The gates.** Kicking, banning and revoking an invite dry-run by default and
-for real take `--execute` **and** the exact username or code typed at a
-prompt — no `--yes`, and no terminal means `APPROVAL_REQUIRED`. Timeout,
-lifting one, nickname, unban and `invite create` preview and ask `y/N`, with `--yes`
-skipping the prompt the way `create --yes` does.
-
-**Reasons.** `--reason` is required on `kick` and `ban`, because it is what the
-member sees and what the next moderator reads. It is appended to this tool's
-own plan line, so the server's audit log shows
-`cli-tools member ban plan a1b2c3d4: raiding` — which tool acted, and why.
-`--reason` is optional on the rest.
-
-**Bounds and boundaries.** `--until` is required on `timeout` and is refused
-past 28 days, which is Discord's own ceiling; a mute with no end is one nobody
-remembers to lift. `untimeout` ends one early and refuses a member who is not
-timed out, so a lift that changes nothing never reads as done. `ban` deletes no messages — Discord can sweep a banned
-member's recent history and this tool does not, because `clear-messages` is
-the command for that and it has its own gate. Invite links print in
-`invite list` and `invite create` and nowhere else: a revoke names the code,
-and a link a moderator typed into an audit reason is redacted on the way out.
-
-
-## Webhooks, emoji and stickers
-
-A webhook URL is a credential. Anyone holding one can post into that channel as
-anything they like — no token, no bot, no invite — for as long as the webhook
-exists. So this tool prints a whole URL exactly once, on one screen, to the
-person who asked for it, and rewrites the token segment everywhere else: in
-`webhook list`, in the `--json` envelope, in the echoed arguments, in the audit
-line, and in a delete's own preview.
-
-```bash
-discord-tools webhook list --server 1394...                                  # every URL ends in /<redacted>
-discord-tools webhook create --channel 1394... --name "ci" --reveal          # prints the whole URL, once
-discord-tools webhook delete --server 1394... --webhook "ci" --execute       # asks for its exact name
-discord-tools emoji list --server 1394...                                    # with <:name:id> to paste
-discord-tools emoji add --server 1394... --name parrot --file ./parrot.png   # preview + y/N
-discord-tools emoji remove --server 1394... --emoji parrot --execute         # asks for its exact name
-discord-tools sticker add --server 1394... --name wave --file ./wave.png --emoji 👋
-discord-tools sticker remove --server 1394... --sticker wave --execute
-```
-
-**Without `--reveal`, `webhook create` never shows the URL at all** — the
-webhook is made, and the command says to run it again with `--reveal` or read
-the URL in Server Settings → Integrations. Even with `--reveal`, the URL goes to
-the screen and never into the envelope, so a script that stores this run's
-output stores no credential.
-
-**Naming one.** A webhook, an emoji and a sticker are all named by whoever made
-them and none of the three names is unique, so `--webhook`, `--emoji` and
-`--sticker` take an ID **or** a name. A name that matches one row resolves; a
-name two rows share is `TARGET_AMBIGUOUS` with both IDs listed, because picking
-one of two things called `ci` is not a decision a tool should make about a
-delete.
-
-**The gates.** All three removals dry-run by default and for real take
-`--execute` **and** the exact name typed at a prompt — no `--yes` on any of
-them. A deleted webhook's URL cannot be brought back and everything posting
-through it stops; a removed emoji leaves every message that used it showing a
-hole. `webhook create`, `emoji add` and `sticker add` preview and ask `y/N`.
-
-**Rights, by Discord's current names.** Listing emoji and stickers needs
-nothing — Discord shows both to every member. Listing webhooks needs **Manage
-Webhooks** on the server, because a webhook's URL is a credential Discord shows
-to nobody else; deleting one needs the same right **on that webhook's own
-channel**, because a channel overwrite can grant or take it away there and the
-channel is the only place Discord actually asks about. Adding an expression needs **Create Expressions** and removing one needs
-**Manage Expressions**: those are the names the API reports for what the app's
-own settings screen still calls Manage Emojis and Stickers, and naming the
-older alias would ask for a right no preflight could ever see held.
-
-**Bounds.** An emoji is at most 256 KiB and a sticker at most 512 KiB. Discord
-answers an oversized upload with a 400 that names neither the file nor the cap,
-so the file is measured before it is sent and the refusal names both.
-
-
-## AutoMod and channel settings
-
-AutoMod is the filtering Discord does by itself, with this machine off and the
-watcher down. A rule is **one trigger and a list of actions**, and the flags
-name the trigger by naming its configuration:
-
-```bash
-discord-tools automod list --server 1394...
-discord-tools automod create --server 1394... --name "no links" \
-    --regex 'https?://' --alert 1394... --timeout 600 --exempt-role 1401...
-discord-tools automod create --server 1394... --name "manners" --preset profanity --block "Not here."
-discord-tools automod edit --server 1394... --rule "no links" --no-enabled
-discord-tools automod delete --server 1394... --rule "no links" --execute      # asks for its exact name
-
-discord-tools channel show --channel 1394...
-discord-tools channel edit --channel 1394... --topic "what shipped" --slowmode 30
-discord-tools channel edit --channel 1394... --name releases --no-nsfw
-```
-
-`--keyword` and `--regex` make a keyword rule, `--preset` a preset rule,
-`--mention-limit` a mention rule, and `--spam` the one that needs no
-configuration. Two families at once is a refusal, not a guess. **Discord fixes
-a rule's trigger when it is created and never changes it**, so an edit
-describing a different family is refused by name — delete the rule and write
-the one you want — while anything inside the family it already has can change.
-Every field the flags do not name keeps the value it had.
-
-**The actions never delete.** The three a rule may take are blocking the
-message before it posts (`--block`, optionally with what the author is told),
-alerting a channel (`--alert`), and timing the author out (`--timeout`, one
-second to 28 days). This is the same closed, non-destructive list `watch`
-keeps: a rule this tool writes cannot remove anything.
-
-**Deleting a rule is `typed_name`** — dry-run, then `--execute` and the rule's
-exact name, with no `--yes` — because Discord stops applying it the moment it
-goes and nothing announces that the server has quietly stopped filtering what
-that rule filtered. Creating and editing preview and ask `y/N`.
-
-**`channel show` is the look before the change.** It prints what the channel
-is — type, the category it sits under, the editable fields the type has, a
-voice channel's bitrate and user limit — and what one fetch can count: the
-permission overwrites on it, roles and members apart, and a forum's tags.
-Messages, threads and members are not on the channel Discord hands back, so
-they are not counted here. One read, no write, no audit line; under `--json`,
-`result.channel` is the same shape `channel edit` reads back.
-
-**`channel edit` reads a diff back.** Only the fields you give are sent, a
-field already at the asked value is not a change at all (the command says so
-and touches nothing), and the evidence it reports afterwards is the before and
-after fetched from Discord rather than the change it asked for — so a readback
-that disagrees is `unverified`, not `ok`. Under `--json`, `result.channel` is
-the channel as it now is, `result.before` is what it was, and `result.changed`
-is what moved. A field the channel's type does not
-have — a topic on a category, slow mode on a stage — is refused by name before
-anything is sent, because Discord answers that with a 400 that names neither.
-
-
-## Watching a server
-
-Everything above is one-shot: you run it, it acts, it exits. `watch run` is the
-one command that stays: it opens a **gateway connection** — the live event
-stream Discord pushes — and runs your rules against what arrives. Every other
-command in this tool logs in over REST, acts and logs out, and that stays true;
-the gateway lives in one file (`adapters/events.py`) and nothing else opens one.
-
-```bash
-discord-tools watch rules add --name deploys --on message \
-    --domain github.com --alert-channel 1542...          # preview + y/N, then a file in ~/.discord-tools/rules/
-discord-tools watch rules list                            # every rule, and the intents the set needs
-discord-tools watch rules test --event recorded.json      # what would fire; nothing does
-discord-tools watch run                                   # until Ctrl-C, or `watch stop` elsewhere
-discord-tools watch status                                # lock, rules, intents, cursors, schedules, drops, last 20 log lines
-discord-tools watch reload                                # re-read the rules without stopping
-```
-
-**What a rule may do is a closed list**: `alert`, `tag`, `bookmark`,
-`capture_metadata` (record what the platform delivered — sender, entities,
-attachment names and sizes — never a fetch of the linked page), `archive`
-(sync that scope, within the archive's budgets) and `queue_review` (put its
-attachments and links in the review queue, still unfetched). There is no
-download, no send of its own, no edit and no delete. A rule naming any other
-action is refused as `RULE_INVALID` when it loads.
-
-**Alerts go through the send gate.** An alert to a channel is posted by the
-tool's own `send` path with mentions off, so `DISCORD_SEND_ALLOWLIST` is the
-gate for an automated alert exactly as it is for `send --yes`; a destination
-off the list is `NOT_ALLOWLISTED` and shows in `watch status`. An alert can
-instead run a command you configured, with the alert text on its stdin — a
-command that is not on `PATH` is `COMMAND_MISSING` **when the rule loads**,
-not at three in the morning when it fires.
-
-Every alert ends with an origin marker line. An event whose sender is a bot
-and whose text carries that marker is dropped before any rule sees it, and so
-is anything this bot itself posted — which is what stops two watchers alerting
-each other forever. A person pasting the marker is not a kill switch: the
-sender check is the other half of it.
-
-**Intents.** A gateway connection asks for exactly what the loaded rules need.
-Reading message text needs the **Message Content** intent and seeing joins and
-leaves needs the **Server Members** intent; both are switched on in the
-Developer Portal, and a bot in 100 servers or more needs Discord's verification
-before it may hold either. `doctor` reports the rules, the intents they need
-and the server count against that line, so "why did my rule never fire" is
-answered on the setup screen.
-
-**One message can be up to three events.** It is a message; it may also carry a
-link, and it may also carry a file — `message`, `link` and `media` are three
-triggers and each has its own key. A rule naming two of them fires twice on the
-same message; the rule preview says so, and `watch rules test` shows exactly
-what a recorded message produces.
-
-**Restarts.** The runner keeps a cursor per scope. On start it replays the
-history after each cursor through the rules with dedup on, so a message that
-arrived while it was down still fires, and one it had already handled does not
-fire again. A join or a leave that happened while it was down is a gap Discord
-pages no history for; that is reported, not invented.
-
-`watch run` takes an exclusive lock at `~/.discord-tools/runner.lock`. A second
-one exits 2 with `RUNNER_LOCKED` naming the holder. The lock is `fcntl`, so the
-runner needs macOS or Linux; on Windows `watch run` exits 2 with
-`PLATFORM_UNSUPPORTED` and every other command works normally. Nothing is
-installed as a service — run it in a terminal, under tmux, or under a
-launchd/systemd unit you write.
-
-## The two guarantees
-
-"Scheduled" means two different promises here, and every listing says which one
-it is making.
-
-```bash
-discord-tools event create --server 1394... --name Standup \
-    --start 2026-10-01T09:00 --place stage_instance --channel 1395...   # server-held
-discord-tools event list --server 1394...
-discord-tools event delete --server 1394... --id 1401... --execute      # asks for its exact name
-
-discord-tools schedule post --channel 1542... --text "standup" --every 1d   # runner-held
-discord-tools schedule list
-discord-tools schedule cancel --id a1b2c3d4e5f6
-```
-
-**`server-held`** — a guild scheduled event. Discord stores it, it shows in the
-server's Events tab, and it happens with this machine switched off. `event
-create` and `event edit` preflight *Manage Events*, preview and ask `y/N`;
-`event delete` dry-runs by default and for real takes `--execute` **and** the
-event's exact name typed at a prompt, with no `--yes`, like every other delete
-here.
-
-**`runner-held: fires only while watch run is up on this machine`** — a
-`schedule post`. The row lives in the local archive and the runner posts it.
-Discord has no scheduled-message API for bots, so this is the honest version
-rather than a promise the platform does not make. Because the runner posts
-unattended, the destination must already be in `DISCORD_SEND_ALLOWLIST`: a
-`schedule post` aimed anywhere else is refused as `NOT_ALLOWLISTED` when you
-write the row, not silently at the moment it would have fired.
-
-`send --at <time>` is the same thing, spelled the way `send` spells it — there
-is nothing else it could mean, since Discord holds no scheduled message for a
-bot. It carries no file and no `--reply-to`: the runner would post them later,
-and by then the file may have moved and the message being answered may be
-gone, so both are refused rather than quietly dropped.
-
-`--at` takes an ISO 8601 time. A time with no offset is this machine's local
-time, the one reading every typed time in this tool has; an offset or a
-trailing `Z` you write always wins, and the preview shows the resolved time
-with its offset before the y/N.
-`--every` takes
-an interval (`15m`, `2h`, `1d`) or a five-field cron expression, whose hour
-field is this machine's local time too. A listing prints `at` and `next` in
-UTC and says so, like every time this tool prints.
-Schedules are
-planned from a monotonic baseline recorded with the wall time: a wall clock
-that jumps backwards re-plans, one that jumps forwards fires each missed
-schedule **once**, marked late, rather than once per missed interval.
-
-## Exports stay out of your repos
-
-Relative `--output` names land in `~/.discord-tools/exports/`, never the
-working directory. Message text coming back empty on every message means the
-**message-content intent** is off in the portal — `doctor` names it and `auth`
-walks you through enabling it.
-
-## For agents
-
-Put `--json` before the subcommand and every command answers with one object
-on stdout, with previews, prompts and progress on stderr:
+Put `--json` before the command and it prints exactly one JSON object on stdout; tables, previews and prompts move to stderr. `--jsonl` streams one line per record first, on the commands that list things.
 
 ```bash
 discord-tools --json discover
-discord-tools --json send --channel 1542... --text "shipped" --yes
+discord-tools --json send --channel 1394827364512 --text "deploy is green" --yes
 ```
 
-The keys are the same whatever the command ran — `status`, `result`, `error`,
-`plan`, `evidence`, `meta` and the rest — so there is one parser to write, not
-one per command. `--jsonl` streams a record per line for `search`, `members`,
-`member list`, `invite list`, `audit-log list`, `webhook list`, `emoji list`,
-`sticker list`, `automod list`, `discover` and `archive search` and closes with
-the same object.
+The object carries a `status` (`ok`, `empty`, `partial`, `dry_run`, `cancelled`, `refused`, `failed`), the `result`, the `identity` and `target` the run acted on, and on a refusal a stable `error.code`, with an `error.hint` naming the command or edit that fixes it when there is one.
 
-Exit codes say the same thing without parsing anything: **0** done, **1** not
-done (stopped at a gate, or a server clear that could not reach everything),
-**2** refused, **3** an answer was needed and there was no terminal to ask on,
-**130** interrupted. Exit 3 is the one to know: rather than hanging on a
-prompt nobody can answer, the command refuses and its `error.hint` names the
-command a person would run.
+| Exit | Meaning |
+| --- | --- |
+| 0 | done — `ok`, `empty`, `dry_run` |
+| 1 | not done — cancelled, declined, or `partial` |
+| 2 | refused — usage, config, permission, a platform error |
+| 3 | needs a person — the command asks for confirmation and there is no terminal to ask on |
+| 130 | interrupted |
 
-`watch status`, every `watch rules` verb, `schedule list` and `schedule cancel`
-need no login: a rule is a file on this machine and the runner's state is a
-lock, a log and rows in the local archive, so a status still reads while the
-token is being rotated. `watch run` is the one command that ever opens a
-gateway; it holds the terminal until it is stopped, and an agent should not be
-the thing that starts it.
+Under `--json`, a command that needs an answer and has no terminal to ask on exits 3 with `APPROVAL_REQUIRED` instead of waiting; bare `discord-tools` with no terminal prints help rather than opening the menu, whatever flags it got. Neither hangs a script. `--yes` answers only a `y/N`, and only where the [Safety model](#safety-model) says it does. `watch run` holds the terminal until it's stopped, so an agent shouldn't be the thing that starts it. [`skill/SKILL.md`](https://github.com/banozz0/discord-tools/blob/main/skill/SKILL.md) is a ready-made agent skill: every command, field and rule an agent needs.
 
-Every envelope names the bot it acted as under `identity`, and the thing it acted
-on under `target`. A profile whose stored token decodes to a different bot ID than
-`auth` recorded refuses with `IDENTITY_MISMATCH` and exit 2 before any call, and a
-token store readable by group or others refuses every write with `CONFIG_INVALID`
-naming the exact `chmod`.
+## Where your files live
 
-Every write reports what permission it needed and held, which gate it passed,
-and what was read back afterwards — and a readback that begins `unverified:`
-means it happened but could not be confirmed. Executed writes append one line
-to `~/.discord-tools/audit.jsonl` (mode 0600, no secrets), and Discord's own
-audit log records the change against `cli-tools <command> plan <id>` — with the
-moderator's `--reason` after it on a member write. A read that needs a right
-still preflights it (`invite list`, `audit-log list`, `webhook list`,
-`automod list`) but writes no audit line: that file is a record of writes.
-
-**A webhook URL never reaches an envelope.** `webhook create --reveal` prints
-the whole URL to stderr, once, for a person; `result.webhook.url` and every
-later `webhook list` carry the token segment rewritten, and so do the echoed
-`args` and the audit line. There is no flag that puts a whole URL on stdout —
-if a script needs one, a person has to read it off the screen.
-
-`skill/SKILL.md` is a bundled agent skill describing the CLI surface and the
-rules an agent must follow (never `clear-messages`, `message delete`,
-`structure apply`, a role or permission write, a `member kick`/`member ban`, an
-`invite revoke --execute`, a `webhook create`, a `webhook delete --execute`, an
-`emoji remove`/`sticker remove --execute`, an `automod delete --execute`, an
-`event delete --execute` or `watch run`,
-allowlist-gated sends, never print tokens). It updates in the same commit as any CLI-surface change.
+Everything is in `~/.discord-tools/`: the `.env`, one folder per bot under `profiles/`, the archive (`archive.sqlite`), the review queue's `quarantine/` and `media/`, `exports/`, watch `rules/`, the runner's lock and log, `config.json` (the disk budgets) and the `audit.jsonl` log. An `--output` name with no folder lands in `exports/`, never in the directory you ran it from. Nothing is uploaded anywhere. More in [the guide](https://cli-tools-site.vercel.app/docs#where-your-files-live).
 
 ## Development
 
 ```bash
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/python -m pytest    # no network, no real token
+.venv/bin/python -m pytest -q    # no network, no real token
 ```
 
-MIT. See `SPEC.md` for the v1 contract and `CHANGELOG.md` for history.
+[`SPEC.md`](https://github.com/banozz0/discord-tools/blob/main/SPEC.md) is the v1 contract, and [`CONTEXT.md`](https://github.com/banozz0/discord-tools/blob/main/CONTEXT.md) holds the project's terms.
+
+## Status
+
+Used regularly by its author, and still growing — see the [changelog](https://github.com/banozz0/discord-tools/blob/main/CHANGELOG.md). This is a solo project whose code was written by AI agents under review: issues are welcome, fixes are best-effort, and there is no support promise.
+
+## License
+
+MIT. See [LICENSE](https://github.com/banozz0/discord-tools/blob/main/LICENSE).

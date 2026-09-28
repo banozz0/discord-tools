@@ -14,6 +14,7 @@ import json
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -26,6 +27,8 @@ from discord_tools.models import ChannelInfo, ServerInfo
 
 BOT_42 = "NDI.fake.sig"
 CONFIG = Config(token=BOT_42, profile="harry", tokens={"harry": BOT_42}, send_allowlist=(101,))
+# Unset is the default: no destination is opted in, so nothing unattended goes out.
+NO_ALLOWLIST = Config(token=BOT_42, profile="harry", tokens={"harry": BOT_42}, send_allowlist=())
 MANAGE_EVENTS = {"manage_events": True, "send_messages": True, "view_channel": True}
 
 
@@ -43,10 +46,15 @@ def agency(**overrides) -> FakeClient:
     return FakeClient(**fields)
 
 
-def go(argv, client=None, *, isatty=True):
+def go(argv, client=None, *, isatty=True, config=CONFIG):
     args = build_parser().parse_args(argv)
+    return call(args, client=client, isatty=isatty, config=config)
+
+
+def call(args, client=None, *, isatty=True, config=CONFIG):
+    """One already-built namespace through `run`, the way the menu hands one over."""
     out = Run(command_name(args), echoed_args(args), json=True, stdout=io.StringIO(), stderr=io.StringIO(), isatty=isatty, presents=True)
-    code = asyncio.run(run(args, client=client, config=CONFIG, out=out))
+    code = asyncio.run(run(args, client=client, config=config, out=out))
     return code, json.loads(out.stdout.getvalue()), out.stderr.getvalue()
 
 
@@ -101,6 +109,103 @@ def test_a_rule_write_with_no_terminal_and_no_yes_is_approval_required(home_is_a
     )
     assert (code, body["error"]["code"]) == (3, "APPROVAL_REQUIRED")
     assert not rule_file(home_is_a_tmp_dir).exists()
+
+
+# -- rules: where an alert is allowed to land -------------------------------
+
+
+def test_a_rule_alerting_a_channel_off_the_allowlist_is_refused_when_it_is_written(home_is_a_tmp_dir, monkeypatch):
+    """Card agent-bo-95422642: `--alert-channel` promised the list and never asked it.
+
+    The runner alerts through `DiscordMessageSender` under `yes_allowlist`, so
+    a rule aimed off the list could only ever be refused - at three in the
+    morning, in the runner's log, with nobody reading it. It is refused here
+    instead, before the preview and before the file.
+    """
+    answer(monkeypatch, "y")
+    code, body, stderr = go(
+        ["--json", "watch", "rules", "add", "--name", "deploys", "--on", "message", "--alert-channel", "102"]
+    )
+    assert code == 2 and body["status"] == "refused", body
+    assert body["error"]["code"] == "NOT_ALLOWLISTED"
+    assert "dc:channel:102" in body["error"]["message"]
+    assert "DISCORD_SEND_ALLOWLIST=102" in body["error"]["hint"]
+    assert "--alert-command" in body["error"]["hint"], "the destination kind the list has no say over"
+    assert not rule_file(home_is_a_tmp_dir).exists(), "and no rule was written"
+    assert "Store it?" not in stderr, "refused before the preview, not after its y/N"
+
+
+def test_a_channel_the_allowlist_names_still_writes_its_rule(home_is_a_tmp_dir, monkeypatch):
+    """The check refuses a destination, never the flag: 101 is on the list."""
+    code, body, _stderr = add_rule(monkeypatch)
+    assert (code, body["status"]) == (0, "ok"), body
+    assert [action["kind"] for action in body["result"]["rule"]["actions"]] == ["alert"]
+    assert rule_file(home_is_a_tmp_dir).exists()
+
+
+def test_an_unset_allowlist_refuses_every_alert_aimed_at_a_channel(home_is_a_tmp_dir, monkeypatch):
+    """Unset is the default and the case on the card: nothing is opted in."""
+    answer(monkeypatch, "y")
+    code, body, _stderr = go(
+        ["--json", "watch", "rules", "add", "--name", "deploys", "--on", "message", "--alert-channel", "101"],
+        config=NO_ALLOWLIST,
+    )
+    assert code == 2 and body["status"] == "refused", body
+    assert body["error"]["code"] == "NOT_ALLOWLISTED"
+    assert not rule_file(home_is_a_tmp_dir).exists()
+
+
+def test_an_alert_command_answers_to_no_list_here(home_is_a_tmp_dir, monkeypatch):
+    """A command is how an alert leaves this platform, so the send list has no say."""
+    answer(monkeypatch, "y")
+    code, body, _stderr = go(
+        ["--json", "watch", "rules", "add", "--name", "hooked", "--on", "message", "--alert-command", "echo loud"],
+        config=NO_ALLOWLIST,
+    )
+    assert (code, body["status"]) == (0, "ok"), body
+    assert rule_file(home_is_a_tmp_dir, "hooked").exists()
+
+
+def test_rules_edit_onto_a_channel_off_the_allowlist_is_refused_and_changes_nothing(home_is_a_tmp_dir, monkeypatch):
+    """`edit` sets destinations too, so it answers to the same list `add` does."""
+    add_rule(monkeypatch)
+    before = rule_file(home_is_a_tmp_dir).read_text(encoding="utf-8")
+    answer(monkeypatch, "y")
+    code, body, _stderr = go(["--json", "watch", "rules", "edit", "--name", "deploys", "--alert-channel", "102"])
+    assert code == 2 and body["status"] == "refused", body
+    assert body["error"]["code"] == "NOT_ALLOWLISTED"
+    assert rule_file(home_is_a_tmp_dir).read_text(encoding="utf-8") == before, "the stored rule is untouched"
+
+
+def test_the_menus_rule_form_is_refused_by_the_same_check(home_is_a_tmp_dir, monkeypatch):
+    """The Add and Change rule screens hand `cli.run` a namespace, so they answer to it too.
+
+    `menu._rule_namespace` is the shape `_run_rules_write` really sees from the
+    menu - the path that would otherwise still have written a rule whose alert
+    can only ever be refused.
+    """
+    from discord_tools import menu as menu_rim
+
+    answer(monkeypatch, "y")
+    args = menu_rim._rule_namespace(
+        SimpleNamespace(profile="harry"), rules_kind="add", name="deploys", on="message", alert_channel=[102]
+    )
+    code, body, _stderr = call(args)
+    assert code == 2 and body["status"] == "refused", body
+    assert body["error"]["code"] == "NOT_ALLOWLISTED"
+    assert not rule_file(home_is_a_tmp_dir).exists()
+
+
+def test_a_rule_that_alerts_nowhere_is_not_asked_about_the_list(home_is_a_tmp_dir, monkeypatch):
+    """enable, disable and remove set no destination, and a bookmark rule has none."""
+    answer(monkeypatch, "y")
+    code, body, _stderr = go(
+        ["--json", "watch", "rules", "add", "--name", "quiet", "--on", "message", "--bookmark"],
+        config=NO_ALLOWLIST,
+    )
+    assert (code, body["status"]) == (0, "ok"), body
+    code, body, _stderr = go(["--json", "watch", "rules", "enable", "--name", "quiet"], config=NO_ALLOWLIST)
+    assert (code, body["status"]) == (0, "ok"), body
 
 
 def test_a_rule_with_no_action_is_refused_naming_the_closed_list(home_is_a_tmp_dir):

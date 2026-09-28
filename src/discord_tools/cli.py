@@ -93,10 +93,12 @@ from discord_tools.members import format_member_records, list_server_members
 from discord_tools.search import all_content_empty, format_message_records, search_messages
 from discord_tools.send import (
     SendNotAllowedError,
+    allowlist_remedy,
     confirm_send,
     format_send_preview,
     format_sent,
     require_send_allowed,
+    send_allowed,
     send_to_channel,
 )
 
@@ -1379,7 +1381,7 @@ async def _dispatch_offline(args, config, out) -> int:
         elif args.command == "structure":
             outcome = await _run_structure_remap(args, out)
         elif args.command == "watch":
-            outcome = await _run_watch_offline(args, out)
+            outcome = await _run_watch_offline(args, config, out)
         elif args.command == "schedule":
             outcome = await (_run_schedule_list if args.schedule_kind == "list" else _run_schedule_cancel)(args, out)
         elif args.command == "search":
@@ -4978,7 +4980,7 @@ def _runner_state(archive, identity):
     return Schedules(RunnerState(archive, identity), Clock(), watch_rim.SCHEDULE_TZ)
 
 
-async def _run_watch_offline(args, out) -> Outcome:
+async def _run_watch_offline(args, config, out) -> Outcome:
     """Every watch command that reads or writes only this machine."""
     if args.watch_kind == "status":
         return await _run_watch_status(args, out)
@@ -4991,7 +4993,7 @@ async def _run_watch_offline(args, out) -> Outcome:
     if args.rules_kind == "list":
         return await _run_rules_list(args, out)
     if args.rules_kind in ("add", "edit"):
-        return await _run_rules_write(args, out, editing=args.rules_kind == "edit")
+        return await _run_rules_write(args, config, out, editing=args.rules_kind == "edit")
     if args.rules_kind == "remove":
         return await _run_rules_remove(args, out)
     if args.rules_kind in ("enable", "disable"):
@@ -5081,7 +5083,7 @@ def _rule_gate(
     return None
 
 
-async def _run_rules_write(args, out, *, editing: bool) -> Outcome:
+async def _run_rules_write(args, config, out, *, editing: bool) -> Outcome:
     """`watch rules add` and `watch rules edit`: one rule file, previewed first."""
     require_private_store()
     paths = _rule_paths()
@@ -5098,6 +5100,9 @@ async def _run_rules_write(args, out, *, editing: bool) -> Outcome:
     # rule whose alert command is not on PATH is refused at load, never at
     # fire time.
     rule = watch_rim.build_rule(document)
+    # And the send allowlist, at the write rather than at load, because the
+    # read verbs build a rule too and must still reach one aimed off the list.
+    watch_rim.require_alerts_allowlisted(rule, config.send_allowlist)
     preview = watch_rim.format_rule_preview(rule, existing=existing, path=paths.rule(rule.name))
     stopped = _rule_gate(out, yes=args.yes, preview=preview, question="Store it?")
     if stopped is not None:
@@ -5229,7 +5234,7 @@ async def _run_schedule_post(client, args, config, out) -> Outcome:
     # The runner posts under `yes_allowlist`, so a destination off the list is
     # a schedule that could only ever be refused. Saying so now beats a row
     # that fails quietly at three in the morning.
-    if args.channel not in config.send_allowlist:
+    if not send_allowed(config.send_allowlist, args.channel):
         return Outcome(
             status="refused",
             target=target,
@@ -5237,8 +5242,7 @@ async def _run_schedule_post(client, args, config, out) -> Outcome:
                 code="NOT_ALLOWLISTED",
                 message=f"{target.display} is not in DISCORD_SEND_ALLOWLIST, and the runner posts unattended.",
                 hint=(
-                    f"Add it in ~/.discord-tools/.env as DISCORD_SEND_ALLOWLIST={args.channel} "
-                    "(comma-separated for several). Every scheduled post goes out with nobody watching, "
+                    f"{allowlist_remedy(args.channel)}. Every scheduled post goes out with nobody watching, "
                     "so the allowlist is the only gate it has."
                 ),
             ),

@@ -46,9 +46,14 @@ The terms this codebase uses, and the boundaries they imply.
   the flags would and never sets `yes`/`execute` itself — it is never a
   shorter path past a gate.
 - **Allowlist** — `DISCORD_SEND_ALLOWLIST`: channel/thread IDs an unattended
-  (`--yes`) send may target. Unset refuses everything; only the unattended
-  path consults it. (The blueprint's *field allowlist* is a different thing;
-  see below.)
+  (`--yes`) send may target. Unset refuses everything. An interactive send
+  never consults it — the y/N is the decision — but the two writes that arm an
+  unattended post for later do, at the write and again when it fires:
+  `schedule post` and a `watch` rule's `--alert-channel`. `send.send_allowed`
+  is where the match is decided and `send.allowlist_remedy` is the one
+  sentence that says how to add an entry, so all four gates read the list the
+  same way. (The blueprint's *field allowlist* is a different thing; see
+  below.)
 - **Bulk window** — Discord's hard 14-day limit on the bulk-delete endpoint.
   `split_bulk_window` (`delete.py`) partitions message IDs by snowflake
   timestamp (pure math, no API calls); older messages delete one-by-one,
@@ -397,9 +402,13 @@ Architecture decisions with more context than fits here go to `docs/adr/`.
   this bot posted; a person pasting it is not a kill switch, because the sender
   check is the other half.
 - **Alert destination** — where an alert goes: a `platform` rid, posted by this
-  tool's own send under the allowlist (`NOT_ALLOWLISTED` off it), or a
-  `command` argv run with the text on stdin (`COMMAND_MISSING` at rule load,
-  never at fire time).
+  tool's own send under the allowlist, or a `command` argv run with the text on
+  stdin (`COMMAND_MISSING` at rule load, never at fire time). A rid off the
+  allowlist is `NOT_ALLOWLISTED` twice over: when the rule is written
+  (`watch.require_alerts_allowlisted`, and nothing is stored) and again when
+  the alert fires (`adapters/sender.DiscordMessageSender`, which is the gate —
+  the list can change in between). A command destination answers to no list
+  here, because that is how an alert leaves this platform.
 - **Guarantee** — which promise a schedule makes, printed on every listing.
   **server-held**: a guild scheduled event, which Discord stores and which
   happens with this machine off. **runner-held**: a `schedule post`, a row in

@@ -23,6 +23,7 @@ from typing import Any, Callable, Mapping, Sequence
 from discord_tools._core import rid as _rid
 from discord_tools._core.contract import CodedError
 from discord_tools._core.runner import RateLimited
+from discord_tools.send import allowlist_remedy, send_allowed
 
 PLATFORM = "discord"
 # The rid kinds a message can be posted to. A category holds channels, not
@@ -87,13 +88,12 @@ class DiscordMessageSender:
 
     def send(self, rid: str, text: str, *, approval: str) -> Mapping[str, Any]:
         channel_id = channel_id_of(rid)
-        if approval == "yes_allowlist" and channel_id not in self._allowlist:
+        if approval == "yes_allowlist" and not send_allowed(self._allowlist, channel_id):
             raise CodedError(
                 "NOT_ALLOWLISTED",
                 f"{rid} is not in DISCORD_SEND_ALLOWLIST, so nothing was sent there.",
                 hint=(
-                    f"Add it in ~/.discord-tools/.env as DISCORD_SEND_ALLOWLIST={channel_id} "
-                    "(comma-separated for several), or point the rule at a destination that is on the list."
+                    f"{allowlist_remedy(channel_id)}, or point the rule at a destination that is on the list."
                 ),
             )
         try:

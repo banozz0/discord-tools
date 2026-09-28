@@ -149,7 +149,7 @@ Each bot is a named profile on one `DISCORD_BOT_TOKENS` line in `~/.discord-tool
 DISCORD_SEND_ALLOWLIST=1394827364512,1394827364598
 ```
 
-Each entry is a channel or thread ID. Unset, every `--yes` send is refused. The same list covers the message verbs that post, every `schedule post`, and the alerts a `watch` rule sends.
+Each entry is a channel or thread ID. Unset, every `--yes` send is refused. The same list covers the message verbs that post, every `schedule post`, and the alerts a `watch` rule sends. The two that post with nobody watching are checked twice: `schedule post` and `watch rules add|edit --alert-channel` refuse a destination the list does not name as you write the row or the rule, and the runner checks the list again when it fires, because the `.env` can change in between.
 
 ### Through a proxy
 

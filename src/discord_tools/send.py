@@ -92,6 +92,26 @@ def confirm_send(preview: str, *, read: Callable[[str], str] = input, write: Cal
     return True
 
 
+def send_allowed(allowlist: Sequence[int], channel_id: int) -> bool:
+    """Whether DISCORD_SEND_ALLOWLIST names this channel or thread.
+
+    The one place the match is decided, so the four gates that ask the list --
+    an unattended `send --yes`, a `schedule post` row, a `watch` rule's alert
+    destination and the runner's own send -- answer it the same way. A thread
+    id and a channel id are the same kind of number, which is why a thread
+    needs no second spelling here.
+    """
+    return channel_id in allowlist
+
+
+def allowlist_remedy(channel_id: int) -> str:
+    """How to allow this destination, in the one sentence every refusal ends with."""
+    return (
+        f"Add it in ~/.discord-tools/.env as DISCORD_SEND_ALLOWLIST={channel_id} "
+        "(comma-separated for several)"
+    )
+
+
 def require_send_allowed(allowlist: Sequence[int], channel_id: int) -> None:
     """Raise unless DISCORD_SEND_ALLOWLIST names this channel or thread.
 
@@ -99,12 +119,11 @@ def require_send_allowed(allowlist: Sequence[int], channel_id: int) -> None:
     preview and typed `y` has already made the decision this list exists to
     make on their behalf.
     """
-    if channel_id in allowlist:
+    if send_allowed(allowlist, channel_id):
         return
     raise SendNotAllowedError(
         f"--yes refuses to send to {channel_id}: it is not in DISCORD_SEND_ALLOWLIST. "
-        f"Add it in ~/.discord-tools/.env as DISCORD_SEND_ALLOWLIST={channel_id} "
-        "(comma-separated for several), or run without --yes and confirm the preview yourself."
+        f"{allowlist_remedy(channel_id)}, or run without --yes and confirm the preview yourself."
     )
 
 

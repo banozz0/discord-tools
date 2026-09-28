@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.24.0 — 2026-09-28
+
+### `watch rules add|edit` refuse an alert channel the send allowlist does not name
+`--alert-channel`'s help has always said the channel must be in
+`DISCORD_SEND_ALLOWLIST`, and writing the rule never asked: the destination was
+appended and stored. The runner alerts through this tool's own send path under
+`yes_allowlist`, so a rule aimed off the list was accepted and then refused
+hours later with `NOT_ALLOWLISTED` in the runner's log, with nobody reading it —
+the alert simply never arrived. Both `add` and `edit` now check the list before
+the preview and before the file: an alert channel or thread the list does not
+name is `NOT_ALLOWLISTED`, exit 2, and no rule is written or changed. The
+refusal names the rid, says how to add the entry, and points at
+`--alert-command`, which is how an alert leaves this platform and answers to no
+list here. `enable`, `disable`, `remove` and a rule that alerts nowhere set no
+destination and are not asked. The menu's *Rules: write a new rule* and
+*Rules: change a rule* screens hand the CLI the same arguments, so they refuse
+the same way. Unset is still the default, and it still means nothing is
+allowlisted: every alert to a channel here is refused until an entry says
+otherwise. Nothing at fire time moved — the runner checks the list again when
+the alert fires, because the `.env` can change in between, and that check, not
+this one, is the gate.
+
 ## 0.23.1 — 2026-09-28
 
 ### `doctor` keeps going when the installed skill cannot be read

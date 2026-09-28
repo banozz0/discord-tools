@@ -141,8 +141,9 @@ by default and executes only with `--execute` + the event's exact name, no
 `--yes`; `event create`, `event edit`, `schedule post`, `schedule cancel` and
 `watch rules add`, `edit` and `remove` preview + y/N; `watch rules enable` and
 `disable` flip one field without asking. A rule's actions are a closed list and none of
-them mutates; a `schedule post` off `DISCORD_SEND_ALLOWLIST` is refused when
-the row is written, because the runner posts unattended. The menu is never a
+them mutates; a `schedule post` off `DISCORD_SEND_ALLOWLIST`, and a
+`watch rules add|edit --alert-channel` off it, are refused when the row or the
+rule is written, because the runner posts and alerts unattended. The menu is never a
 shorter path past a gate.
 
 Parity rule: anything `delete` removes, `create` can make again — the channel

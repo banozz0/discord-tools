@@ -58,6 +58,8 @@ from discord_tools._core.runner import (
     parse_every,
 )
 from discord_tools.adapters import events as gateway
+from discord_tools.adapters.sender import channel_id_of
+from discord_tools.send import allowlist_remedy, send_allowed
 from discord_tools.records import parse_typed_time
 
 RULE = "--------------------------------------------"
@@ -141,6 +143,48 @@ def actions_from(args: Any) -> list[dict[str, Any]]:
         if getattr(args, flag, False):
             actions.append({"kind": kind})
     return actions
+
+
+# -- where an alert is allowed to land -----------------------------------------
+
+
+def require_alerts_allowlisted(rule: Rule, allowlist: Sequence[int]) -> None:
+    """Refuse an alert `DISCORD_SEND_ALLOWLIST` does not name, while somebody is reading.
+
+    The runner alerts through `adapters/sender.DiscordMessageSender` under
+    `yes_allowlist`, so a rule aimed off the list is an alert that could only
+    ever be refused - at three in the morning, in the runner's log, with nobody
+    reading it. Every such refusal is decidable at the write, because the list
+    holds plain channel and thread ids and a rule's rid carries the id: nothing
+    has to be resolved to compare the two. An unset list names nothing, so it
+    refuses every alert to a channel here.
+
+    This only brings forward refusals that were already decidable. The list can
+    be edited afterwards and the bot's right to post is Discord's answer at the
+    time, so the check in the sender is still the gate, and this is never a
+    reason to weaken it. A rid the sender could not post to at all - another
+    platform's, or a category's - is `channel_id_of`'s to refuse in its own
+    words, not this one's; a command destination is how an alert leaves this
+    platform and answers to no list here.
+    """
+    for action in rule.actions:
+        destination = action.destination
+        if action.kind != "alert" or destination is None or destination.kind != "platform":
+            continue
+        try:
+            channel_id = channel_id_of(destination.rid)
+        except CodedError:
+            continue
+        if send_allowed(allowlist, channel_id):
+            continue
+        raise CodedError(
+            "NOT_ALLOWLISTED",
+            f"{destination.rid} is not in DISCORD_SEND_ALLOWLIST, and the runner alerts with nobody watching.",
+            hint=(
+                f"{allowlist_remedy(channel_id)}, or point the rule at --alert-command, "
+                "which is how an alert leaves this platform and answers to no list here."
+            ),
+        )
 
 
 def filter_from(args: Any, current: Mapping[str, Any] | None = None) -> dict[str, Any]:

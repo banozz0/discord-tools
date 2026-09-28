@@ -1,7 +1,7 @@
 ---
 name: discord-tools
 description: "Discord through a bot: look up server, channel or thread IDs, search or export history, post, reply, react, pin, moderate members, and read or change roles, settings, invites, webhooks, events and alert rules."
-version: 1.20.0
+version: 1.21.0
 author: banozz0
 license: MIT
 platforms: [macos]
@@ -329,7 +329,7 @@ folder or file that is a link, because that copy is managed by hand.
 | "post this at nine tomorrow" | hand them `discord-tools send --channel <id> --text "..." --at 2026-10-01T09:00` — the same runner-held schedule, spelled the way `send` spells it |
 | "what's scheduled to post?" | `discord-tools schedule list` — each row prints its guarantee; no login |
 | "stop that scheduled post" | hand them `discord-tools schedule cancel --id <id>` |
-| "alert me when someone posts a github link there" | hand them `discord-tools watch rules add --name links --on message --domain github.com --alert-channel <id>` — rule 17, they answer its y/N, then run `watch run` themselves |
+| "alert me when someone posts a github link there" | hand them `discord-tools watch rules add --name links --on message --domain github.com --alert-channel <id>` — rule 17, they answer its y/N, then run `watch run` themselves; the alert channel has to be in their `DISCORD_SEND_ALLOWLIST` or the write is refused |
 | "what is it watching for?" | `discord-tools watch rules list` — the rules and the gateway intents they need; no login |
 | "would that rule have caught this?" | `discord-tools watch rules test --event /path/event.json` — evaluates and fires nothing |
 | "is the watcher running?" | `discord-tools watch status` — the lock, rules, cursors, schedules, why events were dropped and the last log lines; no login |
@@ -563,11 +563,16 @@ folder or file that is a link, because that copy is managed by hand.
   `RULE_INVALID` when it loads. If the user wants a rule that "deletes the
   spam" or "downloads the attachment", say plainly that no rule can, and
   point at `queue_review` plus a human `review approve` instead.
-- **An alert that could never be delivered is refused early.** A rule alerting
-  a channel outside `DISCORD_SEND_ALLOWLIST` reports `NOT_ALLOWLISTED` in
-  `watch status`; a rule whose alert command is not on `PATH` is
-  `COMMAND_MISSING` **when the rule loads**, not when it would have fired.
-  Relay either as a setup problem, not as a failure to retry.
+- **An alert that could never be delivered is refused early.**
+  `watch rules add` and `watch rules edit` refuse an `--alert-channel` outside
+  `DISCORD_SEND_ALLOWLIST` **as the rule is written**, with `NOT_ALLOWLISTED`
+  and nothing stored — the runner alerts with nobody watching, so the list is
+  the only approval that alert would ever get. A rule whose alert command is
+  not on `PATH` is `COMMAND_MISSING` when the rule loads, not when it would
+  have fired. Relay either as a setup problem, not as a failure to retry. The
+  runner checks the list again when the alert fires, so a rule written while a
+  channel was listed still reports `NOT_ALLOWLISTED` in `watch status` if the
+  entry was removed afterwards.
 - **A rule that never fires is usually an intent.** Reading message text needs
   the Message Content intent and seeing joins needs Server Members; both are
   switched on in the Developer Portal, and past 100 servers the bot needs

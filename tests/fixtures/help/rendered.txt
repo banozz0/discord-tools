@@ -2,12 +2,13 @@
 discord-tools --help
 ========================================================================
 usage: discord-tools [-h] [--profile PROFILE] [--json] [--jsonl]
-                     {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,review,structure,role,permission,member,invite,audit-log,webhook,emoji,sticker,automod,channel,message,watch,schedule,event,bot} ...
+                     {auth,doctor,skill,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,review,structure,role,permission,member,invite,audit-log,webhook,emoji,sticker,automod,channel,message,watch,schedule,event,bot} ...
 
 positional arguments:
-  {auth,doctor,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,review,structure,role,permission,member,invite,audit-log,webhook,emoji,sticker,automod,channel,message,watch,schedule,event,bot}
+  {auth,doctor,skill,discover,search,members,send,create,clear-messages,delete,leave-server,profiles,archive,review,structure,role,permission,member,invite,audit-log,webhook,emoji,sticker,automod,channel,message,watch,schedule,event,bot}
     auth                Guided bot setup: Developer Portal walkthrough, token check, invite URL
     doctor              Check token, message-content intent, servers, and channel permissions
+    skill               The agent skill this version ships: install it where an agent reads skills
     discover            List the server -> channel -> thread tree with IDs
     search              Search and export messages (history fetch + local filter)
     members             List a server's members with usernames and IDs
@@ -74,6 +75,28 @@ options:
   -h, --help         show this help message and exit
   --channel CHANNEL  Also check the bot's permissions and message visibility in this
                      channel/thread ID
+
+========================================================================
+discord-tools skill --help
+========================================================================
+usage: discord-tools skill [-h] {install} ...
+
+positional arguments:
+  {install}
+    install   Copy this version's SKILL.md into an agent's skills folder, after a preview and y/N
+
+options:
+  -h, --help  show this help message and exit
+
+========================================================================
+discord-tools skill install --help
+========================================================================
+usage: discord-tools skill install [-h] [--dir DIR] [--yes]
+
+options:
+  -h, --help  show this help message and exit
+  --dir DIR   The skill's folder; SKILL.md goes in it (default ~/.claude/skills/discord-tools)
+  --yes       Skip the confirmation prompt
 
 ========================================================================
 discord-tools discover --help

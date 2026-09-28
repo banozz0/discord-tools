@@ -1,7 +1,7 @@
 ---
 name: discord-tools
 description: "Discord through a bot: look up server, channel or thread IDs, search or export history, post, reply, react, pin, moderate members, and read or change roles, settings, invites, webhooks, events and alert rules."
-version: 1.19.0
+version: 1.20.0
 author: banozz0
 license: MIT
 platforms: [macos]
@@ -256,6 +256,13 @@ name, topic, age gate and slow mode are what everyone sees. Propose the
 command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
 `sticker list` and `automod list` are reads and fine.
 
+**23. Run `skill install` only when the user asked for it.** It writes this
+file into an agent's skills folder, which rewrites the instructions an agent
+works from, yours included. When `doctor` says the installed copy is older
+than the CLI's, tell the user and let them say yes; do not update yourself
+unprompted. It never touches a `LOCAL.md` beside the skill, and it refuses a
+folder or file that is a link, because that copy is managed by hand.
+
 ## Commands
 
 | The ask | Run |
@@ -334,6 +341,7 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
 | "make a voice/forum channel" (they asked) | `discord-tools create channel --server <id> --name "..." --type voice --yes` |
 | "delete that channel" | hand them `discord-tools delete channel --channel <id> --execute` — rule 4, they run it |
 | "which bot am I, can it see X?" | `discord-tools doctor` / `doctor --channel <id>` |
+| "install / update the agent skill" (they asked) | `discord-tools skill install --yes` — rule 23; `--dir <folder>` puts it in another agent's skills folder |
 | "which bots does this machine have?" | `discord-tools profiles` |
 | "act as the other bot" | put `--profile <name>` before the subcommand |
 | "the invite URL for the bot" | `discord-tools bot --invite` |
@@ -657,6 +665,8 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
   unattended by construction, and `retry` asks nothing because its yes was
   given at approve, yet it still fetches. `review list` and `status` are reads
   and fine.
+- **`skill install` on your own initiative** — rule 23. It rewrites the
+  instructions an agent works from; that is the user's call.
 - **A bare `discord-tools`** — no subcommand opens the interactive menu, which
   waits for a human. With no terminal attached it prints help instead, so it
   will not hang in a pipe, but it answers nothing either.
@@ -690,4 +700,5 @@ yourself.
 This file lives in the tool's own repo at `skill/SKILL.md` and that copy is
 the source of truth; every installed copy is a derivative. When the CLI gains
 a command, this file changes in the same commit. An installed copy does not
-update itself: after upgrading the CLI, fetch this file again over the old one.
+update itself: after upgrading the CLI, `discord-tools skill install` replaces
+it with the copy that version ships, which is the one matching its commands.

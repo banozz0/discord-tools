@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import sys
 from functools import partial
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Callable, Sequence
 
+from discord_tools import agent_skill
 from discord_tools import archive as archive_store
 from discord_tools import integrations
 from discord_tools import moderation
@@ -25,7 +27,8 @@ from discord_tools._core.contract import CodedError, Error
 from discord_tools._core.export import ExportError, FORMATS as ARCHIVE_FORMATS, render as render_export, resolve_output
 from discord_tools._core.identity import Identity, Target, banner
 from discord_tools._core.paths import write_private
-from discord_tools._core.plan import Evidence, Mutation, drift
+from discord_tools._core.plan import Evidence, Mutation, Plan, drift
+from discord_tools._core.skill import install_plan, skill_state
 from discord_tools._core.review import KINDS as REVIEW_KINDS, STATES as REVIEW_STATES, ReviewError
 from discord_tools.adapters import (
     DiscordArchiveSource,
@@ -142,6 +145,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     doctor = subparsers.add_parser("doctor", help="Check token, message-content intent, servers, and channel permissions")
     doctor.add_argument("--channel", type=snowflake, help="Also check the bot's permissions and message visibility in this channel/thread ID")
+
+    skill = subparsers.add_parser("skill", help="The agent skill this version ships: install it where an agent reads skills")
+    skill_kinds = skill.add_subparsers(dest="skill_kind")
+    skill_install = skill_kinds.add_parser(
+        "install", help="Copy this version's SKILL.md into an agent's skills folder, after a preview and y/N"
+    )
+    skill_install.add_argument(
+        "--dir",
+        dest="skill_dir",
+        metavar="DIR",
+        help=f"The skill's folder; SKILL.md goes in it (default {agent_skill.DEFAULT_SHOWN})",
+    )
+    skill_install.add_argument("--yes", action="store_true", help="Skip the confirmation prompt")
 
     discover = subparsers.add_parser("discover", help="List the server -> channel -> thread tree with IDs")
     discover.add_argument("--server", type=snowflake, help="Limit to one server ID")
@@ -979,6 +995,18 @@ async def run(args, *, client=None, config=None, out=None) -> int:
     if args.command == "doctor":
         return await _run_doctor(args, out)
 
+    if args.command == "skill":
+        # A file in an agent's folder: no token, no login, and it has to work
+        # before `auth` has ever run.
+        try:
+            return await _run_skill(args, out)
+        except (CodedError, ConfigError) as exc:
+            # The core's refusals -- a linked or wrong-kind folder or file, which
+            # is a skill managed by hand, and a file that changed after the
+            # preview -- and a store other users can read, which every local
+            # write refuses.
+            return out.finish(_as_outcome(exc))
+
     if args.command == "profiles":
         # Local records and one line of a local file: no login, and no working
         # token needed. Listing has to work after the last one was removed.
@@ -1050,6 +1078,92 @@ async def _run_doctor(args, out) -> int:
             },
         )
     )
+
+
+async def _run_skill(args, out) -> int:
+    """`skill install`: this version's SKILL.md into an agent's skills folder, previewed first."""
+    if args.skill_kind is None:
+        raise ValueError("skill needs one of: install.")
+    require_private_store()
+    # `--dir` is the skill's own folder. abspath rather than resolve(): a
+    # linked folder has to reach the core as the link it is, to be refused.
+    folder = Path(os.path.abspath(os.path.expanduser(args.skill_dir))) if args.skill_dir else agent_skill.default_dir()
+    bundled = agent_skill.bundled_text()
+    plan = install_plan(bundled, folder.name, folder.parent)
+    result = {
+        "path": str(plan.target),
+        "action": plan.action,
+        "installed_version": plan.installed_version,
+        "bundled_version": plan.bundled_version,
+    }
+    if plan.action == "unchanged":
+        out.say(f"{plan.target} is already version {plan.bundled_version}, identical to this release's skill. Nothing to do.")
+        return out.finish(Outcome(status="ok", result={**result, "cancelled": False}, evidence=plan.apply()))
+
+    signed = await _skill_plan(args, out, plan)
+    newer = skill_state(bundled, folder.name, folder.parent) == "newer"
+    stopped = _rule_gate(
+        out,
+        yes=args.yes,
+        preview=_skill_preview(plan, newer=newer),
+        question="Install it?",
+        hint="Run it in a terminal, or pass --yes: skill install shows the file it would write and asks.",
+    )
+    if stopped is not None:
+        stopped.result.update(result)
+        return out.finish(stopped)
+
+    evidence = plan.apply()
+    out.say(f"Wrote {plan.target} (version {plan.bundled_version}). A new agent session picks it up.")
+    outcome = Outcome(status="ok", result={**result, "cancelled": False}, plan=signed, evidence=evidence)
+    if signed is not None:
+        plans.record(outcome, plan=signed, identity=signed.identity, command=signed.command, targets=[])
+    return out.finish(outcome)
+
+
+async def _skill_plan(args, out, install) -> Plan | None:
+    """The plan an install is signed with, by the stored profile's bot, read offline.
+
+    Signing needs a bot, and a skill has to install before `auth` has run: with
+    no profile to name one, the file is still written, and the run says it
+    went unsigned rather than inventing an identity for the audit line. The
+    command is spelled out because the menu's run carries only `skill`.
+    """
+    try:
+        identity = archive_store.local_identity(load_config(profile=args.profile))
+    except ConfigError:
+        name = resolve_profile(load_environment(), args.profile)
+        warning = (
+            f"profile {name!r} names no bot, so this install is unsigned and leaves no audit line; "
+            f"`discord-tools --profile {name} auth` sets one up"
+        )
+        out.warn(warning)
+        if not out.machine:
+            print(f"warning: {warning}", file=sys.stderr)
+        return None
+    out.identity = identity
+    mutation = Mutation(
+        "skill.install",
+        identity.id,
+        {"path": str(install.target), "action": install.action, "bundled_version": install.bundled_version},
+    )
+    write = await plans.build(
+        command="skill install", identity=identity, targets=(), mutations=(mutation,), approval="prompt_y", rights=(), probe=None
+    )
+    return write.plan
+
+
+def _skill_preview(plan, *, newer: bool) -> str:
+    lines = [
+        "Install the agent skill",
+        f"  File       {plan.target}",
+        f"  Action     {plan.action}",
+        f"  Installed  {plan.installed_version or 'none'}",
+        f"  Bundled    {plan.bundled_version}",
+    ]
+    if newer:
+        lines.append(f"The installed skill is newer than this release's; installing goes back to {plan.bundled_version}.")
+    return "\n".join(lines)
 
 
 async def _run_profiles(args, out) -> int:
@@ -4947,13 +5061,18 @@ async def _run_rules_list(args, out) -> Outcome:
     )
 
 
-def _rule_gate(out, *, yes: bool, preview: str, question: str) -> Outcome | None:
-    """The y/N every rule write asks, unless `--yes` answered it already."""
+def _rule_gate(
+    out,
+    *,
+    yes: bool,
+    preview: str,
+    question: str,
+    hint: str = "Run this in a terminal, or pass --yes: a rule write shows what it would store and asks.",
+) -> Outcome | None:
+    """The y/N every rule write asks, and `skill install`, unless `--yes` answered it already."""
     if yes:
         return None
-    refusal = out.approval_unavailable(
-        "Run this in a terminal, or pass --yes: a rule write shows what it would store and asks."
-    )
+    refusal = out.approval_unavailable(hint)
     if refusal is not None:
         return Outcome(status="refused", error=refusal)
     out.say(preview)

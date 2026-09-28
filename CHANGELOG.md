@@ -1,6 +1,27 @@
 # Changelog
 
-## Unreleased
+## 0.23.0 — 2026-09-28
+
+### `skill install` puts the agent skill the package ships where an agent reads it
+The wheel now carries `skill/SKILL.md` inside the package, so every install
+holds the skill that matches its own commands, and `discord-tools skill install`
+copies it to `~/.claude/skills/discord-tools/SKILL.md`, or into the folder
+`--dir` names for another agent. It shows the file, what it would do and both
+versions, then asks `y/N`; `--yes` answers it, and under `--json` with no
+terminal and no `--yes` it exits 3 with `APPROVAL_REQUIRED`. A copy identical
+to this release's asks nothing and writes nothing, a newer one is named in the
+preview so an upgrade from `main` is not undone by accident, and a skill folder
+or `SKILL.md` that is a link is refused with `TARGET_KIND_MISMATCH`, because a
+copy managed by hand is not this tool's to overwrite. Only `SKILL.md` is
+written, by temp file and rename, and it is read back; a `LOCAL.md` beside it is
+never touched. It never logs in and works before `auth` has run: with a profile
+that names a bot the install is signed and leaves one audit line, and without
+one it still installs and says it went unsigned. Row 9, Check setup, gains
+Install the agent skill, whose folder prompt shows the default, and `doctor`
+gains one line saying whether the skill is installed and current, which never
+fails the check. The skill tells an agent to run the command only when the user
+asked, and moves 1.19.0 -> 1.20.0. The shared core moves to v0.15, which holds
+the install routine both tools use.
 
 ### The README is a front page now, and it links the website
 It ran 850 lines and 9,003 words; it is 201 lines now: the menu as a picture

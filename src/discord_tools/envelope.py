@@ -246,7 +246,7 @@ def command_name(args) -> str:
     parts = [args.command or ""]
     for attribute in ("create_kind", "delete_kind", "profiles_kind", "archive_kind", "message_kind", "review_kind", "structure_kind", "role_kind", "permission_kind", "member_kind", "invite_kind", "audit_log_kind",
         "webhook_kind", "emoji_kind", "sticker_kind", "automod_kind", "channel_kind",
-        "watch_kind", "rules_kind", "schedule_kind", "event_kind"):
+        "watch_kind", "rules_kind", "schedule_kind", "event_kind", "skill_kind"):
         kind = getattr(args, attribute, None)
         if kind:
             parts.append(kind)
@@ -265,7 +265,7 @@ def echoed_args(args, *, drop: Sequence[str] = ()) -> dict[str, Any]:
         "command", "create_kind", "delete_kind", "profiles_kind", "archive_kind", "message_kind", "review_kind",
         "structure_kind", "role_kind", "permission_kind", "member_kind", "invite_kind", "audit_log_kind",
         "webhook_kind", "emoji_kind", "sticker_kind", "automod_kind", "channel_kind",
-        "watch_kind", "rules_kind", "schedule_kind", "event_kind",
+        "watch_kind", "rules_kind", "schedule_kind", "event_kind", "skill_kind",
         "json_envelope", "jsonl", *drop,
     }
     return {

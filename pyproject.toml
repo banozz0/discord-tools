@@ -51,6 +51,11 @@ path = "src/discord_tools/__init__.py"
 [tool.hatch.build.targets.wheel]
 packages = ["src/discord_tools"]
 
+# The agent skill ships inside the package so `skill install` copies the one
+# that matches this version; skill/SKILL.md in the repo stays its only source.
+[tool.hatch.build.targets.wheel.force-include]
+"skill/SKILL.md" = "discord_tools/skill/SKILL.md"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src", "scripts"]

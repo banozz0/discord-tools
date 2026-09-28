@@ -29,7 +29,7 @@ from discord_tools.cli import build_parser  # noqa: E402
 COLUMNS = "100"
 
 COMMANDS = [
-    (), ("auth",), ("doctor",), ("discover",), ("search",), ("members",), ("send",),
+    (), ("auth",), ("doctor",), ("skill",), ("skill", "install"), ("discover",), ("search",), ("members",), ("send",),
     ("create",), ("create", "channel"), ("create", "category"), ("create", "thread"),
     ("clear-messages",), ("delete",), ("delete", "channel"), ("delete", "category"),
     ("delete", "thread"), ("leave-server",), ("bot",),

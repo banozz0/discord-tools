@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
+from discord_tools import agent_skill
 from discord_tools import archive as archive_store
 from discord_tools import cli, ui
 from discord_tools._core import rid as _rid
@@ -3260,33 +3261,37 @@ async def _channel_id_to_check(*, session, read, write, trail: str) -> Any:
 
 
 async def _flow_doctor(*, session, runner, read, write) -> bool:
-    trail = crumb(MAIN, "Check setup")
-    while True:
-        scope = choose(
-            ["Check the setup", "Also check one channel or thread"],
-            title=trail,
-            read=read,
-            write=write,
-        )
-        if scope is BACK:
-            return True
+    return await _run_offline(_namespace(command="doctor", channel=None, profile=session.profile), runner=runner, read=read, write=write)
 
-        channel_id = None
-        if scope == 1:
-            channel_id = await _channel_id_to_check(session=session, read=read, write=write, trail=trail)
-            if channel_id is BACK:
-                continue
 
-        # No session: doctor opens (and closes) its own connection, so its verdict
-        # is about the stored config, not this menu's living login. And no
-        # after-run screen: running doctor again tells you nothing new.
-        await _call(
-            _namespace(command="doctor", channel=channel_id, profile=session.profile),
-            session=None,
-            runner=runner,
-            write=write,
-        )
-        return after_action(read=read, write=write)
+async def _flow_doctor_channel(*, session, runner, read, write) -> bool:
+    channel_id = await _channel_id_to_check(session=session, read=read, write=write, trail=crumb(MAIN, "Check setup"))
+    if channel_id is BACK:
+        return True
+    return await _run_offline(
+        _namespace(command="doctor", channel=channel_id, profile=session.profile), runner=runner, read=read, write=write
+    )
+
+
+async def _flow_install_skill(*, session, runner, read, write) -> bool:
+    """`skill install` from row 9: the folder, then the CLI's own preview and y/N.
+
+    Enter takes Claude Code's folder, the common case, so the prompt shows it;
+    anything typed is the skill's folder for another agent. Nothing here
+    answers the y/N: the menu is never the shorter path past a gate.
+    """
+    typed = read(f"Skill folder [{agent_skill.DEFAULT_SHOWN}] (Enter uses it): ").strip()
+    args = _namespace(command="skill", skill_kind="install", skill_dir=typed or None, yes=False, profile=session.profile)
+    return await _run_offline(args, runner=runner, read=read, write=write)
+
+
+async def _run_offline(args, *, runner, read, write) -> bool:
+    """Row 9's commands. No session: each opens (and closes) whatever it needs,
+    so doctor's verdict is about the stored config, not this menu's living
+    login, and a skill installs with no login at all. And no after-run screen:
+    running either again tells you nothing new."""
+    await _call(args, session=None, runner=runner, write=write)
+    return after_action(read=read, write=write)
 
 
 async def _flow_switch_profile(*, session, runner, read, write) -> bool:
@@ -4344,7 +4349,17 @@ async def run_menu(*, read=None, write=None, session=None, runner=None, profile:
             ),
             False,
         ),
-        (_flow_doctor, False),
+        (
+            _group(
+                "Check setup",
+                (
+                    ("Check the setup", _flow_doctor),
+                    ("Also check one channel or thread", _flow_doctor_channel),
+                    ("Install the agent skill", _flow_install_skill),
+                ),
+            ),
+            False,
+        ),
     )
 
     try:

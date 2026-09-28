@@ -89,6 +89,7 @@ Run `discord-tools` with no arguments and you get the nine rows pictured at the 
 | `bot` | The active bot's name, description, avatar and invite URL, and edits to them. |
 | `auth`, `profiles` | Set a bot up, list the bots this machine has, remove one. |
 | `doctor` | Checks your setup without printing a secret; `--channel` adds what the bot may do in one channel. |
+| `skill install` | Copies the agent skill this version ships into Claude Code's skills folder, or another agent's with `--dir`. |
 
 ## What it won't do (on purpose)
 
@@ -107,7 +108,7 @@ How much a command asks before it acts depends on how hard its change is to undo
 | Kind of command | What it asks before acting |
 | --- | --- |
 | **Reads** — `discover`, `members`, `search`, `archive search`, `audit-log`, `message pins`, `structure export` and `diff`, every `list`, `show` and `status`, `doctor` | Nothing. |
-| **Changes** — `send`, the message verbs, `create`, `bot` edits, `channel edit`, `role create` and `edit`, `permission set`, `member unban`, `timeout`, `untimeout` and `nick`, `invite create`, `webhook create`, `emoji add`, `sticker add`, `automod create` and `edit`, `event create` and `edit`, `schedule post` and `cancel`, `watch rules add`, `edit` and `remove`, and the review queue's approve, accept and reject | A preview, then `y/N`. |
+| **Changes** — `send`, the message verbs, `create`, `bot` edits, `channel edit`, `role create` and `edit`, `permission set`, `member unban`, `timeout`, `untimeout` and `nick`, `invite create`, `webhook create`, `emoji add`, `sticker add`, `automod create` and `edit`, `event create` and `edit`, `schedule post` and `cancel`, `watch rules add`, `edit` and `remove`, `skill install`, and the review queue's approve, accept and reject | A preview, then `y/N`. |
 | **Hard to undo** — `clear-messages`, `message delete`, `delete`, `leave-server`, `structure apply`, `role delete`, `member kick` and `ban`, `invite revoke`, `webhook delete`, `emoji remove`, `sticker remove`, `automod delete`, `event delete`, `archive retention` and `forget` | A dry-run by default. For real: `--execute` **and** typing a confirmation — `DELETE`, or the exact name, username or code of what you're touching. No `--yes`. |
 
 `--yes` answers the `y/N` in advance, for scripts, and skips the preview with it. Where a command posts a message — `send`, `message reply`, `forward`, `copy` and `poll` — it works only for a channel in your [send allowlist](#sending-without-the-prompt); `schedule post` needs the channel on that list with or without it, because the runner posts unattended. `--mention everyone` asks even under `--yes`, and a role change that touches Administrator refuses `--yes` and asks for a typed name instead. It doesn't exist on `auth`, on `profiles remove` (which asks for the profile's name typed back), on the review queue's approve, accept and reject, or on anything in the third row. `member kick` and `ban` also need a `--reason`, which Discord stores in its audit log.
@@ -179,14 +180,18 @@ The object carries a `status` (`ok`, `empty`, `partial`, `dry_run`, `cancelled`,
 
 Under `--json`, a command that needs an answer and has no terminal to ask on exits 3 with `APPROVAL_REQUIRED` instead of waiting; bare `discord-tools` with no terminal prints help rather than opening the menu, whatever flags it got. Neither hangs a script. `--yes` answers only a `y/N`, and only where the [Safety model](#safety-model) says it does. `watch run` holds the terminal until it's stopped, so an agent shouldn't be the thing that starts it. [`skill/SKILL.md`](https://github.com/banozz0/discord-tools/blob/main/skill/SKILL.md) is a ready-made agent skill: every command, field and rule an agent needs.
 
-`pip`, `pipx` and `uv` install the CLI without the skill, so put it where your agent loads skills from. For Claude Code:
+The skill ships inside the package, so the copy you install matches the commands you have. One command puts it where Claude Code loads skills from, after showing the file and both versions and asking `y/N`:
+
+```bash
+discord-tools skill install
+```
+
+`--dir ~/.codex/skills/discord-tools` puts it in another agent's folder instead. Run it again after you upgrade: an installed copy does not update itself, and a copy that is already current asks nothing. `doctor` says whether it is installed and current. On a release older than 0.23.0, or to follow `main`, fetch the file instead:
 
 ```bash
 mkdir -p ~/.claude/skills/discord-tools
 curl -fsSL https://raw.githubusercontent.com/banozz0/discord-tools/main/skill/SKILL.md -o ~/.claude/skills/discord-tools/SKILL.md
 ```
-
-Run it again after you upgrade; an installed copy does not update itself.
 
 ## Where your files live
 

@@ -272,6 +272,42 @@ def check_rules(*, home: Path | None = None) -> DoctorCheck:
     return DoctorCheck("OK", f"Rules: {detail}")
 
 
+def check_skill(*, home: Path | None = None) -> DoctorCheck:
+    """Where Claude Code's copy of the agent skill stands against this version's. Never FAIL.
+
+    Informational: a machine with no agent has no skill, and that is not a
+    broken setup, so an older copy is the only WARN and nothing here moves
+    doctor's exit code. Only the default folder is looked in; `--dir` can put
+    the skill anywhere, and doctor cannot know where.
+    """
+    from discord_tools import agent_skill
+    from discord_tools._core.skill import install_plan, skill_state
+
+    bundled = agent_skill.bundled_text()
+    folder = agent_skill.default_dir(home)
+    shown = agent_skill.DEFAULT_SHOWN
+    state = skill_state(bundled, agent_skill.TOOL, folder.parent)
+    if state == "managed-by-hand":
+        return DoctorCheck("OK", f"Agent skill: {shown} is a link or not a plain folder, so it is managed by hand")
+    plan = install_plan(bundled, agent_skill.TOOL, folder.parent)
+    installed = f"version {plan.installed_version}" if plan.installed_version else "a copy with no version line"
+    if state == "not-installed":
+        return DoctorCheck(
+            "OK", f"Agent skill: not installed in {shown}; `discord-tools skill install` puts version {plan.bundled_version} there"
+        )
+    if state == "current":
+        return DoctorCheck("OK", f"Agent skill: {installed} in {shown}, current")
+    if state == "newer":
+        return DoctorCheck(
+            "OK", f"Agent skill: {installed} in {shown} is newer than the {plan.bundled_version} this release ships"
+        )
+    return DoctorCheck(
+        "WARN",
+        f"Agent skill: {installed} in {shown}; this release ships {plan.bundled_version}, "
+        "and `discord-tools skill install` updates it",
+    )
+
+
 def gateway_rules(paths):
     """The stored rules, loaded the way the runner loads them."""
     from discord_tools._core.rules import load_directory
@@ -438,6 +474,7 @@ async def collect_checks(
     checks.append(check_quarantine(home=home))
     checks.append(check_runner(home=home))
     checks.append(check_rules(home=home))
+    checks.append(check_skill(home=home))
 
     if config is not None:
         checks.append(check_token_shape(config.token))

@@ -180,6 +180,13 @@ The terms this codebase uses, and the boundaries they imply.
   archive, both `typed_name` gated like `delete`, both re-deriving their plan
   before executing and refusing with `PLAN_DRIFT` if the archive moved. Local
   only; nothing on Discord changes.
+- **Agent skill** — `skill/SKILL.md`, the one source, which the wheel also
+  carries inside the package (`agent_skill.bundled_text` reads that copy, or
+  the repo's in an editable install). `skill install` copies it into a skill
+  folder, `~/.claude/skills/discord-tools` unless `--dir` names another, through
+  the core's `skill` module; it never logs in, and it is signed only when a
+  profile names a bot (`archive.local_identity`), else unsigned with no audit
+  line. `doctor`'s skill line is the core's `skill_state` for the default folder.
 - **Budget** — `~/.discord-tools/config.json`, the core's three ceilings.
   `DISK_BUDGET` fires before the batch that would cross one is written.
 - **Transcript** — `docs/transcripts/discord-tools-menu.ansi` and its

@@ -57,7 +57,9 @@ gateway) · schedule (runner-held posts, which fire only while the runner is
 up) · event (server-held guild scheduled events, which Discord keeps) ·
 leave-server · clear-messages · bot
 (settings + invite URL for the active profile) · doctor (token,
-message-content intent, servers, per-channel perms). v1 (all but members)
+message-content intent, servers, per-channel perms, the agent skill) ·
+skill install (the SKILL.md the wheel carries, copied into an agent's skill
+folder after a y/N; no login). v1 (all but members)
 shipped 2026-08-27 after the joint testing session.
 
 ## Releasing (maintainer only)
@@ -78,7 +80,10 @@ maintainer's private runbook. Rebuild `dist/` after any source edit.
 - `watch run` is the one command that opens a gateway connection; it lives in
   `adapters/events.py` and is the one lifted `SPEC.md` rule. Everything else
   stays login-only REST, and a test asserts it.
-- A CLI-surface change updates `skill/SKILL.md` in the same commit.
+- A CLI-surface change updates `skill/SKILL.md` in the same commit. That file
+  is the only source: the wheel force-includes it as
+  `discord_tools/skill/SKILL.md` (pyproject), and `agent_skill.py` reads the
+  packaged copy or, in an editable install, the repo's.
 - The README's top picture is `assets/menu.png`, the root menu taken off the live
   site. When `ROOT_ITEMS` changes, update the site first, then re-run
   `node ~/code/cli-tools-site/scripts/capture-menu.mjs discord-tools assets/menu.png`

@@ -3261,14 +3261,14 @@ async def _channel_id_to_check(*, session, read, write, trail: str) -> Any:
 
 
 async def _flow_doctor(*, session, runner, read, write) -> bool:
-    return await _run_offline(_namespace(command="doctor", channel=None, profile=session.profile), runner=runner, read=read, write=write)
+    return await _run_without_session(_namespace(command="doctor", channel=None, profile=session.profile), runner=runner, read=read, write=write)
 
 
 async def _flow_doctor_channel(*, session, runner, read, write) -> bool:
     channel_id = await _channel_id_to_check(session=session, read=read, write=write, trail=crumb(MAIN, "Check setup"))
     if channel_id is BACK:
         return True
-    return await _run_offline(
+    return await _run_without_session(
         _namespace(command="doctor", channel=channel_id, profile=session.profile), runner=runner, read=read, write=write
     )
 
@@ -3281,11 +3281,11 @@ async def _flow_install_skill(*, session, runner, read, write) -> bool:
     answers the y/N: the menu is never the shorter path past a gate.
     """
     typed = read(f"Skill folder [{agent_skill.DEFAULT_SHOWN}] (Enter uses it): ").strip()
-    args = _namespace(command="skill", skill_kind="install", skill_dir=typed or None, yes=False, profile=session.profile)
-    return await _run_offline(args, runner=runner, read=read, write=write)
+    args = _namespace(command="skill", skill_kind="install", dir=typed or None, yes=False, profile=session.profile)
+    return await _run_without_session(args, runner=runner, read=read, write=write)
 
 
-async def _run_offline(args, *, runner, read, write) -> bool:
+async def _run_without_session(args, *, runner, read, write) -> bool:
     """Row 9's commands. No session: each opens (and closes) whatever it needs,
     so doctor's verdict is about the stored config, not this menu's living
     login, and a skill installs with no login at all. And no after-run screen:

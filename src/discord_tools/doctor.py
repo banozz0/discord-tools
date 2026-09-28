@@ -286,10 +286,13 @@ def check_skill(*, home: Path | None = None) -> DoctorCheck:
     bundled = agent_skill.bundled_text()
     folder = agent_skill.default_dir(home)
     shown = agent_skill.DEFAULT_SHOWN
-    state = skill_state(bundled, agent_skill.TOOL, folder.parent)
-    if state == "managed-by-hand":
-        return DoctorCheck("OK", f"Agent skill: {shown} is a link or not a plain folder, so it is managed by hand")
-    plan = install_plan(bundled, agent_skill.TOOL, folder.parent)
+    try:
+        state = skill_state(bundled, agent_skill.TOOL, folder.parent)
+        if state == "managed-by-hand":
+            return DoctorCheck("OK", f"Agent skill: {shown} is a link or not a plain folder, so it is managed by hand")
+        plan = install_plan(bundled, agent_skill.TOOL, folder.parent)
+    except OSError as exc:
+        return DoctorCheck("WARN", f"Agent skill: {shown}/SKILL.md could not be read ({exc.strerror or exc})")
     installed = f"version {plan.installed_version}" if plan.installed_version else "a copy with no version line"
     if state == "not-installed":
         return DoctorCheck(

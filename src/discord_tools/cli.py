@@ -153,7 +153,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     skill_install.add_argument(
         "--dir",
-        dest="skill_dir",
         metavar="DIR",
         help=f"The skill's folder; SKILL.md goes in it (default {agent_skill.DEFAULT_SHOWN})",
     )
@@ -1087,7 +1086,7 @@ async def _run_skill(args, out) -> int:
     require_private_store()
     # `--dir` is the skill's own folder. abspath rather than resolve(): a
     # linked folder has to reach the core as the link it is, to be refused.
-    folder = Path(os.path.abspath(os.path.expanduser(args.skill_dir))) if args.skill_dir else agent_skill.default_dir()
+    folder = Path(os.path.abspath(os.path.expanduser(args.dir))) if args.dir else agent_skill.default_dir()
     bundled = agent_skill.bundled_text()
     plan = install_plan(bundled, folder.name, folder.parent)
     result = {

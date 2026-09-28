@@ -506,11 +506,6 @@ def test_invite_list_without_manage_guild_is_refused_by_name():
     assert (code, body["error"]["code"]) == (2, "PERMISSION_DENIED") and "missing manage_guild" in body["error"]["message"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="card agent-bo-95422639: at 0.23.0 this plan's id starts 00333715, which the core's "
-    "phone_double_zero pattern redacts in the envelope; remove this mark with the core fix",
-)
 def test_invite_create_previews_the_terms_and_prints_the_link_once():
     client = agency()
     code, body, stderr = go(["--json", "invite", "create", "--channel", "101", "--max-age", "3600", "--max-uses", "5", "--yes"], client)

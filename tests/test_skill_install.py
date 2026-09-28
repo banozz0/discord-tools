@@ -66,7 +66,7 @@ def test_a_fresh_install_writes_the_bundled_skill_and_signs_it(home_is_a_tmp_dir
     assert oct((folder / "SKILL.md").stat().st_mode & 0o777) == "0o644"
     assert envelope["status"] == "ok"
     assert envelope["command"] == "skill install"
-    assert envelope["args"] == {"skill_dir": str(folder), "yes": True}
+    assert envelope["args"] == {"dir": str(folder), "yes": True}
     assert envelope["result"] == {
         "path": str(folder / "SKILL.md"),
         "action": "created",
@@ -270,6 +270,23 @@ def test_doctor_calls_a_linked_folder_managed_by_hand(home_is_a_tmp_dir, tmp_pat
 
     assert check.status == "OK"
     assert "managed by hand" in check.message
+
+
+def test_an_unreadable_copy_is_a_warn_line_and_the_other_checks_still_run(home_is_a_tmp_dir, capsys):
+    folder = home_is_a_tmp_dir / ".claude" / "skills" / "discord-tools"
+    folder.mkdir(parents=True)
+    (folder / "SKILL.md").write_text(skill_file("0.1.0"), encoding="utf-8")
+    (folder / "SKILL.md").chmod(0o000)
+    try:
+        code = main(["--json", "doctor"])
+    finally:
+        (folder / "SKILL.md").chmod(0o644)
+
+    envelope = json.loads(capsys.readouterr().out)
+    [line] = [check for check in envelope["result"]["checks"] if check["message"].startswith("Agent skill: ")]
+    assert line["status"] == "WARN"
+    assert "could not be read" in line["message"]
+    assert envelope["status"] in ("ok", "partial") and code in (0, 1)
 
 
 def test_the_skill_line_never_fails_doctor(home_is_a_tmp_dir, capsys):

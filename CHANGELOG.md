@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.23.1 — 2026-09-28
+
+### `doctor` keeps going when the installed skill cannot be read
+0.23.0's Agent skill line read `~/.claude/skills/discord-tools/SKILL.md` without
+catching a failed read, so a copy the user cannot read stopped `doctor` with
+`Permission denied`, exit 2 and none of the other checks printed. It is now a
+WARN line saying the file could not be read, and every other check still runs.
+`skill install` already refused such a file with `PERMISSION_DENIED`. The
+envelope echoes the folder flag as `dir`, its own name, as telegram-tools does,
+rather than `skill_dir`; 0.23.0 was never published with the old spelling.
+
 ## 0.23.0 — 2026-09-28
 
 ### `skill install` puts the agent skill the package ships where an agent reads it
@@ -36,10 +47,10 @@ HTTP client under discord.py speaks to HTTP proxies only. No behaviour changed.
 It reaches the PyPI page with the next release.
 
 ### The README says how to install the agent skill, and the skill covers three more commands
-The package never carried `skill/SKILL.md`: `pip`, `pipx` and `uv` install the
-CLI alone, and the README named the file without saying where it goes. It now
-gives the two commands that put it in Claude Code's skills folder, and says an
-installed copy does not update itself. The skill named neither `watch reload`
+Before this release the package never carried `skill/SKILL.md`, and the README
+named the file without saying where it goes. It gained the two commands that
+fetch it into Claude Code's skills folder, which are now its route for a release
+older than this one, and says an installed copy does not update itself. The skill named neither `watch reload`
 nor `watch stop`: reload is an agent's to run once the user has changed a rule,
 stop only when they asked for the watcher stopped, because every runner-held
 schedule stops with it. Rule 14 left out `review retry`, which fetches from a

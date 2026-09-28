@@ -6,8 +6,8 @@
 `LICENSE` credited the copyright to another project's contributors, a line
 carried over when the file was copied in; it now reads *discord-tools
 contributors*. The MIT terms are unchanged. The test that keeps other tools'
-names out of the source and the front documents now reads `LICENSE` too, which
-is how the line got past it. No behaviour or CLI change.
+names out of the source and the front documents never read `LICENSE`, which is
+how the line got past it; it reads it now. No behaviour or CLI change.
 
 ## 0.24.0 — 2026-09-28
 

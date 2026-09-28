@@ -89,6 +89,8 @@ maintainer's private runbook. Rebuild `dist/` after any source edit.
   `node ~/code/cli-tools-site/scripts/capture-menu.mjs discord-tools assets/menu.png`
   and fix the rows in the image's alt text.
 - A user-visible fix gets its CHANGELOG entry + version bump in the same change.
+  A change touching neither behaviour nor the CLI (README, comment, licence)
+  goes under `## Unreleased` until the next bump carries it.
 - Never commit tokens, IDs of real servers, or exported chat data. `.env*`
   files (even `.env.example`) stay untracked — the global secrets hook blocks
   them; setup docs live in the README instead.

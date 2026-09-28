@@ -5,10 +5,10 @@ to know that a sibling exists, and neither tool imports, names or shells out
 to the other. The conventions the brief used to point at a sibling for are
 recorded in the specification instead, so nothing is lost by the silence.
 
-Scope is the source tree, the skill and the three documents an agent or a
-contributor reads first. `CHANGELOG.md` is deliberately outside it: history is
-history, and rewriting what a past release said would be the dishonest kind of
-tidy.
+Scope is the source tree, the skill, the three documents an agent or a
+contributor reads first, and the licence every copy of the package carries.
+`CHANGELOG.md` is deliberately outside it: history is history, and rewriting
+what a past release said would be the dishonest kind of tidy.
 """
 
 from __future__ import annotations
@@ -31,6 +31,7 @@ SCOPE = (
     ROOT / "README.md",
     ROOT / "CONTEXT.md",
     ROOT / "AGENTS.md",
+    ROOT / "LICENSE",
 )
 
 

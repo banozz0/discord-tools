@@ -144,7 +144,9 @@ The terms this codebase uses, and the boundaries they imply.
 - **Audit line** — one JSON line per executed write in `~/.discord-tools/`
   `audit.jsonl` (0600, redacted): identity, command, target rids, plan id,
   gate, status, evidence. Dry-runs and writes stopped at a gate are not
-  logged — a log of things that did not happen is a log nobody trusts.
+  logged — a log of things that did not happen is a log nobody trusts. The
+  one executed write with no line is `skill install` while no profile names a
+  bot: there is no identity to sign it (see Agent skill).
 - **Audit reason** — `cli-tools <command> plan <id8>`, passed to every
   discord.py call that accepts one, so a change this tool made is identifiable
   in the server's own audit log. `leave-server` carries none: the endpoint has

@@ -14,6 +14,17 @@ linked in the opening lines. It no longer says a `socks5://` proxy works: the
 HTTP client under discord.py speaks to HTTP proxies only. No behaviour changed.
 It reaches the PyPI page with the next release.
 
+### The README says how to install the agent skill, and the skill covers three more commands
+The package never carried `skill/SKILL.md`: `pip`, `pipx` and `uv` install the
+CLI alone, and the README named the file without saying where it goes. It now
+gives the two commands that put it in Claude Code's skills folder, and says an
+installed copy does not update itself. The skill named neither `watch reload`
+nor `watch stop`: reload is an agent's to run once the user has changed a rule,
+stop only when they asked for the watcher stopped, because every runner-held
+schedule stops with it. Rule 14 left out `review retry`, which fetches from a
+host on the yes given at approve; it is the user's to run now, as `approve` is.
+The skill moves 1.18.0 -> 1.19.0. No behaviour changed.
+
 ## 0.22.0 — 2026-09-18
 
 ### One behaviour change: a typed time with no offset is this machine's local time

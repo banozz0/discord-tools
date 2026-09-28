@@ -1,7 +1,7 @@
 ---
 name: discord-tools
 description: "Discord through a bot: look up server, channel or thread IDs, search or export history, post, reply, react, pin, moderate members, and read or change roles, settings, invites, webhooks, events and alert rules."
-version: 1.18.0
+version: 1.19.0
 author: banozz0
 license: MIT
 platforms: [macos]
@@ -155,8 +155,8 @@ message. Every one is a visible act in a real server (rule 1), and every one
 shows the message it acts on before it asks. `message pins` only reads and is
 always fine.
 
-**14. Never run `review approve` or `review accept`.** They are the two
-human gates on downloads: `approve` fetches bytes from a host onto the user's
+**14. Never run `review approve`, `review accept` or `review retry`.** The
+first two are the human gates on downloads: `approve` fetches bytes from a host onto the user's
 machine, `accept` moves a fetched file out of quarantine into the user's media
 store. Both ask `y/N` at a prompt no agent can answer and have no `--yes`;
 under `--json` with no terminal they exit 3 with `APPROVAL_REQUIRED` and fetch
@@ -164,7 +164,8 @@ nothing, which is the design, not a failure to retry. `review list` and
 `review status` are reads and fine: they show what is waiting and what a fetch
 found, and contact no host. `review reject` deletes quarantined bytes, so it
 asks the same `y/N` and has no `--yes` either: hand the user the command when
-they want a candidate gone.
+they want a candidate gone. `review retry` asks nothing, because its yes was
+given at approve, and it still fetches from a host: hand that one over too.
 
 **15. Never run `structure apply`.** It creates and edits real roles,
 categories, channels, AutoMod rules and the server's own settings — including
@@ -194,7 +195,10 @@ command and let them run it where they can see it. A rule is a standing
 instruction the user's machine acts on when they are not looking, so writing
 one is their decision — propose it, show the exact command, let them answer its
 `y/N`. `watch status`, `watch rules list` and `watch rules test --event` are
-reads, need no login, and are fine.
+reads, need no login, and are fine. So is `watch reload`, once the user has
+changed a rule: it asks their running watcher to re-read the rules. `watch
+stop` ends their watcher, and every runner-held schedule with it until they
+start it again, so run it only when they asked for it stopped.
 
 **18. Never run an `event delete --execute`, and never pass `--yes` to a
 schedule or an event write.** `event delete` removes a scheduled event from a
@@ -280,6 +284,7 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
 | "what attachments / links are waiting?" | `discord-tools review list` — from the archive, contacts no host |
 | "what did that download find?" | `discord-tools review status --ids <manifest id>` — redirects, refreshes, sha256, verdict |
 | "download / accept that file" | hand them `discord-tools review approve --ids <manifest id>` then `review accept --ids ...` — rule 14, they run it |
+| "that download failed, try again" | hand them `discord-tools review retry --ids <manifest id>` — it resumes from the bytes on disk; rule 14 |
 | "throw that candidate away" | hand them `discord-tools review reject --ids <manifest id>` — it shows the candidate and asks y/N, rule 14 |
 | "back up / export this server's structure" | `discord-tools structure export --target <server id> --output name.json` — roles, channels, overwrites, AutoMod and settings; never members, messages or webhooks |
 | "how does this server differ from the blueprint?" | `discord-tools structure diff --blueprint name.json --target <server id>` |
@@ -321,6 +326,8 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
 | "what is it watching for?" | `discord-tools watch rules list` — the rules and the gateway intents they need; no login |
 | "would that rule have caught this?" | `discord-tools watch rules test --event /path/event.json` — evaluates and fires nothing |
 | "is the watcher running?" | `discord-tools watch status` — the lock, rules, cursors, schedules, why events were dropped and the last log lines; no login |
+| "pick up the rule I just changed" | `discord-tools watch reload` — no login; rule 17 |
+| "stop the watcher" (they asked) | `discord-tools watch stop` — waits for it to exit; no login. Rule 17 |
 | a long or multi-line message | pipe it: `... \| discord-tools send --channel <id> --text - --yes` |
 | "send them that file" (allowlisted) | `discord-tools send --channel <id> --file /path --text "caption" --yes` |
 | "make a channel/thread" (they asked) | `discord-tools create channel --server <id> --name "..." --yes` |
@@ -631,7 +638,8 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
 - **`watch run`** — rule 17. It opens a gateway connection and does not
   return: started from a tool call it hangs the call. Hand the user the
   command. `watch status`, `watch rules list` and `watch rules test` are reads,
-  need no login, and are fine.
+  need no login, and are fine, and so is `watch reload`; `watch stop` only when
+  the user asked for it.
 - **`watch rules add`, `edit`, `remove`, `enable` and `disable` on your own
   initiative** — rule 17. A rule is a standing instruction the machine acts on
   unattended; writing one is the user's decision.
@@ -643,10 +651,12 @@ command, show it, let the user answer its `y/N`. `webhook list`, `emoji list`,
   moment to have confirmed it, not to have skipped the prompt.
 - **`--mention everyone`** on any posting verb — it always prompts, and the
   ping is the user's decision.
-- **`review approve`, `review accept` and `review reject`** — rule 14. A
-  download onto the user's machine, a file leaving quarantine and bytes being
-  deleted are the user's decisions; all three refuse to run unattended by
-  construction. `review list` and `status` are reads and fine.
+- **`review approve`, `review accept`, `review reject` and `review retry`** —
+  rule 14. A download onto the user's machine, a file leaving quarantine and
+  bytes being deleted are the user's decisions; the first three refuse to run
+  unattended by construction, and `retry` asks nothing because its yes was
+  given at approve, yet it still fetches. `review list` and `status` are reads
+  and fine.
 - **A bare `discord-tools`** — no subcommand opens the interactive menu, which
   waits for a human. With no terminal attached it prints help instead, so it
   will not hang in a pipe, but it answers nothing either.
@@ -679,4 +689,5 @@ yourself.
 
 This file lives in the tool's own repo at `skill/SKILL.md` and that copy is
 the source of truth; every installed copy is a derivative. When the CLI gains
-a command, this file changes in the same commit.
+a command, this file changes in the same commit. An installed copy does not
+update itself: after upgrading the CLI, fetch this file again over the old one.

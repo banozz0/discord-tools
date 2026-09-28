@@ -179,6 +179,15 @@ The object carries a `status` (`ok`, `empty`, `partial`, `dry_run`, `cancelled`,
 
 Under `--json`, a command that needs an answer and has no terminal to ask on exits 3 with `APPROVAL_REQUIRED` instead of waiting; bare `discord-tools` with no terminal prints help rather than opening the menu, whatever flags it got. Neither hangs a script. `--yes` answers only a `y/N`, and only where the [Safety model](#safety-model) says it does. `watch run` holds the terminal until it's stopped, so an agent shouldn't be the thing that starts it. [`skill/SKILL.md`](https://github.com/banozz0/discord-tools/blob/main/skill/SKILL.md) is a ready-made agent skill: every command, field and rule an agent needs.
 
+`pip`, `pipx` and `uv` install the CLI without the skill, so put it where your agent loads skills from. For Claude Code:
+
+```bash
+mkdir -p ~/.claude/skills/discord-tools
+curl -fsSL https://raw.githubusercontent.com/banozz0/discord-tools/main/skill/SKILL.md -o ~/.claude/skills/discord-tools/SKILL.md
+```
+
+Run it again after you upgrade; an installed copy does not update itself.
+
 ## Where your files live
 
 Everything is in `~/.discord-tools/`: the `.env`, one folder per bot under `profiles/`, the archive (`archive.sqlite`), the review queue's `quarantine/` and `media/`, `exports/`, watch `rules/`, the runner's lock and log, `config.json` (the disk budgets) and the `audit.jsonl` log. An `--output` name with no folder lands in `exports/`, never in the directory you ran it from. Nothing is uploaded anywhere. More in [the guide](https://cli-tools-site.vercel.app/docs#where-your-files-live).

@@ -9,6 +9,14 @@ contributors*. The MIT terms are unchanged. The test that keeps other tools'
 names out of the source and the front documents never read `LICENSE`, which is
 how the line got past it; it reads it now. No behaviour or CLI change.
 
+### The name scan reads every tracked file
+That test read a hand-picked list of paths. It now reads every file git tracks
+outside `tests/`, less `CHANGELOG.md` and `SPEC.md`, so `pyproject.toml`, the
+scripts, the workflow and `docs/` are read too, and a new file is read the day
+it is committed. It also catches a name inside an identifier, which its
+whole-word match missed. The phase 1 and phase 8 acceptance checks use its list
+and matcher instead of their own. No behaviour or CLI change.
+
 ## 0.24.0 — 2026-09-28
 
 ### `watch rules add|edit` refuse an alert channel the send allowlist does not name

@@ -5,15 +5,18 @@ to know that a sibling exists, and neither tool imports, names or shells out
 to the other. The conventions the brief used to point at a sibling for are
 recorded in the specification instead, so nothing is lost by the silence.
 
-Scope is the source tree, the skill, the three documents an agent or a
-contributor reads first, and the licence every copy of the package carries.
-`CHANGELOG.md` is deliberately outside it: history is history, and rewriting
-what a past release said would be the dishonest kind of tidy.
+Scope is every file git tracks, so a new file is read the day it is
+committed. Left out, each for its reason:
+
+- `tests/` names the words in order to look for them.
+- `CHANGELOG.md` is history, and rewriting what a past release said would be
+  the dishonest kind of tidy.
+- `SPEC.md` is the shaping contract, which names the other tool on purpose.
 """
 
 from __future__ import annotations
 
-import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -21,45 +24,39 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 # The other platform, its SDK, and the other tool's distribution and repo name.
-# Matched whole-word and case-insensitively, so `Telegram`, `TELEGRAM` and
-# `telegram-tools` all count as one hit.
+# Matched anywhere and case-insensitively, so `Telegram`, `telegram-tools`,
+# `telegram_tools` and `TelegramClient` all count.
 FORBIDDEN = ("telegram", "telethon")
 
-SCOPE = (
-    ROOT / "src",
-    ROOT / "skill" / "SKILL.md",
-    ROOT / "README.md",
-    ROOT / "CONTEXT.md",
-    ROOT / "AGENTS.md",
-    ROOT / "LICENSE",
-)
+EXCLUDED = ("CHANGELOG.md", "SPEC.md")
 
 
 def files_in_scope() -> list[Path]:
-    found: list[Path] = []
-    for entry in SCOPE:
-        if entry.is_dir():
-            found.extend(
-                path
-                for path in sorted(entry.rglob("*"))
-                if path.is_file()
-                and "__pycache__" not in path.parts
-                and path.suffix != ".pyc"
-            )
-        elif entry.is_file():
-            found.append(entry)
-    return found
+    # Outside a git checkout the listing is empty, which the last test catches.
+    listing = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, text=True).stdout
+    return [
+        ROOT / name
+        for name in listing.split("\0")
+        if name and not name.startswith("tests/") and name not in EXCLUDED and (ROOT / name).is_file()
+    ]
 
 
-@pytest.mark.parametrize("path", files_in_scope(), ids=lambda p: str(p.relative_to(ROOT)))
+def names_in(path: Path) -> list[str]:
+    text = path.read_text(encoding="utf-8", errors="replace").lower()
+    return [word for word in FORBIDDEN if word in text]
+
+
+@pytest.mark.parametrize("path", files_in_scope(), ids=lambda p: p.relative_to(ROOT).as_posix())
 def test_names_neither_the_other_platform_nor_the_other_tool(path):
-    text = path.read_text(encoding="utf-8", errors="replace")
-    hits = [word for word in FORBIDDEN if re.search(rf"\b{word}\b", text, re.IGNORECASE)]
+    hits = names_in(path)
     assert not hits, f"{path.relative_to(ROOT)} names {', '.join(hits)}"
 
 
 def test_the_scope_is_really_there():
-    # A typo in SCOPE would make every test above pass by checking nothing.
-    assert len(files_in_scope()) > 20
-    for entry in SCOPE:
-        assert entry.exists(), f"{entry} is in SCOPE but does not exist"
+    # A walk that finds nothing would make every test above pass by checking nothing.
+    scanned = {path.relative_to(ROOT).as_posix() for path in files_in_scope()}
+    assert {"LICENSE", "pyproject.toml", "skill/SKILL.md", "src/discord_tools/cli.py"} <= scanned, (
+        f"the walk found {len(scanned)} files; it reads git's list, so run the suite from a checkout"
+    )
+    for name in EXCLUDED:
+        assert (ROOT / name).exists(), f"{name} is in EXCLUDED but does not exist"

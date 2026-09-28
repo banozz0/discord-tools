@@ -105,17 +105,9 @@ def test_the_vendored_copy_is_the_workshop_at_the_tag_it_records():
 
 
 def test_nothing_in_the_source_or_the_skill_names_the_other_platform_or_tool():
-    from test_no_cross_mention import FORBIDDEN, files_in_scope
+    from test_no_cross_mention import files_in_scope, names_in
 
-    import re
-
-    hits = [
-        (path.relative_to(ROOT), word)
-        for path in files_in_scope()
-        for word in FORBIDDEN
-        if re.search(rf"\b{word}\b", path.read_text(encoding="utf-8", errors="replace"), re.IGNORECASE)
-    ]
-    assert hits == []
+    assert [path.relative_to(ROOT) for path in files_in_scope() if names_in(path)] == []
 
 
 def test_every_flag_the_tool_had_before_the_contract_is_still_there():

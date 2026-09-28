@@ -486,15 +486,9 @@ def test_the_login_only_client_still_asks_for_no_intents():
 # -- the other platform is not named ----------------------------------------
 
 
-OTHER_PLATFORM = ("telegram", "telethon")
-
-
 def test_neither_the_source_nor_the_skill_names_the_other_platform():
     """Seam law 7: this repository does not know that tool exists. The one
     recipe showing both together lives on the site's docs page."""
-    searched = [path for path in Path("src/discord_tools").rglob("*.py") if "_core" not in path.parts]
-    searched.append(Path("skill/SKILL.md"))
-    for path in searched:
-        text = path.read_text(encoding="utf-8").lower()
-        for word in OTHER_PLATFORM:
-            assert word not in text, f"{path} names {word}"
+    from test_no_cross_mention import ROOT, files_in_scope, names_in
+
+    assert [path.relative_to(ROOT) for path in files_in_scope() if names_in(path)] == []

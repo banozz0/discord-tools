@@ -835,7 +835,7 @@ def test_an_audit_changes_value_is_an_id_or_a_number_never_a_discord_py_repr(mon
     entry = _audit_entry(8, "invite_create", SimpleNamespace(id="Ag3VBXe", code="Ag3VBXe"))
     entry.before = _Diff(channel=None, flags=None, max_uses=None, type=None, created_at=None)
     entry.after = _Diff(
-        channel=SimpleNamespace(id=1550190030977503256),  # an `Object`, whose repr is what leaked
+        channel=SimpleNamespace(id=1550190000000000009),  # an `Object`, whose repr is what leaked
         flags=SimpleNamespace(value=0),  # `InviteFlags`
         max_uses=0,
         type=SimpleNamespace(name="text", value=0),  # an enum
@@ -845,7 +845,7 @@ def test_an_audit_changes_value_is_an_id_or_a_number_never_a_discord_py_repr(mon
 
     changes = asyncio.run(client.audit_log(10))[0]["changes"]
 
-    assert changes["channel"] == [None, 1550190030977503256], changes
+    assert changes["channel"] == [None, 1550190000000000009], changes
     assert changes["flags"] == [None, 0]
     assert changes["max_uses"] == [None, 0]
     assert changes["type"] == [None, "text"]

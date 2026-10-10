@@ -99,7 +99,7 @@ maintainer's private runbook. Rebuild `dist/` after any source edit.
 
 ### Issue tracker
 
-Shared Beads board at `/Users/sven/code/agent-board` (fleet default). See `docs/agents/issue-tracker.md`.
+Shared Beads board at `~/code/agent-board` (fleet default). See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

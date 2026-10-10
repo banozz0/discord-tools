@@ -381,7 +381,7 @@ since 2026-09-12.
   row for the same reason. Blank keeps the one meaning every other prompt in
   this menu gives it, and costs only the field it is typed at.
 - **`channel show` names the category it sits under** — "Text channels
-  (1548285155293003796)" — from the path it already fetched.
+  (1548285100000000007)" — from the path it already fetched.
 - **Fixed: a reaction or bookmark preview said its preposition twice** — "Add
   reaction 👍 to in Text channels > general".
 - **Fixed: "Main menu" after an offline action reached the root** instead of
@@ -1284,7 +1284,7 @@ outside `DISCORD_SEND_ALLOWLIST`.
   once to confirm — which is exactly how a person learns to skim it; the dry-run
   now prints a compact line plus the same GONE/OK consequences, and the banner
   belongs to the confirm alone, the screen that can still be stopped.
-- The preview said `Where  parent 1542641014190375072`, which is not a check
+- The preview said `Where  parent 1542641000000000001`, which is not a check
   anyone can perform. It names the parent now — `under 🤖 Agents (1542…)` — and
   falls back to the bare ID only when the parent cannot be read. A target with
   no parent says `at the top level` instead of nothing.

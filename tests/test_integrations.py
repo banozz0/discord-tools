@@ -133,11 +133,11 @@ def test_an_emoji_row_carries_what_you_paste_into_a_message():
 def test_an_emoji_listing_prints_a_whole_mention_however_long_the_name_is():
     """The line under the list says to paste the middle column, so a cut mention is
     a broken paste: a real one is `<:name:snowflake>`, well past 28 characters."""
-    long = {"id": 1550190030977503256, "name": "campaign_emoji", "animated": False, "managed": False,
-            "available": True, "role_ids": [], "creator": "sven", "mention": "<:campaign_emoji:1550190030977503256>"}
+    long = {"id": 1550190000000000009, "name": "campaign_emoji", "animated": False, "managed": False,
+            "available": True, "role_ids": [], "creator": "sven", "mention": "<:campaign_emoji:1550190000000000009>"}
     short = {**long, "id": 800, "name": "parrot", "mention": "<:parrot:800>"}
     listing = integrations.format_emojis([long, short], server="Agency")
-    assert "<:campaign_emoji:1550190030977503256>" in listing, listing
+    assert "<:campaign_emoji:1550190000000000009>" in listing, listing
     rows = listing.splitlines()[2:4]
     assert rows[0].index("sven") == rows[1].index("sven"), "the columns after the mention still line up"
 

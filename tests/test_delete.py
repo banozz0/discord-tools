@@ -202,13 +202,13 @@ def test_the_gate_reprints_the_target_and_the_count_above_the_typed_word():
         return "DELETE"
 
     answer = confirm_clear_messages(
-        target="campaign-a (1550189961742131221)", matched=4, bulk=4, single=0,
+        target="campaign-a (1550189900000000008)", matched=4, bulk=4, single=0,
         read=read, write=output.append,
     )
     assert answer == "DELETE"
     text = "\n".join(output)
     assert text.startswith(CLEAR_MESSAGES_WARNING)
-    assert "campaign-a (1550189961742131221)" in text
+    assert "campaign-a (1550189900000000008)" in text
     assert "4 message(s)" in text
     assert "14-day bulk window" in text
     # Under the count, not above the banner.

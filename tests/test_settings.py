@@ -224,7 +224,7 @@ def test_a_channel_screen_names_its_category_and_counts_what_one_fetch_can_count
 
 
 def test_a_channel_screen_puts_the_category_name_before_its_id_when_it_has_one():
-    # Live on 2026-09-17: "Category     1548285155293003796", an id where the
+    # Live on 2026-09-17: "Category     1548285100000000007", an id where the
     # name "Text channels" was known.
     text = settings.format_channel(channel(parent_id=100), heading="Now", category="Ops")
     assert "Category     Ops (100)" in text

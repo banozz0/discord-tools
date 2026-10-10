@@ -525,14 +525,14 @@ def test_channel_picker_lines_up_ids_after_emoji_names():
         make_client(
             channels={
                 1: [
-                    ChannelInfo(id=1542655090899288150, name="⚠️alerts", type="text"),
-                    ChannelInfo(id=1542655103792586802, name="🇲🇹briefings", type="text"),
+                    ChannelInfo(id=1542655000000000003, name="⚠️alerts", type="text"),
+                    ChannelInfo(id=1542655100000000004, name="🇲🇹briefings", type="text"),
                 ]
             },
             threads={
                 1: [
-                    ThreadInfo(id=1542655133387591680, name="📚vault-alerts", parent_id=1542655090899288150),
-                    ThreadInfo(id=1542655124046880899, name="⚙️system-alerts", parent_id=1542655090899288150),
+                    ThreadInfo(id=1542655100000000006, name="📚vault-alerts", parent_id=1542655000000000003),
+                    ThreadInfo(id=1542655100000000005, name="⚙️system-alerts", parent_id=1542655000000000003),
                 ]
             },
         )

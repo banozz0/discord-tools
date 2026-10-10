@@ -47,7 +47,7 @@ def test_resolve_expands_user(tmp_path):
 
 # -- non-ASCII names ------------------------------------------------------
 
-EMOJI_ROWS = [{"id": 1542655078270246993, "name": "\U0001fa7ahealth", "type": "text"}]
+EMOJI_ROWS = [{"id": 1542655000000000002, "name": "\U0001fa7ahealth", "type": "text"}]
 
 
 def test_json_text_writes_the_emoji_not_its_escape():

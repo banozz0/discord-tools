@@ -1,152 +1,40 @@
 # discord-tools — agent brief
 
-Public repo — contributor-facing. A local CLI for your own Discord servers,
-on Discord's **bot system** — no self-bots, ever (ToS).
-Bot token per profile in `~/.discord-tools/` (0600, env override); a bot per
-agent is the intended use, `--profile <name>` picks one.
-
-`SPEC.md` is the build contract — read it before touching code. Shaping record:
-`~/code/incubator/discord-tools/IDEA.md`. The menu-vs-subcommand split, the
-test culture and the shared output contract are fixed by the suite
-specification at
-`~/code/cli-tools-site/docs/architecture/full-suite-architecture.md` — read
-that when a convention is in question, never another repository.
+Local CLI for your own Discord servers, on Discord's bot system: no self-bots, ever (ToS). One bot token per profile; a bot per agent.
+Public repo: never commit tokens, real server IDs, webhook URLs or exported chat data. `.env*` files stay untracked, `.env.example` included.
 
 ## Commands
+- Setup: `python3.11 -m venv .venv && .venv/bin/python -m pip install -e ".[dev]"`.
+- Iterate: `.venv/bin/python -m pytest -q tests/test_<area>.py` or `-k <name>`. No network, no real token.
+- Full check once before landing: `.venv/bin/python -m pytest -q`, `.venv/bin/python -m compileall -q src`, the `--help` smoke in `.github/workflows/tests.yml`.
+- After touching `build_parser`: `.venv/bin/python scripts/capture_help.py` on Python 3.13+, read the diff, commit it with the change.
 
-auth (guided portal setup) · discover (server/channel/thread IDs) ·
-members (server member list; needs the privileged Server Members intent) ·
-search/export (history fetch + local filter; Discord gives bots no search
-API) · archive (sync history into a local FTS5 store, resume, coverage; search,
-export in five formats, retention and forget behind a typed name; only sync
-logs in) · review (attachments and links the sync saw, fetched into quarantine
-only after a y/N nobody can flag past, checked, then accepted or rejected with
-the verdict shown; list/status/accept/reject never log in) · send (`--reply-to`, `--mention`) · message (reply, edit own, delete
-behind typed DELETE and a bulk bound, forward, copy, react, pin, poll, pins
-(a read, preflighting Read Message History), typing, local bookmark;
-read/unread/draft are PLATFORM_UNSUPPORTED) · create (channel/thread/category, every type delete accepts) ·
-delete (channel/category/thread) · structure (export a server's roles,
-categories, channels, overwrites, forum tags, AutoMod rules and settings as
-one deterministic blueprint that never carries members, messages, webhooks,
-invites, bans or emoji; diff it against a server; apply it with new ids behind
-the typed server name, never deleting; remap table offline) · role (list,
-create, edit, delete behind the typed role name; preflight names a missing
-Manage Roles, HIERARCHY_DENIED where the bot's top role cannot reach, never
-its own roles, never a right it lacks) · permission (show a channel's role
-overwrites, set one role's by merging allow and deny) · member (list, the
-documented name for members; kick and ban behind the typed username with a
-required reason, no --yes; unban, timeout behind a required --until Discord
-caps at 28 days, untimeout to end one early, nick; the hierarchy check
-refuses the owner, the bot itself and a top role it cannot reach) · invite
-(list with links, create, revoke behind the typed code; links print in list and create and nowhere else) ·
-audit-log (Discord's own log, filtered by action, user and time; not the local
-audit.jsonl) · webhook (list with every URL's token hidden, create printing the
-whole URL once and only with --reveal, delete behind the typed name; the URL
-never reaches an envelope, an args echo or an audit line) · emoji and sticker
-(list, add from a file under Discord's own size cap, remove behind the typed
-name; adding needs Create Expressions and removing Manage Expressions) ·
-automod (Discord's own filtering, which runs with the watcher down: list,
-create whose flags name the trigger family, edit inside the family Discord
-fixed at creation, delete behind the typed name; the three actions never
-delete) · channel show (type, parent category, the editable fields, the
-counts one fetch gives; a read) and channel edit (name, topic, nsfw,
-slowmode, position, with the diff read back from Discord) · watch (rules the
-runner acts on — a closed action list that never downloads, sends, edits or
-deletes — and run/status/stop/reload; only run logs in, and it is the one
-gateway) · schedule (runner-held posts, which fire only while the runner is
-up) · event (server-held guild scheduled events, which Discord keeps) ·
-leave-server · clear-messages · bot
-(settings + invite URL for the active profile) · doctor (token,
-message-content intent, servers, per-channel perms, the agent skill) ·
-skill install (the SKILL.md the wheel carries, copied into an agent's skill
-folder after a y/N; no login). v1 (all but members)
-shipped 2026-08-27 after the joint testing session.
+## Layout
+- `SPEC.md` is the build contract: read it before touching code. CONTEXT.md holds the domain terms: read it before renaming anything.
+- `client.py` is the one REST seam and tests mock exactly it. `adapters/events.py` (`watch run`) is the only gateway connection; a test pins that.
+- `_core/` is a vendored copy at the tag in `_core/VERSION`: never edit it (`test_core_copy.py`). Fix upstream, then `scripts/sync-core.sh <tag>`.
+- `skill/SKILL.md` is the bundled agent skill's only source (the wheel force-includes it); a CLI-surface change updates it in the same commit.
+- Bare invocation is the human menu; agents pass a subcommand. `docs/agents/domain.md` says how skills read CONTEXT.md.
 
-## Releasing (maintainer only)
-
-PyPI account is **banozz** (not the GitHub handle); the distribution is
-**discord-tools-cli** (`discord-tools` is squatted by an archived unrelated
-package) while the console script stays `discord-tools`. Recipe + traps: the
-maintainer's private runbook. Rebuild `dist/` after any source edit.
+## Rules
+- Every write: preflight the bot's rights and role hierarchy, re-check the target after its gate, read back, log one redacted audit line.
+- Keep every gate in README → Safety model. Hard-to-undo commands: dry-run default, `--execute` plus a typed name or `DELETE`, no `--yes`.
+- The menu is never a shorter path past a gate. `--yes` on a post needs the channel in `DISCORD_SEND_ALLOWLIST` (unset refuses).
+- `schedule post` and a rule's `--alert-channel` off the allowlist refuse when written: the runner posts unattended.
+- A rule's actions are a closed list and none mutates. The tool never edits its own roles or grants a right the bot lacks.
+- A webhook URL is a credential: printed whole only by `webhook create --reveal`; redacted in every envelope, args echo, audit line and listing.
+- Parity: anything `delete` removes, `create` can make again; the channel vocabulary lives once in `models.py`.
+- `test_no_cross_mention.py`: no tracked file outside `tests/`, CHANGELOG and SPEC names the sibling platform or its SDK.
+- `test_hint_commands.py`: every documented command carrying `--profile` must parse; the flag goes before the subcommand.
+- Help fixtures compare only on Python 3.13+ (argparse changed its rendering). Dependency-derived fixtures get version-gated, never re-frozen.
+- CI runs 3.11–3.14 on fresh deps. Red there, green here: diff `pip freeze` with CI's install log and rerun on the failing Python.
+- Secret scanners refuse filenames carrying `auth`/`token`/`secret` and `token = "…"` strings: hence one `rendered.txt`; samples are `TOKEN_SAMPLE`.
+- `test_columns.py` holds measured terminal widths for emoji; change the width rule only with a new measurement, never a heuristic.
+- An editable install's `importlib.metadata.version()` is frozen at install time; read `discord_tools.__version__` instead.
 
 ## Working here
-
-- Python ≥3.11 · discord.py 2.x login-only REST (`client.py` is the one seam;
-  tests mock exactly it) · python-dotenv · pytest no-network · hatchling · MIT.
-- Test: `.venv/bin/python -m pytest -q` → all pass, no network, no real token.
-  CI adds `compileall` + per-subcommand `--help` smoke.
-- Bare invocation is the human menu; agents pass a subcommand.
-- Domain terms live in `CONTEXT.md`; read it before renaming things.
-- `watch run` is the one command that opens a gateway connection; it lives in
-  `adapters/events.py` and is the one lifted `SPEC.md` rule. Everything else
-  stays login-only REST, and a test asserts it.
-- A CLI-surface change updates `skill/SKILL.md` in the same commit. That file
-  is the only source: the wheel force-includes it as
-  `discord_tools/skill/SKILL.md` (pyproject), and `agent_skill.py` reads the
-  packaged copy or, in an editable install, the repo's.
-- The README's top picture is `assets/menu.png`, the root menu taken off the live
-  site. When `ROOT_ITEMS` changes, update the site first, then re-run
-  `node ~/code/cli-tools-site/scripts/capture-menu.mjs discord-tools assets/menu.png`
-  and fix the rows in the image's alt text.
-- A user-visible fix gets its CHANGELOG entry + version bump in the same change.
-  A change touching neither behaviour nor the CLI (README, comment, licence)
-  goes under `## Unreleased` until the next bump carries it.
-- Never commit tokens, IDs of real servers, or exported chat data. `.env*`
-  files (even `.env.example`) stay untracked — the global secrets hook blocks
-  them; setup docs live in the README instead.
-
-## Agent skills
-
-### Issue tracker
-
-Shared Beads board at `~/code/agent-board` (fleet default). See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Default five-role vocabulary, unchanged. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context: `CONTEXT.md` + `docs/adr/` at the root. See `docs/agents/domain.md`.
-
-## Destructive commands
-
-Same gates as the sibling, non-negotiable: `clear-messages` dry-runs by
-default, executes only with `--execute` + typed `DELETE` (bulk API caps at
-14 days; older messages delete one-by-one, slower). `delete` and `leave-server`
-dry-run by default and execute only with `--execute` + the target's **exact
-name** typed back — the wrong-target mistake is the one worth catching, and
-neither has a `--yes`, so deletion is never unattended. `send` previews the
-full message + y/N; `--yes` requires the destination in
-`DISCORD_SEND_ALLOWLIST` (unset = refuse). `create` and `bot` settings confirm
-before touching anything real. `structure apply` dry-runs by default and
-executes only with `--execute` + the target server's exact name, no `--yes`,
-and never deletes anything on the target. `role delete` dry-runs by default
-and executes only with `--execute` + the role's exact name, no `--yes`; any
-role change touching Administrator is typed too; `role create`, `role edit`
-and `permission set` preview + y/N. The tool never edits or elevates its own
-roles and never grants a right the bot does not hold. `member kick` and
-`member ban` dry-run by default and execute only with `--execute` + the
-member's exact username, no `--yes`, with `--reason` required and stored as
-Discord's own audit reason; `invite revoke` is the same behind the exact code.
-`member timeout` needs `--until` and refuses past 28 days; `member untimeout`,
-`member unban`, `member nick` and `invite create` preview + y/N. A ban deletes
-no messages — `clear-messages` is that command. `webhook delete`,
-`emoji remove`, `sticker remove` and `automod delete` each dry-run by default
-and execute only with `--execute` + the thing's exact name, no `--yes`; `webhook create`,
-`emoji add`, `sticker add`, `automod create`, `automod edit` and `channel edit`
-preview + y/N. A webhook URL is a credential: the whole one is printed by
-`webhook create --reveal` and nowhere else, and core's redaction pass rewrites
-the token segment in every envelope, args echo, audit line and listing.
-`event delete` dry-runs
-by default and executes only with `--execute` + the event's exact name, no
-`--yes`; `event create`, `event edit`, `schedule post`, `schedule cancel` and
-`watch rules add`, `edit` and `remove` preview + y/N; `watch rules enable` and
-`disable` flip one field without asking. A rule's actions are a closed list and none of
-them mutates; a `schedule post` off `DISCORD_SEND_ALLOWLIST`, and a
-`watch rules add|edit --alert-channel` off it, are refused when the row or the
-rule is written, because the runner posts and alerts unattended. The menu is never a
-shorter path past a gate.
-
-Parity rule: anything `delete` removes, `create` can make again — the channel
-vocabulary lives once in `models.py` and both sides key off it.
+- The README's top picture is `assets/menu.png`, captured off the live site. When `ROOT_ITEMS` changes, update the site first,
+  recapture with the site repo's `scripts/capture-menu.mjs`, and fix the rows in the image's alt text (`test_readme_menu_picture.py`).
+- A user-visible change carries its CHANGELOG entry and version bump in one change; only a no-behaviour change waits under `## Unreleased`.
+- Releasing (maintainer only): the PyPI dist is `discord-tools-cli` (`discord-tools` is squatted), the console script `discord-tools`.
+  The version lives in `src/discord_tools/__init__.py`; no git tags. Rebuild `dist/` after any source edit.

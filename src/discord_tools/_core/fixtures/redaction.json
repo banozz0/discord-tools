@@ -66,7 +66,7 @@
     {"name": "phone with plus and punctuation", "in": "from +1 (555) 010-9999", "out": "from …99"},
     {"name": "phone with double zero", "in": "dial 0035699123456 now", "out": "dial …56 now"},
     {"name": "session under a profile", "in": "session ~/.x-tools/profiles/dobby/session.session opened", "out": "session <profile dobby session> opened"},
-    {"name": "legacy session file", "in": "using /Users/sven/.x-tools/x-tools.session-journal now", "out": "using <profile default session> now"},
+    {"name": "legacy session file", "in": "using /Users/me/.x-tools/x-tools.session-journal now", "out": "using <profile default session> now"},
     {"name": "webhook URL", "in": "https://example.invalid/api/webhooks/123456/AbCdEfGh_ij-klmnop", "out": "https://example.invalid/api/webhooks/123456/<redacted>"},
     {"name": "invite with plus", "in": "join https://example.invalid/+AbCdEfGhIjK today", "out": "join https://example.invalid/+<redacted> today"},
     {"name": "invite with joinchat", "in": "join example.invalid/joinchat/AbCdEfGhIjK", "out": "join example.invalid/+<redacted>"}
@@ -74,7 +74,7 @@
   "clean": [
     "-1001234567890:141",
     "tg:topic:-1001234567890:141",
-    "dc:channel:1542641014190375072",
+    "dc:channel:1542641000000000001",
     "1000000000000000000",
     "2026-09-02T12:30:58Z",
     "plan b7f1e2d3c4b5a697",
@@ -84,7 +84,7 @@
     "~/.x-tools/.env",
     "3.7.2",
     "Sven (…78)",
-    "add 1542641014190375072 to the allowlist in ~/.x-tools/.env, or run without --yes",
+    "add 1542641000000000001 to the allowlist in ~/.x-tools/.env, or run without --yes",
     "general-announcements",
     "https://example.invalid/channels/123/456"
   ]

@@ -6,6 +6,11 @@ on:
       - main
   pull_request:
 
+# A newer push cancels the older run on the same branch, main included, to save Actions minutes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: Python ${{ matrix.python-version }}

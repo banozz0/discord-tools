@@ -204,7 +204,7 @@ python -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/python -m pytest -q    # no network, no real token
 ```
 
-[`SPEC.md`](https://github.com/banozz0/discord-tools/blob/main/SPEC.md) is the v1 contract, and [`CONTEXT.md`](https://github.com/banozz0/discord-tools/blob/main/CONTEXT.md) holds the project's terms.
+[`SPEC.md`](https://github.com/banozz0/discord-tools/blob/main/SPEC.md) is the v1 contract, and [`GLOSSARY.md`](https://github.com/banozz0/discord-tools/blob/main/GLOSSARY.md) holds the project's terms.
 
 ## Status
 

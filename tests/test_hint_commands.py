@@ -45,7 +45,7 @@ from discord_tools.portal import run_auth
 
 PACKAGE = Path(discord_tools.__file__).resolve().parent
 ROOT = PACKAGE.parent.parent
-DOCS = ("README.md", "AGENTS.md", "CONTEXT.md", "skill/SKILL.md")
+DOCS = ("README.md", "AGENTS.md", "GLOSSARY.md", "skill/SKILL.md")
 
 # What an f-string's value or a doc's <placeholder> stands in for. Decimal, so a
 # hint that also names an ID-typed flag still parses as the command it is.

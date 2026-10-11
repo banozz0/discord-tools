@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### The glossary is `GLOSSARY.md`
+`CONTEXT.md` is now `GLOSSARY.md`, the name the domain-modeling agent skills
+read and write since their v1.3; the README link, `AGENTS.md`,
+`docs/agents/domain.md` and the hint test follow. No behaviour or CLI change.
+
 ### The licence names this tool's contributors
 `LICENSE` credited the copyright to another project's contributors, a line
 carried over when the file was copied in; it now reads *discord-tools

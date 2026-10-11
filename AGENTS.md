@@ -10,11 +10,11 @@ Public repo: never commit tokens, real server IDs, webhook URLs or exported chat
 - After touching `build_parser`: `.venv/bin/python scripts/capture_help.py` on Python 3.13+, read the diff, commit it with the change.
 
 ## Layout
-- `SPEC.md` is the build contract: read it before touching code. CONTEXT.md holds the domain terms: read it before renaming anything.
+- `SPEC.md` is the build contract: read it before touching code. GLOSSARY.md holds the domain terms: read it before renaming anything.
 - `client.py` is the one REST seam and tests mock exactly it. `adapters/events.py` (`watch run`) is the only gateway connection; a test pins that.
 - `_core/` is a vendored copy at the tag in `_core/VERSION`: never edit it (`test_core_copy.py`). Fix upstream, then `scripts/sync-core.sh <tag>`.
 - `skill/SKILL.md` is the bundled agent skill's only source (the wheel force-includes it); a CLI-surface change updates it in the same commit.
-- Bare invocation is the human menu; agents pass a subcommand. `docs/agents/domain.md` says how skills read CONTEXT.md.
+- Bare invocation is the human menu; agents pass a subcommand. `docs/agents/domain.md` says how skills read GLOSSARY.md.
 
 ## Rules
 - Every write: preflight the bot's rights and role hierarchy, re-check the target after its gate, read back, log one redacted audit line.

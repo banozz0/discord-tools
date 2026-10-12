@@ -148,15 +148,24 @@ def test_the_args_echo_carries_what_was_typed_and_nothing_else():
 # -- where the words go ---------------------------------------------------
 
 
+def a_server_with_a_message():
+    # An empty channel has nothing to dry-run: it says so instead.
+    from conftest import one_message
+
+    client = a_server()
+    client.history[701] = one_message()
+    return client
+
+
 def test_under_json_stdout_is_only_the_envelope():
-    _code, stdout, stderr = emit(["--json", "clear-messages", "--channel", "701"])
+    _code, stdout, stderr = emit(["--json", "clear-messages", "--channel", "701"], a_server_with_a_message())
     # One object, nothing before it: the whole point of the flag.
     json.loads(stdout)
     assert "Dry-run" in stderr
 
 
 def test_without_the_flag_nothing_moves_to_stderr():
-    _code, stdout, _stderr = emit(["clear-messages", "--channel", "701"])
+    _code, stdout, _stderr = emit(["clear-messages", "--channel", "701"], a_server_with_a_message())
     assert "Dry-run" in stdout
     assert '"dry_run": true' in stdout
 

@@ -66,7 +66,7 @@ def walk(answers, *, session=None, runner=None):
     presses = iter(range(200))
     printed: list[str] = []
 
-    async def default_runner(args, *, client=None, config=None):
+    async def default_runner(args, *, client=None, config=None, out=None):
         printed.append(f"<{command_name(args)}>")
         return 0
 

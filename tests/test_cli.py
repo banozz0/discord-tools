@@ -386,7 +386,14 @@ def test_skip_threads_reaches_the_warning(monkeypatch):
         return "no thanks"
 
     monkeypatch.setattr("discord_tools.cli.confirm_clear_server_messages", confirm)
-    client = FakeClient(servers=[ServerInfo(id=1, name="Ops")])
+    from conftest import one_message
+
+    # A message to clear: an empty server never reaches the gate at all.
+    client = FakeClient(
+        servers=[ServerInfo(id=1, name="Ops")],
+        channels={1: [ChannelInfo(id=10, name="general", type="text")]},
+        history={10: one_message()},
+    )
     run_cli(["clear-messages", "--server", "1", "--execute", "--skip-threads"], client)
     # `write` also reaches the confirm now, so that a preview can go to stderr
     # while stdout carries the envelope; what this test is about is the scope.
@@ -647,6 +654,53 @@ def test_a_done_server_clear_says_the_same_sentence(capsys, monkeypatch):
     output = capsys.readouterr().out
     assert "Cleared 1 of 1 message(s) across 1 location(s) in" in output
     assert "Read back: 1 message(s) cleared across 1 location(s)" in output
+
+
+def test_clearing_an_empty_channel_says_so_and_never_asks(capsys, monkeypatch):
+    def confirm(**_):
+        raise AssertionError("an empty channel has nothing to confirm")
+
+    monkeypatch.setattr("discord_tools.cli.confirm_clear_messages", confirm)
+    from discord_tools.envelope import Run
+
+    client = FakeClient(history={55: []})
+    for flags in ([], ["--execute"]):
+        out = Run("clear-messages", {})
+        args = build_parser().parse_args(["clear-messages", "--channel", "55", *flags])
+        assert asyncio.run(run(args, client=client, config=TEST_CONFIG, out=out)) == 0
+        # The menu reads this to drop the for-real row: exit 0 alone is also a dry-run's.
+        assert out.outcome.status == "empty"
+        assert "holds no messages the bot can see — nothing to clear" in capsys.readouterr().out
+    assert client.deleted_bulk == client.deleted_single == []
+
+
+def test_a_server_clear_skips_a_channel_it_cannot_read(capsys, monkeypatch):
+    from conftest import one_message
+
+    class OneLockedChannel(FakeClient):
+        async def iter_history(self, channel_id, **kwargs):
+            if channel_id == 11:
+                raise PermissionError("The bot cannot access channel 11.")
+            async for message in super().iter_history(channel_id, **kwargs):
+                yield message
+
+    seen = []
+
+    def confirm(**kwargs):
+        seen.append(kwargs)
+        return "DELETE"
+
+    monkeypatch.setattr("discord_tools.cli.confirm_clear_server_messages", confirm)
+    client = OneLockedChannel(
+        servers=[ServerInfo(id=1, name="Ops")],
+        channels={1: [ChannelInfo(id=10, name="general", type="text"), ChannelInfo(id=11, name="ledger", type="text")]},
+        history={10: one_message()},
+    )
+    assert run_cli(["clear-messages", "--server", "1", "--execute"], client) == 1
+    output = capsys.readouterr().out
+    assert seen[0]["skipped"] == ["ledger (11)"]
+    assert "Cleared 1 of 1 message(s) across" in output
+    assert client.deleted_single or client.deleted_bulk
 
 
 def test_the_clear_gate_is_handed_the_target_it_resolved(monkeypatch):

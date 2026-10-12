@@ -86,6 +86,9 @@ class Run:
         self.waited_ms = 0
         self.identity: Identity | None = None
         self.warnings: list[str] = []
+        # The last outcome this run finished with. The menu reads it where an
+        # exit code says too little: `empty` and `dry_run` share code 0.
+        self.outcome: Outcome | None = None
 
     @property
     def machine(self) -> bool:
@@ -189,6 +192,7 @@ class Run:
 
     def finish(self, outcome: Outcome) -> int:
         """Emit whatever this mode emits, and answer with the process's exit code."""
+        self.outcome = outcome
         if self.machine:
             envelope = self.envelope(outcome)
             line = jsonl_line(envelope) if self.jsonl else dumps(envelope, indent=2)

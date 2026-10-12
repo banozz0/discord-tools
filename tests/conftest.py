@@ -94,6 +94,11 @@ DEFAULT_IDENTITY = BotIdentity(
 )
 
 
+def one_message():
+    """A history of one recent message: something for a clear to clear."""
+    return [SimpleNamespace(id=900000000000000000)]
+
+
 class FakeClient:
     def __init__(
         self,

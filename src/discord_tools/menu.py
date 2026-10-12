@@ -9,7 +9,7 @@ from discord_tools import agent_skill
 from discord_tools import archive as archive_store
 from discord_tools import cli, ui
 from discord_tools._core import rid as _rid
-from discord_tools._core.contract import CodedError
+from discord_tools._core.contract import DONE, CodedError
 from discord_tools.client import API_ERRORS, ClientError, permission_names, start_client
 from discord_tools.plans import PlanDriftError
 from discord_tools.records import BARE_TIME_IS_LOCAL
@@ -17,6 +17,7 @@ from discord_tools._core.columns import cell
 from discord_tools._core.identity import Target
 from discord_tools._core.identity import banner as identity_banner
 from discord_tools.config import ConfigError, load_config
+from discord_tools.envelope import Outcome, Run
 from discord_tools.adapters import DiscordIdentityProvider
 from discord_tools.models import ThreadInfo, kind_for_type
 from discord_tools.prompts import (
@@ -170,13 +171,18 @@ def _namespace(**kwargs) -> argparse.Namespace:
     return argparse.Namespace(**{"profile": None, **kwargs})
 
 
-async def _call(args, *, session, runner, write) -> int | None:
+async def _call(args, *, session, runner, write, out: Run | None = None) -> int | None:
     """Run one action. Returns its exit code, or None when it errored and the
-    message is already printed."""
+    message is already printed.
+
+    `out` is for a flow that needs more than the exit code: after the run its
+    `outcome` holds the status and result the command finished with.
+    """
     try:
         client = await session.client() if session is not None else None
         config = session.config if session is not None else None
-        return await runner(args, client=client, config=config)
+        extra = {} if out is None else {"out": out}
+        return await runner(args, client=client, config=config, **extra)
     except MENU_ERRORS as exc:
         write(f"error: {exc}")
         # The hint is the way out, and the menu has no envelope to carry it:
@@ -202,6 +208,21 @@ async def _dry_run_passed(args, *, session, runner, write) -> bool:
     return await _call(args, session=session, runner=runner, write=write) == 0
 
 
+async def _scan(args, *, session, runner, write) -> Outcome | None:
+    """Run a dry-run whose outcome the flow reads, not just its exit code.
+
+    The outcome when it put a plan on screen -- done, or `partial` when some
+    locations could not be read -- and None otherwise, as `_dry_run_passed`.
+    `empty` and `dry_run` share exit 0, which is why the flow needs this.
+    """
+    out = Run(args.command, {})
+    await _call(args, session=session, runner=runner, write=write, out=out)
+    scan = out.outcome
+    if scan is None or (scan.status not in DONE and scan.status != "partial"):
+        return None
+    return scan
+
+
 # After-run row keys. AGAIN is answered inside _act. STAY is the flow's own next
 # step -- back to its filled form, or whatever "another" means there -- which only
 # the flow can answer, so _act hands it back. Anything else (MENU, EXIT) leaves the
@@ -213,7 +234,16 @@ TWEAK = (STAY, "Tweak it")
 
 
 async def _act(
-    args, *, session, runner, read, write, trail: str = MAIN, rows=(RUN_AGAIN, TWEAK), offline: bool = False
+    args,
+    *,
+    session,
+    runner,
+    read,
+    write,
+    trail: str = MAIN,
+    rows=(RUN_AGAIN, TWEAK),
+    offline: bool = False,
+    partly: bool = False,
 ) -> Any:
     """Run one action, then the after-run screen. Returns STAY, MENU or EXIT.
 
@@ -224,10 +254,16 @@ async def _act(
     the auth wizard -- and nothing else: the session itself is still wanted here,
     because "Main menu" is a fact about the menu's own screens rather than about
     the action, and the flag that carries it out of a group lives on the session.
+
+    `partly` is for an action whose `partial` status means it did its work but
+    skipped some of it: that exit 1 is titled Partly done, not Not done.
     """
     while True:
-        code = await _call(args, session=None if offline else session, runner=runner, write=write)
+        out = Run(args.command or "", {}) if partly else None
+        code = await _call(args, session=None if offline else session, runner=runner, write=write, out=out)
         outcome = "Done" if code == 0 else ("Failed" if code is None else "Not done")
+        if out is not None and out.outcome is not None and out.outcome.status == "partial":
+            outcome = "Partly done"
         result = after_run(read=read, write=write, title=crumb(trail, outcome), rows=rows)
         if result is not AGAIN:
             if result is MENU:
@@ -2636,8 +2672,18 @@ async def _flow_clear(*, session, runner, read, write) -> bool:
                 "for-real screen reprints the live count above the typed word."
             )
         else:
-            if not await _dry_run_passed(dry_run, session=session, runner=runner, write=write):
+            # A partial scan still puts a plan on screen: the locations the bot
+            # could not read are skipped, and the rest can still be cleared.
+            scan = await _scan(dry_run, session=session, runner=runner, write=write)
+            if scan is None:
                 return after_action(read=read, write=write)
+            skipped = scan.result.get("skipped", ())
+            if skipped:
+                write(f"Skipping {len(skipped)} location(s) the bot cannot read: {', '.join(skipped)}")
+            if not scan.result.get("matched"):
+                # Already empty: there is nothing to offer a for-real row for.
+                write("Nothing to clear here — back to the clear scope.")
+                continue
             scanned = target
 
         choice = choose(
@@ -2659,6 +2705,7 @@ async def _flow_clear(*, session, runner, read, write) -> bool:
             write=write,
             trail=where,
             rows=((STAY, "Clear somewhere else"),),
+            partly=True,
         )
         if result is not STAY:
             return result is not EXIT

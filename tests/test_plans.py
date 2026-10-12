@@ -198,6 +198,14 @@ def test_a_bot_edit_someone_else_made_first_refuses(monkeypatch):
     assert client.application_edits == []
 
 
+def with_a_message(client):
+    # An empty channel never reaches the gate, so the clear needs something to clear.
+    from conftest import one_message
+
+    client.history[701] = one_message()
+    return client
+
+
 # A right the bot held when the plan was drawn can be gone by the time the
 # answer lands: someone takes away its role, or a channel override, while the
 # gate sits on screen. The rebuilt plan carries its own preflight, and every
@@ -233,7 +241,7 @@ def test_a_bot_edit_someone_else_made_first_refuses(monkeypatch):
             id="delete-channel",
         ),
         pytest.param(
-            lambda: a_server(permissions={701: {"manage_messages": True, "read_message_history": True}}),
+            lambda: with_a_message(a_server(permissions={701: {"manage_messages": True, "read_message_history": True}})),
             ["--json", "clear-messages", "--channel", "701", "--execute"],
             "discord_tools.cli.confirm_clear_messages", "DELETE", "manage_messages",
             lambda client: client.permissions.update({701: {}}),

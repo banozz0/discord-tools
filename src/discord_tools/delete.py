@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, datetime, timedelta
 
 from discord_tools._core.contract import Error
@@ -109,12 +109,15 @@ def confirm_clear_server_messages(
     target: str = UNNAMED_SERVER,
     matched: int = 0,
     locations: int = 0,
+    skipped: Sequence[str] = (),
     read: Callable[[str], str] = input,
     write: Callable[[str], None] = print,
 ) -> str:
     write(CLEAR_SERVER_MESSAGES_WARNING if include_threads else CLEAR_SERVER_MESSAGES_WARNING_SKIP_THREADS)
     write(f"Target    {target}")
     write(f"Clearing  {matched} message(s) across {locations} location(s)")
+    if skipped:
+        write(f"Skipping  {len(skipped)} location(s) the bot cannot read: {', '.join(skipped)}")
     return read("Type DELETE to continue: ")
 
 
@@ -211,6 +214,11 @@ async def clear_messages(
     progress = progress or (lambda _message: None)
 
     ids, bulk, single = await _scan_messages(client, channel_id, now=now)
+
+    if not ids:
+        # Nothing to delete is not a deletion to confirm: no gate, no DELETE.
+        progress(f"Empty: {channel_id} holds no messages the bot can see — nothing to clear")
+        return DeleteResult(matched=0, bulk=0, single=0, deleted=0, dry_run=not execute)
 
     if not execute:
         progress(
@@ -317,10 +325,13 @@ async def clear_server_messages(
         progress(f"{kind.title()} {location.name} ({location.id})")
         try:
             ids, bulk, single = await _scan_messages(client, location.id, now=now)
-            progress(
-                f"Dry-run: {len(ids)} message(s) would be cleared from {location.id} — "
-                f"{len(bulk)} inside the 14-day bulk window (fast), {len(single)} older (one-by-one, slower)"
-            )
+            if ids:
+                progress(
+                    f"Dry-run: {len(ids)} message(s) would be cleared from {location.id} — "
+                    f"{len(bulk)} inside the 14-day bulk window (fast), {len(single)} older (one-by-one, slower)"
+                )
+            else:
+                progress("Empty — nothing to clear")
         except RECOVERABLE_CLEAR_ERRORS as exc:
             failure = {
                 "location_id": location.id,
@@ -329,20 +340,32 @@ async def clear_server_messages(
                 "error": str(exc),
             }
             failures.append(failure)
-            progress(f"Could not read {location.name} ({location.id}): {exc}")
+            progress(f"Could not read {location.name} ({location.id}), skipping it: {exc}")
             continue
-        plans.append((location, ids, bulk, single))
+        # An empty location has nothing to clear, so it is left out of the plan:
+        # the gate's count, the recount and the clear all cover the same places.
+        if ids:
+            plans.append((location, ids, bulk, single))
 
     matched = sum(len(ids) for _location, ids, _bulk, _single in plans)
     bulk_deletable = sum(len(bulk) for _location, _ids, bulk, _single in plans)
     single_delete_only = sum(len(single) for _location, _ids, _bulk, single in plans)
 
+    # A location the bot cannot read is skipped, not a reason to stop: the
+    # rest of the server is cleared, and the skip is reported as a failure.
+    skipped = [
+        f"{failure['location_name']} ({failure['location_id']})"
+        for failure in failures
+        if failure["operation"] == "read messages"
+    ]
     cancelled = False
     deleted = 0
-    if execute:
+    if execute and not matched:
+        progress(f"Nothing to clear: every location the bot can read in {server.name} is empty")
+    elif execute:
         # One server, one explicit gate. Per-location confirmation would make
         # a large server a prompt gauntlet and still would not add safety.
-        if confirm(matched=matched, locations=len(unique_locations)).strip().lower() != "delete":
+        if confirm(matched=matched, locations=len(plans), skipped=skipped).strip().lower() != "delete":
             progress("Clear server messages cancelled")
             cancelled = True
         else:
@@ -386,6 +409,7 @@ async def clear_server_messages(
         "dry_run": not execute,
         "cancelled": cancelled,
         "failures": failures,
+        "skipped": skipped,
     }
 
 

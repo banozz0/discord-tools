@@ -6,6 +6,7 @@ from conftest import FakeClient
 from discord_tools.client import ClientError
 from discord_tools._core.columns import width
 from discord_tools.config import Config
+from discord_tools.envelope import Outcome
 from discord_tools.menu import MenuSession, run_menu
 from discord_tools.models import ChannelInfo, MemberInfo, ServerInfo, ThreadInfo
 
@@ -85,11 +86,20 @@ def keystrokes(answers):
     return [key for answer in answers for key in ((answer,) if isinstance(answer, str) else tuple(answer))]
 
 
-def drive(answers, *, session=None, runner=None, result=0, prompts=None):
+def drive(answers, *, session=None, runner=None, result=0, prompts=None, scan=None):
+    """`scan` is the outcome every run finishes with, for a flow that reads it."""
     calls = []
 
-    async def default_runner(args, *, client=None, config=None):
+    async def default_runner(args, *, client=None, config=None, out=None):
         calls.append(args)
+        if out is not None:
+            # What the real command would finish with for that exit code; a
+            # flow that asks for the outcome reads it instead of the code.
+            status = {0: "ok" if getattr(args, "execute", False) else "dry_run", 1: "cancelled"}.get(result, "refused")
+            out.outcome = Outcome(status=status, result={"matched": 1})
+            if scan is not None:
+                out.outcome = scan
+                return 1 if scan.status == "partial" else 0
         return result
 
     output = []
@@ -309,6 +319,26 @@ def test_clear_flow_does_not_rescan_the_same_target():
     assert "still stand" not in text
     assert "Same target as the last dry-run; its counts are from that scan" in text
     assert "reprints the live count above the typed word" in text
+
+
+def test_clear_flow_says_an_empty_channel_is_empty_and_offers_nothing():
+    scan = Outcome(status="empty", result={"matched": 0, "skipped": []})
+    code, calls, output = drive([CLEAR, "1", "1", "0", "0"], scan=scan)
+    assert code == 0
+    assert [args.execute for args in calls] == [False]
+    text = screens(output)
+    assert "Nothing to clear here" in text
+    assert "for real" not in text
+
+
+def test_clear_flow_skips_an_unreadable_channel_and_still_offers_the_rest():
+    scan = Outcome(status="partial", result={"matched": 23, "skipped": ["ledger (11)"]})
+    code, calls, output = drive([CLEAR, "2", "2", "1", "0"], scan=scan)
+    assert code == 0
+    assert [args.execute for args in calls] == [False, True]
+    text = screens(output)
+    assert "Skipping 1 location(s) the bot cannot read: ledger (11)" in text
+    assert "Partly done" in text
 
 
 def test_clear_flow_rescans_a_different_target():

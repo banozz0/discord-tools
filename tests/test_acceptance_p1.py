@@ -148,7 +148,11 @@ def test_every_destructive_command_still_proves_its_target(argv, name, gate, mon
         f"discord_tools.cli.{name}",
         lambda *args, **kwargs: real(*args, **{**kwargs, "read": refuse}),
     )
+    from conftest import one_message
+
     client = a_client()
+    # A message to clear: an empty channel never reaches the gate.
+    client.history[701] = one_message()
     args = build_parser().parse_args(argv)
     out = Run(command_name(args), echoed_args(args), presents=True)
     code = asyncio.run(run(args, client=client, config=CONFIG, out=out))

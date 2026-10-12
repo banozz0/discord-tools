@@ -2280,11 +2280,16 @@ async def _run_clear_messages(client, args, config, out) -> Outcome:
             reason=write.reason,
         )
         out.payload(result)
+        if not result["dry_run"] and not result["cancelled"] and result["matched"]:
+            out.say(
+                f"Cleared {result['cleared']} of {result['matched']} message(s) across "
+                f"{result['locations']} location(s) in {target.display}."
+            )
         if result["failures"]:
-            # Some locations could not be read or could not be cleared. That
-            # has always exited 1, on a dry-run as much as on a real clear —
-            # a scan that could not see everything is not a scan you can act
-            # on — and `partial` is the status that keeps it there.
+            # Some locations could not be read or could not be cleared. The
+            # rest were scanned (and, with --execute, cleared) all the same;
+            # `partial` and exit 1 tell an agent the run did not reach every
+            # location, on a dry-run as much as on a real clear.
             return Outcome(
                 status="partial",
                 target=target,
@@ -2296,6 +2301,8 @@ async def _run_clear_messages(client, args, config, out) -> Outcome:
                     for failure in result["failures"]
                 ),
             )
+        if not result["matched"]:
+            return Outcome(status="empty", target=target, plan=write.plan, result=result)
         if result["dry_run"]:
             return Outcome(status="dry_run", target=target, plan=write.plan, result=result)
         if result["cancelled"]:
@@ -2303,10 +2310,7 @@ async def _run_clear_messages(client, args, config, out) -> Outcome:
         evidence = Evidence.verified(
             f"{result['cleared']} message(s) cleared across {result['locations']} location(s)"
         )
-        out.say(
-            f"Cleared {result['cleared']} of {result['matched']} message(s) across "
-            f"{result['locations']} location(s) in {target.display}. Read back: {evidence.readback}"
-        )
+        out.say(f"Read back: {evidence.readback}")
         return Outcome(status="ok", target=target, plan=write.plan, result=result, evidence=evidence)
 
     result = await clear_messages(
@@ -2319,6 +2323,8 @@ async def _run_clear_messages(client, args, config, out) -> Outcome:
         reason=write.reason,
     )
     out.payload(result.to_dict())
+    if not result.matched:
+        return Outcome(status="empty", target=target, plan=write.plan, result=result.to_dict())
     if result.dry_run:
         return Outcome(status="dry_run", target=target, plan=write.plan, result=result.to_dict())
     if result.cancelled:

@@ -22,6 +22,27 @@ it is committed. It also catches a name inside an identifier, which its
 whole-word match missed. The phase 1 and phase 8 acceptance checks use its list
 and matcher instead of their own. No behaviour or CLI change.
 
+## 0.25.0 — 2026-10-12
+
+### `clear-messages` says when there is nothing to clear
+A channel, thread or server with no messages the bot can see now prints
+`Empty: … nothing to clear` and finishes with status `empty` (exit 0), dry-run
+or `--execute`: no count of zero, no `DELETE` gate for nothing. A server
+dry-run prints `Empty — nothing to clear` under each empty location. The menu
+no longer offers "Clear them for real" after an empty dry-run; it says so and
+goes back to the clear scope.
+
+### A server clear skips a channel it cannot read
+One unreadable channel no longer stops the menu's server clear. The dry-run
+names it (`Could not read …, skipping it`), the menu lists the skipped
+locations and still offers the for-real row, and the `DELETE` screen names
+them under `Skipping`. The readable locations are cleared, the `Cleared X of Y`
+line is printed, and the after-run title reads *Partly done*. On the flag path
+nothing changes for an agent: a server clear that missed a location is still
+`partial`, exit 1, with the skip in `failures` and the unreadable locations
+named in the result's new `skipped` list. Empty locations are left out of the
+plan, so they are not recounted after `DELETE` either.
+
 ## 0.24.0 — 2026-09-28
 
 ### `watch rules add|edit` refuse an alert channel the send allowlist does not name

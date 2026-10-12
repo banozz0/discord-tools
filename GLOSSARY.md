@@ -282,8 +282,6 @@ The terms this codebase uses, and the boundaries they imply.
   `retry` fetch, and an attachment fetch may need the seam to refresh its URL,
   so those two act as the bot.
 
-Architecture decisions with more context than fits here go to `docs/adr/`.
-
 - **Blueprint** — one server's structure as a secret-free JSON file
   (`cli-tools/blueprint/discord/1`, the shared core's `_core.blueprint`):
   settings, roles, categories, channels, overwrites, forum tags and AutoMod

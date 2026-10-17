@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Record the menu into docs/transcripts/, for the site's terminal replay.
+"""Record the menu into tests/transcripts/, for the site's terminal replay.
 
 The menu code, the colour and the prompt rendering are the real ones; only the
 Discord side is canned, so the recording is a real session against a fake
@@ -196,9 +196,9 @@ def clean(raw: bytes) -> str:
 
 
 def write_transcripts() -> int:
-    """Record all three files into docs/transcripts/ and say where they went."""
+    """Record all three files into tests/transcripts/ and say where they went."""
     root = Path(__file__).resolve().parents[1]
-    out = root / "docs" / "transcripts"
+    out = root / "tests" / "transcripts"
     out.mkdir(parents=True, exist_ok=True)
     # Named for the menu, not for the release: a bump changes no row here,
     # and a versioned name would force three re-recordings and a hand-off to

@@ -16,10 +16,10 @@ discord-tools/
 │   ├── adapters/       # platform ports; events.py is the only gateway connection
 │   └── _core/          # vendored cli-tools-core at the tag in _core/VERSION; never edit
 ├── tests/              # pytest, no network, client.py mocked
-│   └── fixtures/       # frozen --help output (capture_help.py)
+│   ├── fixtures/       # frozen --help output (capture_help.py)
+│   └── transcripts/    # recorded menu transcripts (record_menu.py)
 ├── skill/              # SKILL.md, the bundled agent skill (force-included in the wheel)
 ├── scripts/            # capture_help.py, record_menu.py, sync-core.sh
-├── docs/transcripts/   # recorded menu transcripts
 ├── assets/             # menu.png, the README picture
 ├── .github/workflows/  # CI on Python 3.11–3.14
 └── .claude/            # project Claude Code settings

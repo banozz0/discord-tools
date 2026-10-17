@@ -196,7 +196,7 @@ The terms this codebase uses, and the boundaries they imply.
   line. `doctor`'s skill line is the core's `skill_state` for the default folder.
 - **Budget** — `~/.discord-tools/config.json`, the core's three ceilings.
   `DISK_BUDGET` fires before the batch that would cross one is written.
-- **Transcript** — `docs/transcripts/discord-tools-menu.ansi` and its
+- **Transcript** — `tests/transcripts/discord-tools-menu.ansi` and its
   stripped siblings: a real session through the real menu against the canned
   client, recorded by `scripts/record_menu.py --write` and replayed by the
   site. Named for the menu, never for the release, so a version bump re-records

@@ -8,7 +8,8 @@ recorded in the specification instead, so nothing is lost by the silence.
 Scope is every file git tracks, so a new file is read the day it is
 committed. Left out, each for its reason:
 
-- `tests/` names the words in order to look for them.
+- `tests/` names the words in order to look for them; its recorded menu
+  transcripts (`tests/transcripts/`) name nothing, so they stay in scope.
 - `CHANGELOG.md` is history, and rewriting what a past release said would be
   the dishonest kind of tidy.
 - `SPEC.md` is the shaping contract, which names the other tool on purpose.
@@ -37,7 +38,8 @@ def files_in_scope() -> list[Path]:
     return [
         ROOT / name
         for name in listing.split("\0")
-        if name and not name.startswith("tests/") and name not in EXCLUDED and (ROOT / name).is_file()
+        if name and (not name.startswith("tests/") or name.startswith("tests/transcripts/"))
+        and name not in EXCLUDED and (ROOT / name).is_file()
     ]
 
 

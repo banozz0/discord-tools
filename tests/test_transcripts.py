@@ -1,4 +1,4 @@
-"""The recorded menu in docs/transcripts/ still matches the menu.
+"""The recorded menu in tests/transcripts/ still matches the menu.
 
 The site replays these files, and a transcript is exactly the kind of artifact
 that rots quietly: nothing about changing a root row makes anyone re-record it.
@@ -21,7 +21,7 @@ import pytest
 
 from discord_tools.menu import ROOT_ITEMS, ROOT_TITLE
 
-TRANSCRIPTS = Path(__file__).resolve().parents[1] / "docs" / "transcripts"
+TRANSCRIPTS = Path(__file__).resolve().parents[1] / "tests" / "transcripts"
 STEM = "discord-tools"
 ESCAPE = re.compile(r"\x1b\[([0-9;]*)m")
 # The four the site's parser understands: reset, bold, dim, and one accent.

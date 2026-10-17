@@ -10,6 +10,21 @@ Public repo: never commit tokens, real server IDs, webhook URLs or exported chat
 - After touching `build_parser`: `.venv/bin/python scripts/capture_help.py` on Python 3.13+, read the diff, commit it with the change.
 
 ## Layout
+```
+discord-tools/
+├── src/discord_tools/  # the CLI: client.py (REST seam), menu, models, one module per area
+│   ├── adapters/       # platform ports; events.py is the only gateway connection
+│   └── _core/          # vendored cli-tools-core at the tag in _core/VERSION; never edit
+├── tests/              # pytest, no network, client.py mocked
+│   └── fixtures/       # frozen --help output (capture_help.py)
+├── skill/              # SKILL.md, the bundled agent skill (force-included in the wheel)
+├── scripts/            # capture_help.py, record_menu.py, sync-core.sh
+├── docs/transcripts/   # recorded menu transcripts
+├── assets/             # menu.png, the README picture
+├── .github/workflows/  # CI on Python 3.11–3.14
+└── .claude/            # project Claude Code settings
+```
+
 - `SPEC.md` is the build contract: read it before touching code. GLOSSARY.md holds the domain terms: read it before renaming anything.
 - `client.py` is the one REST seam and tests mock exactly it. `adapters/events.py` (`watch run`) is the only gateway connection; a test pins that.
 - `_core/` is a vendored copy at the tag in `_core/VERSION`: never edit it (`test_core_copy.py`). Fix upstream, then `scripts/sync-core.sh <tag>`.

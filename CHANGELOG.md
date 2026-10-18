@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### The v1 spec leaves the repo
+`SPEC.md` moved to the maintainer's private notes; the README no longer links
+it, and `GLOSSARY.md` still holds the project's terms. No behaviour or CLI change.
+
 ### The glossary is `GLOSSARY.md`
 `CONTEXT.md` is now `GLOSSARY.md`, the name the domain-modeling agent skills
 read and write since their v1.3; the README link, `AGENTS.md`,

@@ -12,7 +12,6 @@ committed. Left out, each for its reason:
   transcripts (`tests/transcripts/`) name nothing, so they stay in scope.
 - `CHANGELOG.md` is history, and rewriting what a past release said would be
   the dishonest kind of tidy.
-- `SPEC.md` is the shaping contract, which names the other tool on purpose.
 """
 
 from __future__ import annotations
@@ -29,7 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # `telegram_tools` and `TelegramClient` all count.
 FORBIDDEN = ("telegram", "telethon")
 
-EXCLUDED = ("CHANGELOG.md", "SPEC.md")
+EXCLUDED = ("CHANGELOG.md",)
 
 
 def files_in_scope() -> list[Path]:

@@ -24,8 +24,8 @@ about where the flag goes, and neither is something anyone copies:
 The scan is static, so a hint on a branch no test walks is checked too, and the
 f-strings are read whole: the one in doctor.py is split across source lines in
 the middle of its own command, which is where a per-line grep would give up.
-CHANGELOG.md and SPEC.md are left out - they record what was true then, not what
-to type today.
+CHANGELOG.md is left out - it records what was true then, not what to type
+today.
 """
 
 from __future__ import annotations

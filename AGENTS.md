@@ -11,7 +11,7 @@ Public repo: never commit tokens, real server IDs, webhook URLs or exported chat
 
 ## Where things are
 
-README.md's file map shows every file with its own first line; `/Users/sven/code/agents/automation/bin/file-map .` rewrites it after you add, move or rename files.
+README.md's file map shows every file with its own first line; the agents repo's `automation/bin/file-map .` rewrites it after you add, move or rename files.
 
 - The build contract is vault `Projects/CLI Tools Site/discord-tools spec.md` (code comments cite it as SPEC.md): read it before touching code. GLOSSARY.md holds the domain terms: read it before renaming anything.
 - `client.py` is the one REST seam and tests mock exactly it. `adapters/events.py` (`watch run`) is the only gateway connection; a test pins that.
